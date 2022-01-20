@@ -6,12 +6,15 @@ import (
 	"strconv"
 )
 
-// VariationRange represents a single bucket range.
-// TODO: PROPER DOCUMENTATION!
-// TODO: DOES THIS NEED TO BE GLOBALLY ACCESSIBLE?
-type VariationRange struct {
-	Min float64
-	Max float64
+func getEqualWeights(numVariations int) []float64 {
+	if numVariations < 0 {
+		numVariations = 0
+	}
+	equal := make([]float64, numVariations)
+	for i := range equal {
+		equal[i] = 1.0 / float64(numVariations)
+	}
+	return equal
 }
 
 // getBucketRanges makes bucket ranges.
@@ -28,16 +31,12 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []V
 	}
 
 	// Default to equal weights if missing or invalid
-	equal := make([]float64, numVariations)
-	for i := range equal {
-		equal[i] = 1.0 / float64(numVariations)
-	}
-	if len(weights) == 0 {
-		weights = equal
+	if weights == nil || len(weights) == 0 {
+		weights = getEqualWeights(numVariations)
 	}
 	if len(weights) != numVariations {
 		// log.Error("Experiment.weights array must be the same length as Experiment.variations")
-		weights = equal
+		weights = getEqualWeights(numVariations)
 	}
 
 	// If weights don't add up to 1 (or close to it), default to equal weights
@@ -47,7 +46,7 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []V
 	}
 	if totalWeight < 0.99 || totalWeight > 1.01 {
 		// log.Error("Experiment.weights must add up to 1")
-		weights = equal
+		weights = getEqualWeights(numVariations)
 	}
 
 	// Convert weights to ranges
@@ -90,20 +89,11 @@ func getQueryStringOverride(id string, rawURL string, numVariations int) *int {
 		return nil
 	}
 
-	if vi < 0 || vi > numVariations {
+	if vi < 0 || vi >= numVariations {
 		return nil
 	}
 
 	return &vi
-}
-
-// Namespace specifies what part of a namespace an experiment
-// includes. If two experiments are in the same namespace and their
-// ranges don't overlap, they wil be mutually exclusive.
-type Namespace struct {
-	ID    string
-	Start float64
-	End   float64
 }
 
 func hashFnv32a(s string) uint32 {

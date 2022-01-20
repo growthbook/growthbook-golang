@@ -8,11 +8,6 @@ import (
 	"strings"
 )
 
-// Condition ...
-type Condition interface {
-	Eval(attrs *Attributes) bool
-}
-
 type orCondition struct {
 	conds []Condition
 }
@@ -42,10 +37,7 @@ func isOperatorObject(obj map[string]interface{}) bool {
 	return true
 }
 
-// Attributes ...
-type Attributes map[string]interface{}
-
-func (cond orCondition) Eval(attrs *Attributes) bool {
+func (cond orCondition) Eval(attrs Attributes) bool {
 	if len(cond.conds) == 0 {
 		return true
 	}
@@ -57,16 +49,16 @@ func (cond orCondition) Eval(attrs *Attributes) bool {
 	return false
 }
 
-func (cond norCondition) Eval(attrs *Attributes) bool {
+func (cond norCondition) Eval(attrs Attributes) bool {
 	or := orCondition{cond.conds}
 	return !or.Eval(attrs)
 }
 
-func (cond notCondition) Eval(attrs *Attributes) bool {
+func (cond notCondition) Eval(attrs Attributes) bool {
 	return !cond.cond.Eval(attrs)
 }
 
-func (cond andCondition) Eval(attrs *Attributes) bool {
+func (cond andCondition) Eval(attrs Attributes) bool {
 	for i := range cond.conds {
 		if !cond.conds[i].Eval(attrs) {
 			return false
@@ -75,12 +67,12 @@ func (cond andCondition) Eval(attrs *Attributes) bool {
 	return true
 }
 
-func getPath(attrs *Attributes, path string) interface{} {
+func getPath(attrs Attributes, path string) interface{} {
 	parts := strings.Split(path, ".")
 	var current interface{}
 	for i, p := range parts {
 		if i == 0 {
-			current = (*attrs)[p]
+			current = attrs[p]
 		} else {
 			m, ok := current.(map[string]interface{})
 			if !ok {
@@ -188,7 +180,7 @@ func elemMatch(attributeValue interface{}, conditionValue interface{}) bool {
 				return false
 			}
 			as := Attributes(vmap)
-			return cond.Eval(&as)
+			return cond.Eval(as)
 		}
 	}
 	for _, a := range attrs {
@@ -302,7 +294,7 @@ func evalConditionValue(conditionValue interface{}, attributeValue interface{}) 
 	return reflect.DeepEqual(conditionValue, attributeValue)
 }
 
-func (cond operatorCondition) Eval(attrs *Attributes) bool {
+func (cond operatorCondition) Eval(attrs Attributes) bool {
 	for k, v := range cond.values {
 		if !evalConditionValue(v, getPath(attrs, k)) {
 			return false
