@@ -6,6 +6,14 @@ import (
 	"strconv"
 )
 
+// VariationRange represents a single bucket range.
+type VariationRange struct {
+	Min float64
+	Max float64
+}
+
+// Returns an array of floats with numVariations items that are all
+// equal and sum to 1.
 func getEqualWeights(numVariations int) []float64 {
 	if numVariations < 0 {
 		numVariations = 0
@@ -17,16 +25,16 @@ func getEqualWeights(numVariations int) []float64 {
 	return equal
 }
 
-// getBucketRanges makes bucket ranges.
-// TODO: PROPER DOCUMENTATION!
+// This converts an experiment's coverage and variation weights into
+// an array of bucket ranges.
 func getBucketRanges(numVariations int, coverage float64, weights []float64) []VariationRange {
-	// Make sure coverage is within bounds
+	// Make sure coverage is within bounds.
 	if coverage < 0 {
-		// log.Error("Experiment.coverage must be greater than or equal to 0")
+		logWarn(WarnExpCoverageMustBePositive)
 		coverage = 0
 	}
 	if coverage > 1 {
-		// log.Error("Experiment.coverage must be less than or equal to 1")
+		logWarn(WarnExpCoverageMustBeFraction)
 		coverage = 1
 	}
 
@@ -35,7 +43,7 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []V
 		weights = getEqualWeights(numVariations)
 	}
 	if len(weights) != numVariations {
-		// log.Error("Experiment.weights array must be the same length as Experiment.variations")
+		logWarn(WarnExpWeightsWrongLength)
 		weights = getEqualWeights(numVariations)
 	}
 
@@ -45,7 +53,7 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []V
 		totalWeight += weights[i]
 	}
 	if totalWeight < 0.99 || totalWeight > 1.01 {
-		// log.Error("Experiment.weights must add up to 1")
+		logWarn(WarnExpWeightsWrongTotal)
 		weights = getEqualWeights(numVariations)
 	}
 
@@ -60,6 +68,7 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []V
 	return ranges
 }
 
+// Given a hash and bucket ranges, assigns one of the bucket ranges.
 func chooseVariation(n float64, ranges []VariationRange) int {
 	for i := range ranges {
 		if n >= ranges[i].Min && n < ranges[i].Max {
@@ -69,16 +78,12 @@ func chooseVariation(n float64, ranges []VariationRange) int {
 	return -1
 }
 
-func getQueryStringOverride(id string, rawURL string, numVariations int) *int {
-	if rawURL == "" {
-		return nil
-	}
-
-	url, err := url.Parse(rawURL)
-	if err != nil {
-		return nil
-	}
-
+// Checks if an experiment variation is being forced via a URL query
+// string.
+//
+// As an example, if the id is "my-test" and url is
+// http://localhost/?my-test=1, this function returns 1.
+func getQueryStringOverride(id string, url *url.URL, numVariations int) *int {
 	v, ok := url.Query()[id]
 	if !ok || len(v) > 1 {
 		return nil
@@ -96,13 +101,47 @@ func getQueryStringOverride(id string, rawURL string, numVariations int) *int {
 	return &vi
 }
 
+// Namespace specifies what part of a namespace an experiment
+// includes. If two experiments are in the same namespace and their
+// ranges don't overlap, they wil be mutually exclusive.
+type Namespace struct {
+	ID    string
+	Start float64
+	End   float64
+}
+
+// Determine whether a user's ID lies within a given namespace.
+func inNamespace(userID string, namespace *Namespace) bool {
+	n := float64(hashFnv32a(userID+"__"+namespace.ID)%1000) / 1000
+	return n >= namespace.Start && n < namespace.End
+}
+
+// Simple wrapper around Go standard library FNV32a hash function.
 func hashFnv32a(s string) uint32 {
 	hash := fnv.New32a()
 	hash.Write([]byte(s))
 	return hash.Sum32()
 }
 
-func inNamespace(userID string, namespace *Namespace) bool {
-	n := float64(hashFnv32a(userID+"__"+namespace.ID)%1000) / 1000
-	return n >= namespace.Start && n < namespace.End
+// This function imitates Javascript's "truthiness" evaluation for Go
+// values of unknown type.
+func truthy(v interface{}) bool {
+	if v == nil {
+		return false
+	}
+	switch v.(type) {
+	case string:
+		return v.(string) != ""
+	case bool:
+		return v.(bool)
+	case int:
+		return v.(int) != 0
+	case uint:
+		return v.(uint) != 0
+	case float32:
+		return v.(float32) != 0
+	case float64:
+		return v.(float64) != 0
+	}
+	return true
 }

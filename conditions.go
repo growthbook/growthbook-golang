@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+// Condition ...
+type Condition interface {
+	Eval(attrs Attributes) bool
+}
+
 type orCondition struct {
 	conds []Condition
 }

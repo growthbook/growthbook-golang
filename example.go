@@ -8,9 +8,6 @@ import (
 )
 
 func main() {
-	context := Context{}
-	growthbook := GrowthBook{&context}
-
 	resp, err := http.Get("https://s3.amazonaws.com/myBucket/features.json")
 	if err != nil {
 		log.Fatal(err)
@@ -20,11 +17,14 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+
 	features, err := ParseFeatureMap(body)
 	if err != nil {
 		log.Fatal(err)
 	}
-	growthbook.SetFeatures(features)
+	context := Context{}
+	growthbook := New(&context).
+		WithFeatures(features)
 
 	if growthbook.Feature("my-feature").On {
 		// ...
@@ -33,24 +33,24 @@ func main() {
 	color := growthbook.Feature("signup-button-color").GetValueWithDefault("blue")
 	fmt.Println(color)
 
-	result := growthbook.Run(&Experiment{
-		Key:        "my-experiment",
-		Variations: []interface{}{"A", "B"},
-	})
+	experiment :=
+		NewExperiment("my-experiment").
+			WithVariations("A", "B")
+
+	result := growthbook.Run(experiment)
 
 	fmt.Println(result.Value)
 
-	cov := 0.5
-	result2 := growthbook.Run(&Experiment{
-		Key: "complex-experiment",
-		Variations: []interface{}{
-			map[string]string{"color": "blue", "size": "small"},
-			map[string]string{"color": "green", "size": "large"},
-		},
-		Weights:  []float64{0.8, 0.2},
-		Coverage: &cov,
-		// Condition: { beta: true },
-	})
+	experiment2 :=
+		NewExperiment("complex-experiment").
+			WithVariations(
+				map[string]string{"color": "blue", "size": "small"},
+				map[string]string{"color": "green", "size": "large"},
+			).
+			WithWeights(0.8, 0.2).
+			WithCoverage(0.5)
+
+	result2 := growthbook.Run(experiment2)
 	fmt.Println(result2.Value.(map[string]string)["color"],
 		result2.Value.(map[string]string)["size"])
 }

@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"math"
+	"net/url"
 	"testing"
 
 	. "github.com/franela/goblin"
@@ -44,7 +45,7 @@ func jsonTestFeature(g *G, itest int, test []interface{}) {
 
 	g.It(fmt.Sprintf("GrowthBook.Feature[%d] %s", itest, name), func() {
 		context := BuildContext(contextDict)
-		growthbook := GrowthBook{context}
+		growthbook := New(context)
 		expected := BuildFeatureResult(expectedDict)
 		g.Assert(growthbook.Feature(featureKey)).Equal(expected)
 	})
@@ -156,7 +157,7 @@ func jsonTestChooseVariation(g *G, itest int, test []interface{}) {
 func jsonTestQueryStringOverride(g *G, itest int, test []interface{}) {
 	name, ok0 := test[0].(string)
 	key, ok1 := test[1].(string)
-	url, ok2 := test[2].(string)
+	rawURL, ok2 := test[2].(string)
 	numVariations, ok3 := test[3].(float64)
 	result := test[4]
 	var expected *int
@@ -166,6 +167,10 @@ func jsonTestQueryStringOverride(g *G, itest int, test []interface{}) {
 	}
 	if !ok0 || !ok1 || !ok2 || !ok3 {
 		log.Fatal("unpacking test data")
+	}
+	url, err := url.Parse(rawURL)
+	if err != nil {
+		log.Fatal("invalid URL")
 	}
 
 	g.It(fmt.Sprintf("getQueryStringOverride[%d] %s", itest, name), func() {
@@ -217,7 +222,7 @@ func jsonTestRun(g *G, itest int, test []interface{}) {
 
 	g.It(fmt.Sprintf("GrowthBook.Run[%d] %s", itest, name), func() {
 		context := BuildContext(contextDict)
-		growthbook := GrowthBook{context}
+		growthbook := New(context)
 		experiment := BuildExperiment(experimentDict)
 		result := growthbook.Run(experiment)
 		g.Assert(result.Value).Equal(resultValue)

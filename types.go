@@ -1,58 +1,18 @@
 package growthbook
 
-// Attributes is an arbitrary JSON object containiner user and request
+// Attributes is an arbitrary JSON object containing user and request
 // attributes.
 type Attributes map[string]interface{}
 
-// Condition ...
-type Condition interface {
-	Eval(attrs Attributes) bool
-}
-
-// Context contains the options for creating a new GrowthBook
-// instance.
-type Context struct {
-	Enabled    bool
-	Attributes Attributes
-	// TODO: USE GO'S URL TYPE?
-	URL              *string
-	Features         FeatureMap
-	ForcedVariations ForcedVariationsMap
-	QaMode           bool
-	TrackingCallback TrackingCallback
-}
-
-// Experiment defines a single experiment.
-type Experiment struct {
-	Key           string
-	Variations    []interface{}
-	Weights       []float64
-	Active        bool
-	Coverage      *float64
-	Condition     Condition
-	Namespace     *Namespace
-	Force         *int
-	HashAttribute *string
-}
-
-// IF experiment.Variations HAS TYPE []T, THEN Run(experiment) SHOULD
-// RETURN A RESULT WITH A Value OF TYPE T. GENERICS WOULD BE NICE, BUT
-// THEY'RE ONLY COMING IN Go 1.18.
-
-// ExperimentResult records the result of running an Experiment given
-// a specific Context.
-type ExperimentResult struct {
-	InExperiment  bool
-	VariationID   int
-	Value         interface{}
-	HashAttribute string
-	HashValue     string
-}
+// FeatureValue is a wrapper around an arbitrary type representing the
+// value of a feature. Features can return any kinds of values, so
+// this is an alias for interface{}.
+type FeatureValue interface{}
 
 // Feature has a default value plus rules than can override the
 // default.
 type Feature struct {
-	DefaultValue interface{}
+	DefaultValue FeatureValue
 	Rules        []*FeatureRule
 }
 
@@ -87,7 +47,8 @@ func ParseFeatureResultSource(source string) FeatureResultSource {
 
 // FeatureResult is the result of evaluating a feature.
 type FeatureResult struct {
-	Value            interface{}
+	// CHECK: interface{} => OK? Feature values again.
+	Value            FeatureValue
 	On               bool
 	Off              bool
 	Source           FeatureResultSource
@@ -95,12 +56,24 @@ type FeatureResult struct {
 	ExperimentResult *ExperimentResult
 }
 
+// ExperimentResult records the result of running an Experiment given
+// a specific Context.
+type ExperimentResult struct {
+	InExperiment  bool
+	VariationID   int
+	Value         FeatureValue
+	HashAttribute string
+	HashValue     string
+}
+
 // FeatureRule overrides the default value of a Feature.
 type FeatureRule struct {
-	Condition     Condition
-	Coverage      *float64
-	Force         interface{}
-	Variations    []interface{}
+	Condition Condition
+	Coverage  *float64
+	// CHECK: interface{} => OK, Feature values.
+	Force FeatureValue
+	// CHECK: interface{} => OK, Feature values.
+	Variations    []FeatureValue
 	TrackingKey   *string
 	Weights       []float64
 	Namespace     *Namespace
@@ -113,22 +86,3 @@ type FeatureRule struct {
 // Keys are the experiment key, values are the array index of the
 // variation.
 type ForcedVariationsMap map[string]int
-
-// Namespace specifies what part of a namespace an experiment
-// includes. If two experiments are in the same namespace and their
-// ranges don't overlap, they wil be mutually exclusive.
-type Namespace struct {
-	ID    string
-	Start float64
-	End   float64
-}
-
-// TrackingCallback is a callback function that is executed every time
-// a user is included in an Experiment.
-type TrackingCallback func(experiment *Experiment, result *ExperimentResult)
-
-// VariationRange represents a single bucket range.
-type VariationRange struct {
-	Min float64
-	Max float64
-}

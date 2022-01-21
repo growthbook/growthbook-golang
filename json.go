@@ -4,76 +4,37 @@ import "encoding/json"
 
 //  JSON PROCESSING HELPER FUNCTIONS
 //
-//  All of these functions build values of particular types from their
-//  JSON representations in the test case files.
+//  All of these functions build values of particular types from
+//  representations as JSON objects. These functions are useful both
+//  for testing and for user creation of GrowthBook objects from JSON
+//  configuration data shared with GrowthBook SDK implementations in
+//  other languages, all of which use JSON as a common configuration
+//  format.
 
 // TODO: DOCUMENTATION AND MAYBE ADD Parse... VARIANTS FOR ALL
 // FUNCTIONS HERE, TO BUILD FROM RAW JSON DATA (SEE ParseFeatureMap
 // AND BuildFeatureMap BELOW FOR AN EXAMPLE).
 
-func BuildContext(dict map[string]interface{}) *Context {
-	// TODO: ENSURE THAT Enabled IS GENERICALLY TRUE BY DEFAULT
-	context := Context{Enabled: true}
-	for k, v := range dict {
-		switch k {
-		case "enabled":
-			context.Enabled = v.(bool)
-		case "attributes":
-			context.Attributes = v.(map[string]interface{})
-		case "url":
-			tmp := v.(string)
-			context.URL = &tmp
-		case "features":
-			context.Features = BuildFeatureMap(v.(map[string]interface{}))
-		case "forcedVariations":
-			vars := map[string]int{}
-			for k, vr := range v.(map[string]interface{}) {
-				vars[k] = int(vr.(float64))
-			}
-			context.ForcedVariations = vars
-		case "qaMode":
-			context.QaMode = v.(bool)
-		}
-	}
-	return &context
-}
+// INPUT DATA TYPES (USEFUL TO HAVE PUBLICLY VISIBLE JSON CONVERSION
+// FUNCTIONS):
+//
+//  - Context => Attributes, FeatureMap, ForcedVariationsMap
+//  - Attributes
+//  - FeatureMap => Feature
+//  - ForcedVariationsMap
+//  - Experiment => Condition, Namespace
+//  - Feature => FeatureRule
+//  - Condition
+//  - Namespace
+//  - FeatureRule => Condition, Namespace
 
-func BuildExperiment(dict map[string]interface{}) *Experiment {
-	// TODO: ENSURE THAT Active IS GENERICALLY TRUE BY DEFAULT
-	exp := Experiment{Active: true}
-	for k, v := range dict {
-		switch k {
-		case "key":
-			exp.Key = v.(string)
-		case "variations":
-			exp.Variations = v.([]interface{})
-		case "weights":
-			vals := v.([]interface{})
-			weights := make([]float64, len(vals))
-			for i := range vals {
-				weights[i] = vals[i].(float64)
-			}
-			exp.Weights = weights
-		case "active":
-			exp.Active = v.(bool)
-		case "coverage":
-			tmp := v.(float64)
-			exp.Coverage = &tmp
-		case "condition":
-			exp.Condition, _ = BuildCondition(v.(map[string]interface{}))
-		case "namespace":
-			exp.Namespace = BuildNamespace(v)
-		case "force":
-			tmp := int(v.(float64))
-			exp.Force = &tmp
-		case "hashAttribute":
-			tmp := v.(string)
-			exp.HashAttribute = &tmp
-		}
-	}
-	return &exp
-}
+// OUTPUT DATA TYPES (JSON CONVERSION USED ONLY FOR TESTING):
+//
+//  - ExperimentResult
+//  - FeatureResult
 
+// BuildExperimentResult creates an ExperimentResult value from a JSON
+// object represented as a Go map.
 func BuildExperimentResult(dict map[string]interface{}) *ExperimentResult {
 	// TODO: ENSURE THAT Active IS GENERICALLY TRUE BY DEFAULT
 	res := ExperimentResult{}
@@ -92,6 +53,15 @@ func BuildExperimentResult(dict map[string]interface{}) *ExperimentResult {
 		}
 	}
 	return &res
+}
+
+func BuildFeatureValues(val interface{}) []FeatureValue {
+	vals := val.([]interface{})
+	result := make([]FeatureValue, len(vals))
+	for i, v := range vals {
+		result[i] = v.(FeatureValue)
+	}
+	return result
 }
 
 func ParseFeatureMap(data []byte) (FeatureMap, error) {
@@ -148,7 +118,7 @@ func BuildFeatureRule(val interface{}) *FeatureRule {
 		case "force":
 			rule.Force = v
 		case "variations":
-			rule.Variations = v.([]interface{})
+			rule.Variations = BuildFeatureValues(v)
 		case "key":
 			tmp := v.(string)
 			rule.TrackingKey = &tmp
