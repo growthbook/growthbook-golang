@@ -4,15 +4,15 @@ import "encoding/json"
 
 // Experiment defines a single experiment.
 type Experiment struct {
-	Key           string         // Required: set in NewExperiment
-	Variations    []FeatureValue // Optional: (OK: array)
-	Weights       []float64      // Optional: (OK: array)
-	Active        bool           // Required: set in NewExperiment
-	Coverage      *float64       // Optional: (OK: pointer)
-	Condition     Condition      // Optional: (OK: interface)
-	Namespace     *Namespace     // Optional: (OK: pointer)
-	Force         *int           // Optional: (OK: pointer)
-	HashAttribute *string        // Optional: (OK: pointer)
+	Key           string
+	Variations    []FeatureValue
+	Weights       []float64
+	Active        bool
+	Coverage      *float64
+	Condition     Condition
+	Namespace     *Namespace
+	Force         *int
+	HashAttribute *string
 }
 
 // NewExperiment creates an experiment with default settings: active,
@@ -77,7 +77,7 @@ func ParseExperiment(data []byte) *Experiment {
 	dict := map[string]interface{}{}
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
-		logError(ErrExpJSONFailedToParse)
+		logError(ErrJSONFailedToParse, "Experiment")
 		return NewExperiment("")
 	}
 	return BuildExperiment(dict)
@@ -91,24 +91,53 @@ func BuildExperiment(dict map[string]interface{}) *Experiment {
 	for k, v := range dict {
 		switch k {
 		case "key":
-			exp.Key = v.(string)
+			tmp, ok := v.(string)
+			if !ok {
+				logError(ErrJSONInvalidType, "Experiment", "key")
+				continue
+			}
+			exp.Key = tmp
 			gotKey = true
 		case "variations":
 			exp = exp.WithVariations(BuildFeatureValues(v)...)
 		case "weights":
-			vals := v.([]interface{})
+			vals, ok := v.([]interface{})
+			if !ok {
+				logError(ErrJSONInvalidType, "Experiment", "weights")
+				continue
+			}
 			weights := make([]float64, len(vals))
 			for i := range vals {
-				weights[i] = vals[i].(float64)
+				val, ok := vals[i].(float64)
+				if !ok {
+					logError(ErrJSONInvalidType, "Experiment", "weights")
+					continue
+				}
+				weights[i] = val
 			}
 			exp = exp.WithWeights(weights...)
 		case "active":
-			exp = exp.WithActive(v.(bool))
+			tmp, ok := v.(bool)
+			if !ok {
+				logError(ErrJSONInvalidType, "Experiment", "key")
+				continue
+			}
+			exp = exp.WithActive(tmp)
 		case "coverage":
-			exp = exp.WithCoverage(v.(float64))
+			tmp, ok := v.(float64)
+			if !ok {
+				logError(ErrJSONInvalidType, "Experiment", "coverage")
+				continue
+			}
+			exp = exp.WithCoverage(tmp)
 		case "condition":
-			cond, err := BuildCondition(v.(map[string]interface{}))
-			if err != nil {
+			tmp, ok := v.(map[string]interface{})
+			if !ok {
+				logError(ErrJSONInvalidType, "Experiment", "condition")
+				continue
+			}
+			cond := BuildCondition(tmp)
+			if cond == nil {
 				logError(ErrExpJSONInvalidCondition)
 			} else {
 				exp = exp.WithCondition(cond)
@@ -116,9 +145,21 @@ func BuildExperiment(dict map[string]interface{}) *Experiment {
 		case "namespace":
 			exp = exp.WithNamespace(BuildNamespace(v))
 		case "force":
-			exp = exp.WithForce(int(v.(float64)))
+			tmp, ok := v.(float64)
+			if !ok {
+				logError(ErrJSONInvalidType, "Experiment", "force")
+				continue
+			}
+			exp = exp.WithForce(int(tmp))
 		case "hashAttribute":
-			exp = exp.WithHashAttribute(v.(string))
+			tmp, ok := v.(string)
+			if !ok {
+				logError(ErrJSONInvalidType, "Experiment", "hashAttribute")
+				continue
+			}
+			exp = exp.WithHashAttribute(tmp)
+		default:
+			logWarn(WarnJSONUnknownKey, "Experiment", k)
 		}
 	}
 	if !gotKey {

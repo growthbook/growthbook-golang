@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -16,6 +17,7 @@ import (
 // jsonTest helper function to read and parse the JSON test case file.
 
 func TestJSON(t *testing.T) {
+	SetLogger(&testLog)
 	jsonTest(t, "feature", jsonTestFeature)
 	jsonTest(t, "evalCondition", jsonTestEvalCondition)
 	jsonTest(t, "hash", jsonTestHash)
@@ -64,9 +66,9 @@ func jsonTestEvalCondition(g *G, itest int, test []interface{}) {
 	}
 
 	g.It(fmt.Sprintf("Condition.Eval[%d] %s", itest, name), func() {
-		cond, err := BuildCondition(condition)
-		if err != nil {
-			log.Fatal(err)
+		cond := BuildCondition(condition)
+		if cond == nil {
+			log.Fatal(errors.New("failed to build condition"))
 		}
 		attrs := Attributes(value)
 		g.Assert(cond.Eval(attrs)).Equal(expected)
@@ -131,6 +133,9 @@ func jsonTestGetBucketRange(g *G, itest int, test []interface{}) {
 	})
 }
 
+// Variation choice tests.
+//
+// Test parameters: name, hash, ranges, result
 func jsonTestChooseVariation(g *G, itest int, test []interface{}) {
 	name, ok0 := test[0].(string)
 	hash, ok1 := test[1].(float64)
@@ -154,6 +159,9 @@ func jsonTestChooseVariation(g *G, itest int, test []interface{}) {
 	})
 }
 
+// Query string override tests
+//
+// Test parameters: name, experiment key, url, numVariations, result
 func jsonTestQueryStringOverride(g *G, itest int, test []interface{}) {
 	name, ok0 := test[0].(string)
 	key, ok1 := test[1].(string)
@@ -178,6 +186,9 @@ func jsonTestQueryStringOverride(g *G, itest int, test []interface{}) {
 	})
 }
 
+// Namespace inclusion tests
+//
+// Test parameters: name, id, namespace, result
 func jsonTestInNamespace(g *G, itest int, test []interface{}) {
 	name, ok0 := test[0].(string)
 	id, ok1 := test[1].(string)
@@ -193,6 +204,9 @@ func jsonTestInNamespace(g *G, itest int, test []interface{}) {
 	})
 }
 
+// Equal weight calculation tests.
+//
+// Test parameters: numVariations, result
 func jsonTestGetEqualWeights(g *G, itest int, test []interface{}) {
 	numVariations, ok0 := test[0].(float64)
 	exp, ok1 := test[1].([]interface{})
@@ -210,6 +224,9 @@ func jsonTestGetEqualWeights(g *G, itest int, test []interface{}) {
 	})
 }
 
+// Experiment tests.
+//
+// Test parameters: name, context, experiment, value, inExperiment
 func jsonTestRun(g *G, itest int, test []interface{}) {
 	name, ok0 := test[0].(string)
 	contextDict, ok1 := test[1].(map[string]interface{})
@@ -260,6 +277,20 @@ func jsonTest(t *testing.T, label string,
 	// the test function.
 	g := Goblin(t)
 	g.Describe("json test suite: "+label, func() {
+		// Handle logging during tests: reset log before each test, make
+		// sure there are no errors, and make sure there is never more
+		// than one warning during a test (some tests that check for
+		// correct handling of out-of-range parameters trigger warnings,
+		// but there should never be more than one per test).
+		g.BeforeEach(func() { testLog.reset() })
+		g.AfterEach(func() {
+			g.Assert(len(testLog.errors)).Equal(0)
+			g.Assert(len(testLog.warnings) <= 1).IsTrue()
+		})
+
+		// Run tests one at a time: each test's JSON data is an array,
+		// with the interpretation of the array entries depending on the
+		// test type.
 		for itest, gtest := range cases {
 			test, ok := gtest.([]interface{})
 			if !ok {
@@ -289,4 +320,55 @@ func round(vals []float64) []float64 {
 		result[i] = math.Round(v*1000000) / 1000000
 	}
 	return result
+}
+
+// Logger to capture error and log messages.
+type testLogger struct {
+	errors   []string
+	warnings []string
+	info     []string
+}
+
+var testLog = testLogger{}
+
+func (log *testLogger) reset() {
+	log.errors = []string{}
+	log.warnings = []string{}
+	log.info = []string{}
+}
+
+func (log *testLogger) Error(msg string, args ...interface{}) {
+	s := msg
+	if len(args) > 0 {
+		s += ": " + fmt.Sprint(args...)
+	}
+	log.errors = append(log.errors, s)
+}
+
+func (log *testLogger) Errorf(format string, args ...interface{}) {
+	log.errors = append(log.errors, fmt.Sprintf(format, args...))
+}
+
+func (log *testLogger) Warn(msg string, args ...interface{}) {
+	s := msg
+	if len(args) > 0 {
+		s += ": " + fmt.Sprint(args...)
+	}
+	log.warnings = append(log.warnings, s)
+}
+
+func (log *testLogger) Warnf(format string, args ...interface{}) {
+	log.warnings = append(log.warnings, fmt.Sprintf(format, args...))
+}
+
+func (log *testLogger) Info(msg string, args ...interface{}) {
+	s := msg
+	if len(args) > 0 {
+		s += ": " + fmt.Sprint(args...)
+	}
+	log.info = append(log.info, s)
+}
+
+func (log *testLogger) Infof(format string, args ...interface{}) {
+	log.info = append(log.info, fmt.Sprintf(format, args...))
 }

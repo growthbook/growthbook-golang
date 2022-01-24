@@ -2,46 +2,50 @@ package growthbook
 
 import (
 	"encoding/json"
-	"errors"
 	"reflect"
 	"regexp"
 	"strings"
 )
 
-// Condition ...
+// Condition represents conditions used to target features/experiments
+// to specific users.
 type Condition interface {
 	Eval(attrs Attributes) bool
 }
 
+// Concrete condition representing ORing together a list of
+// conditions.
 type orCondition struct {
 	conds []Condition
 }
 
+// Concrete condition representing NORing together a list of
+// conditions.
 type norCondition struct {
 	conds []Condition
 }
 
+// Concrete condition representing ANDing together a list of
+// conditions.
 type andCondition struct {
 	conds []Condition
 }
 
+// Concrete condition representing the complement of another
+// condition.
 type notCondition struct {
 	cond Condition
 }
 
-type operatorCondition struct {
+// Concrete condition representing the base condition case of a set of
+// keys and values or subsidiary conditions.
+type baseCondition struct {
+	// This is represented in this dynamically typed form to make lax
+	// error handling easier.
 	values map[string]interface{}
 }
 
-func isOperatorObject(obj map[string]interface{}) bool {
-	for k := range obj {
-		if !strings.HasPrefix(k, "$") {
-			return false
-		}
-	}
-	return true
-}
-
+// Evaluate ORed list of conditions.
 func (cond orCondition) Eval(attrs Attributes) bool {
 	if len(cond.conds) == 0 {
 		return true
@@ -54,15 +58,13 @@ func (cond orCondition) Eval(attrs Attributes) bool {
 	return false
 }
 
+// Evaluate NORed list of conditions.
 func (cond norCondition) Eval(attrs Attributes) bool {
 	or := orCondition{cond.conds}
 	return !or.Eval(attrs)
 }
 
-func (cond notCondition) Eval(attrs Attributes) bool {
-	return !cond.cond.Eval(attrs)
-}
-
+// Evaluate ANDed list of conditions.
 func (cond andCondition) Eval(attrs Attributes) bool {
 	for i := range cond.conds {
 		if !cond.conds[i].Eval(attrs) {
@@ -72,6 +74,82 @@ func (cond andCondition) Eval(attrs Attributes) bool {
 	return true
 }
 
+// Evaluate complemented condition.
+func (cond notCondition) Eval(attrs Attributes) bool {
+	return !cond.cond.Eval(attrs)
+}
+
+// Evaluate base Condition case by iterating over keys and performing
+// evaluation for each one (either a simple comparison, or an operator
+// evaluation).
+func (cond baseCondition) Eval(attrs Attributes) bool {
+	for k, v := range cond.values {
+		if !evalConditionValue(v, getPath(attrs, k)) {
+			return false
+		}
+	}
+	return true
+}
+
+// ParseCondition creates a Condition value from raw JSON input.
+func ParseCondition(data []byte) Condition {
+	topLevel := map[string]interface{}{}
+	err := json.Unmarshal(data, &topLevel)
+	if err != nil {
+		logError(ErrJSONFailedToParse, "Condition")
+		return nil
+	}
+
+	return BuildCondition(topLevel)
+}
+
+// BuildCondition creates a Condition value from a JSON object
+// represented as a Go map.
+func BuildCondition(cond map[string]interface{}) Condition {
+	if or, ok := cond["$or"]; ok {
+		conds := buildSeq(or)
+		if conds == nil {
+			return nil
+		}
+		return orCondition{conds}
+	}
+
+	if nor, ok := cond["$nor"]; ok {
+		conds := buildSeq(nor)
+		if conds == nil {
+			return nil
+		}
+		return norCondition{conds}
+	}
+
+	if and, ok := cond["$and"]; ok {
+		conds := buildSeq(and)
+		if conds == nil {
+			return nil
+		}
+		return andCondition{conds}
+	}
+
+	if not, ok := cond["$not"]; ok {
+		subcond, ok := not.(map[string]interface{})
+		if !ok {
+			logError(ErrCondJSONNot)
+			return nil
+		}
+		cond := BuildCondition(subcond)
+		if cond == nil {
+			return nil
+		}
+		return notCondition{cond}
+	}
+
+	return baseCondition{cond}
+}
+
+//-- PRIVATE FUNCTIONS START HERE ----------------------------------------------
+
+// Extract sub-elements of an attribute object using dot-separated
+// paths.
 func getPath(attrs Attributes, path string) interface{} {
 	parts := strings.Split(path, ".")
 	var current interface{}
@@ -89,6 +167,119 @@ func getPath(attrs Attributes, path string) interface{} {
 	return current
 }
 
+// Process a sequence of JSON values into an array of Conditions.
+func buildSeq(seq interface{}) []Condition {
+	// The input should be a JSON array.
+	conds, ok := seq.([]interface{})
+	if !ok {
+		logError(ErrCondJSONSequence)
+		return nil
+	}
+
+	retval := make([]Condition, len(conds))
+	for i := range conds {
+		// Each condition in the sequence should be a JSON object.
+		condmap, ok := conds[i].(map[string]interface{})
+		if !ok {
+			logError(ErrCondJSONSequenceElement)
+		}
+		cond := BuildCondition(condmap)
+		if cond == nil {
+			return nil
+		}
+		retval[i] = cond
+	}
+	return retval
+}
+
+// Evaluate one element of a base condition. If the condition value is
+// a JSON object and each key in it is an operator name (e.g. "$eq",
+// "$gt", "$elemMatch", etc.), then evaluate as an operator condition.
+// Otherwise, just directly compare the condition value with the
+// attribute value.
+func evalConditionValue(condVal interface{}, attrVal interface{}) bool {
+	condmap, ok := condVal.(map[string]interface{})
+	if ok && isOperatorObject(condmap) {
+		for k, v := range condmap {
+			if !evalOperatorCondition(k, attrVal, v) {
+				return false
+			}
+		}
+		return true
+	}
+
+	return reflect.DeepEqual(condVal, attrVal)
+}
+
+// An operator object is a JSON object all of whose keys start with a
+// "$" character, representing comparison operators.
+func isOperatorObject(obj map[string]interface{}) bool {
+	for k := range obj {
+		if !strings.HasPrefix(k, "$") {
+			return false
+		}
+	}
+	return true
+}
+
+// Evaluate operator conditions. The first parameter here is the
+// operator name.
+func evalOperatorCondition(key string, attrVal interface{}, condVal interface{}) bool {
+	switch key {
+	case "$eq":
+		return reflect.DeepEqual(attrVal, condVal)
+
+	case "$ne":
+		return !reflect.DeepEqual(attrVal, condVal)
+
+	case "$lt", "$lte", "$gt", "$gte":
+		return compare(key, attrVal, condVal)
+
+	case "$regex":
+		restring, reok := condVal.(string)
+		attrstring, attrok := attrVal.(string)
+		if !reok || !attrok {
+			return false
+		}
+		re, err := regexp.Compile(restring)
+		if err != nil {
+			return false
+		}
+		return re.MatchString(attrstring)
+
+	case "$in":
+		return elementIn(attrVal, condVal)
+
+	case "$nin":
+		return !elementIn(attrVal, condVal)
+
+	case "$elemMatch":
+		return elemMatch(attrVal, condVal)
+
+	case "$size":
+		if getType(attrVal) != "array" {
+			return false
+		}
+		return evalConditionValue(condVal, float64(len(attrVal.([]interface{}))))
+
+	case "$all":
+		return evalAll(condVal, attrVal)
+
+	case "$exists":
+		return existsCheck(condVal, attrVal)
+
+	case "$type":
+		return getType(attrVal) == condVal.(string)
+
+	case "$not":
+		return !evalConditionValue(condVal, attrVal)
+
+	default:
+		return false
+	}
+}
+
+// Get JSON type name for Go representation of JSON objects.
 func getType(v interface{}) string {
 	if v == nil {
 		return "null"
@@ -109,13 +300,15 @@ func getType(v interface{}) string {
 	}
 }
 
+// Perform numeric or string ordering comparisons on polymorphic JSON
+// values.
 func compare(comp string, x interface{}, y interface{}) bool {
 	switch x.(type) {
 	case float64:
 		xn := x.(float64)
 		yn, ok := y.(float64)
 		if !ok {
-			// TODO: LOG ERROR HERE?
+			logWarn(WarnCondCompareTypeMismatch)
 			return false
 		}
 		switch comp {
@@ -133,7 +326,7 @@ func compare(comp string, x interface{}, y interface{}) bool {
 		xs := x.(string)
 		ys, ok := y.(string)
 		if !ok {
-			// TODO: LOG ERROR HERE?
+			logWarn(WarnCondCompareTypeMismatch)
 			return false
 		}
 		switch comp {
@@ -150,6 +343,7 @@ func compare(comp string, x interface{}, y interface{}) bool {
 	return false
 }
 
+// Check for membership of a JSON value in a JSON array.
 func elementIn(v interface{}, array interface{}) bool {
 	vals, ok := array.([]interface{})
 	if !ok {
@@ -163,19 +357,24 @@ func elementIn(v interface{}, array interface{}) bool {
 	return false
 }
 
-func elemMatch(attributeValue interface{}, conditionValue interface{}) bool {
-	attrs, ok := attributeValue.([]interface{})
+// Perform "element matching" operation.
+func elemMatch(attrVal interface{}, condVal interface{}) bool {
+	// Check that the attribute and condition values are of the
+	// appropriate types (an array and an object respectively).
+	attrs, ok := attrVal.([]interface{})
 	if !ok {
 		return false
 	}
-	condmap, ok := conditionValue.(map[string]interface{})
+	condmap, ok := condVal.(map[string]interface{})
 	if !ok {
 		return false
 	}
-	check := func(v interface{}) bool { return evalConditionValue(conditionValue, v) }
+
+	// Decide on the type of check to perform on the attribute values.
+	check := func(v interface{}) bool { return evalConditionValue(condVal, v) }
 	if !isOperatorObject(condmap) {
-		cond, err := BuildCondition(condmap)
-		if err != nil {
+		cond := BuildCondition(condmap)
+		if cond == nil {
 			return false
 		}
 
@@ -188,6 +387,8 @@ func elemMatch(attributeValue interface{}, conditionValue interface{}) bool {
 			return cond.Eval(as)
 		}
 	}
+
+	// Check attribute array values.
 	for _, a := range attrs {
 		if check(a) {
 			return true
@@ -196,20 +397,22 @@ func elemMatch(attributeValue interface{}, conditionValue interface{}) bool {
 	return false
 }
 
-func existsCheck(conditionValue interface{}, attributeValue interface{}) bool {
-	cond, ok := conditionValue.(bool)
+// Perform "exists" operation.
+func existsCheck(condVal interface{}, attrVal interface{}) bool {
+	cond, ok := condVal.(bool)
 	if !ok {
 		return false
 	}
 	if !cond {
-		return attributeValue == nil
+		return attrVal == nil
 	}
-	return attributeValue != nil
+	return attrVal != nil
 }
 
-func evalAll(conditionValue interface{}, attributeValue interface{}) bool {
-	conds, okc := conditionValue.([]interface{})
-	attrs, oka := attributeValue.([]interface{})
+// Perform "all" operation.
+func evalAll(condVal interface{}, attrVal interface{}) bool {
+	conds, okc := condVal.([]interface{})
+	attrs, oka := attrVal.([]interface{})
 	if !okc || !oka {
 		return false
 	}
@@ -226,157 +429,4 @@ func evalAll(conditionValue interface{}, attributeValue interface{}) bool {
 		}
 	}
 	return true
-}
-
-func evalOperatorCondition(key string, attributeValue interface{}, conditionValue interface{}) bool {
-	// fmt.Printf("evalOperatorCondition: key=%s attr=%#v cond=%#v\n", key, attributeValue, conditionValue)
-	switch key {
-	case "$eq":
-		return reflect.DeepEqual(attributeValue, conditionValue)
-
-	case "$ne":
-		return !reflect.DeepEqual(attributeValue, conditionValue)
-
-	case "$lt", "$lte", "$gt", "$gte":
-		return compare(key, attributeValue, conditionValue)
-
-	case "$regex":
-		restring, reok := conditionValue.(string)
-		attrstring, attrok := attributeValue.(string)
-		if !reok || !attrok {
-			return false
-		}
-		re, err := regexp.Compile(restring)
-		if err != nil {
-			return false
-		}
-		return re.MatchString(attrstring)
-
-	case "$in":
-		return elementIn(attributeValue, conditionValue)
-
-	case "$nin":
-		return !elementIn(attributeValue, conditionValue)
-
-	case "$elemMatch":
-		return elemMatch(attributeValue, conditionValue)
-
-	case "$size":
-		if getType(attributeValue) != "array" {
-			return false
-		}
-		return evalConditionValue(conditionValue, float64(len(attributeValue.([]interface{}))))
-
-	case "$all":
-		return evalAll(conditionValue, attributeValue)
-
-	case "$exists":
-		return existsCheck(conditionValue, attributeValue)
-
-	case "$type":
-		return getType(attributeValue) == conditionValue.(string)
-
-	case "$not":
-		return !evalConditionValue(conditionValue, attributeValue)
-
-	default:
-		return false
-	}
-}
-
-func evalConditionValue(conditionValue interface{}, attributeValue interface{}) bool {
-	// fmt.Printf("evalConditionValue: conditionValue=%#v  attributeValue=%#v\n", conditionValue, attributeValue)
-	condmap, ok := conditionValue.(map[string]interface{})
-	if ok && isOperatorObject(condmap) {
-		for k, v := range condmap {
-			if !evalOperatorCondition(k, attributeValue, v) {
-				return false
-			}
-		}
-		return true
-	}
-
-	return reflect.DeepEqual(conditionValue, attributeValue)
-}
-
-func (cond operatorCondition) Eval(attrs Attributes) bool {
-	for k, v := range cond.values {
-		if !evalConditionValue(v, getPath(attrs, k)) {
-			return false
-		}
-	}
-	return true
-}
-
-// ParseCondition ...
-func ParseCondition(data []byte) (Condition, error) {
-	topLevel := map[string]interface{}{}
-	err := json.Unmarshal(data, &topLevel)
-	if err != nil {
-		return nil, err
-	}
-
-	return BuildCondition(topLevel)
-}
-
-// BuildCondition ...
-func BuildCondition(cond map[string]interface{}) (Condition, error) {
-	if or, ok := cond["$or"]; ok {
-		conds, err := buildSeq(or)
-		if err != nil {
-			return nil, err
-		}
-		return orCondition{conds}, nil
-	}
-
-	if nor, ok := cond["$nor"]; ok {
-		conds, err := buildSeq(nor)
-		if err != nil {
-			return nil, err
-		}
-		return norCondition{conds}, nil
-	}
-
-	if and, ok := cond["$and"]; ok {
-		conds, err := buildSeq(and)
-		if err != nil {
-			return nil, err
-		}
-		return andCondition{conds}, nil
-	}
-
-	if not, ok := cond["$not"]; ok {
-		subcond, ok := not.(map[string]interface{})
-		if !ok {
-			return nil, errors.New("something wrong in $not")
-		}
-		// fmt.Printf("===> subcond = %#v\n", subcond)
-		cond, err := BuildCondition(subcond)
-		if err != nil {
-			return nil, err
-		}
-		return notCondition{cond}, nil
-	}
-
-	return operatorCondition{cond}, nil
-}
-
-func buildSeq(seq interface{}) ([]Condition, error) {
-	conds, ok := seq.([]interface{})
-	if !ok {
-		return nil, errors.New("something wrong in condition sequence")
-	}
-	retval := make([]Condition, len(conds))
-	for i := range conds {
-		condmap, ok := conds[i].(map[string]interface{})
-		if !ok {
-			return nil, errors.New("something wrong in condition sequence element")
-		}
-		cond, err := BuildCondition(condmap)
-		if err != nil {
-			return nil, err
-		}
-		retval[i] = cond
-	}
-	return retval, nil
 }

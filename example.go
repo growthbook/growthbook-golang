@@ -8,6 +8,11 @@ import (
 )
 
 func main() {
+	// Set up development logger: logs all messages from GrowthBook SDK
+	// and exits on errors.
+	SetLogger(&DevLogger{})
+
+	// Download JSON feature file and read file body.
 	resp, err := http.Get("https://s3.amazonaws.com/myBucket/features.json")
 	if err != nil {
 		log.Fatal(err)
@@ -18,14 +23,14 @@ func main() {
 		log.Fatal(err)
 	}
 
-	features, err := ParseFeatureMap(body)
-	if err != nil {
-		log.Fatal(err)
-	}
-	context := Context{}
-	growthbook := New(&context).
-		WithFeatures(features)
+	// Parse feature map from JSON.
+	features := ParseFeatureMap(body)
 
+	// Create context and main GrowthBook object.
+	context := NewContext().WithFeatures(features)
+	growthbook := New(context)
+
+	// Perform feature test.
 	if growthbook.Feature("my-feature").On {
 		// ...
 	}

@@ -2,8 +2,6 @@ package growthbook
 
 import "encoding/json"
 
-//  JSON PROCESSING HELPER FUNCTIONS
-//
 //  All of these functions build values of particular types from
 //  representations as JSON objects. These functions are useful both
 //  for testing and for user creation of GrowthBook objects from JSON
@@ -11,68 +9,82 @@ import "encoding/json"
 //  other languages, all of which use JSON as a common configuration
 //  format.
 
-// TODO: DOCUMENTATION AND MAYBE ADD Parse... VARIANTS FOR ALL
-// FUNCTIONS HERE, TO BUILD FROM RAW JSON DATA (SEE ParseFeatureMap
-// AND BuildFeatureMap BELOW FOR AN EXAMPLE).
-
-// INPUT DATA TYPES (USEFUL TO HAVE PUBLICLY VISIBLE JSON CONVERSION
-// FUNCTIONS):
-//
-//  - Context => Attributes, FeatureMap, ForcedVariationsMap
-//  - Attributes
-//  - FeatureMap => Feature
-//  - ForcedVariationsMap
-//  - Experiment => Condition, Namespace
-//  - Feature => FeatureRule
-//  - Condition
-//  - Namespace
-//  - FeatureRule => Condition, Namespace
-
-// OUTPUT DATA TYPES (JSON CONVERSION USED ONLY FOR TESTING):
-//
-//  - ExperimentResult
-//  - FeatureResult
-
 // BuildExperimentResult creates an ExperimentResult value from a JSON
 // object represented as a Go map.
 func BuildExperimentResult(dict map[string]interface{}) *ExperimentResult {
-	// TODO: ENSURE THAT Active IS GENERICALLY TRUE BY DEFAULT
 	res := ExperimentResult{}
 	for k, v := range dict {
 		switch k {
 		case "inExperiment":
-			res.InExperiment = v.(bool)
+			tmp, ok := v.(bool)
+			if !ok {
+				logError(ErrJSONInvalidType, "ExperimentResult", "inExperiment")
+				continue
+			}
+			res.InExperiment = tmp
 		case "variationId":
-			res.VariationID = int(v.(float64))
+			tmp, ok := v.(float64)
+			if !ok {
+				logError(ErrJSONInvalidType, "ExperimentResult", "variationId")
+				continue
+			}
+			res.VariationID = int(tmp)
 		case "value":
 			res.Value = v
 		case "hashAttribute":
-			res.HashAttribute = v.(string)
+			tmp, ok := v.(string)
+			if !ok {
+				logError(ErrJSONInvalidType, "ExperimentResult", "hashAttribute")
+				continue
+			}
+			res.HashAttribute = tmp
 		case "hashValue":
-			res.HashValue = v.(string)
+			tmp, ok := v.(string)
+			if !ok {
+				logError(ErrJSONInvalidType, "ExperimentResult", "hashValue")
+				continue
+			}
+			res.HashValue = tmp
+		default:
+			logWarn(WarnJSONUnknownKey, "ExperimentResult", k)
 		}
 	}
 	return &res
 }
 
+// BuildFeatureValues creates a FeatureValue array from a generic JSON
+// value.
 func BuildFeatureValues(val interface{}) []FeatureValue {
-	vals := val.([]interface{})
+	vals, ok := val.([]interface{})
+	if !ok {
+		logError(ErrJSONInvalidType, "FeatureValue")
+		return nil
+	}
 	result := make([]FeatureValue, len(vals))
 	for i, v := range vals {
-		result[i] = v.(FeatureValue)
+		tmp, ok := v.(FeatureValue)
+		if !ok {
+			logError(ErrJSONInvalidType, "FeatureValue")
+			return nil
+		}
+		result[i] = tmp
 	}
 	return result
 }
 
-func ParseFeatureMap(data []byte) (FeatureMap, error) {
+// ParseFeatureMap creates a FeatureMap value from raw JSON input.
+func ParseFeatureMap(data []byte) FeatureMap {
 	dict := map[string]interface{}{}
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
-		return nil, err
+		logError(ErrJSONFailedToParse, "FeatureMap")
+		return nil
 	}
-	return BuildFeatureMap(dict), nil
+	return BuildFeatureMap(dict)
 }
 
+// BuildFeatureMap creates a FeatureMap value from a JSON object
+// represented as a Go map.
 func BuildFeatureMap(dict map[string]interface{}) FeatureMap {
 	fmap := FeatureMap{}
 	for k, v := range dict {
@@ -81,10 +93,23 @@ func BuildFeatureMap(dict map[string]interface{}) FeatureMap {
 	return fmap
 }
 
+// ParseFeature creates a single Feature value from raw JSON input.
+func ParseFeature(data []byte) *Feature {
+	dict := map[string]interface{}{}
+	err := json.Unmarshal(data, &dict)
+	if err != nil {
+		logError(ErrJSONFailedToParse, "Feature")
+		return nil
+	}
+	return BuildFeature(dict)
+}
+
+// BuildFeature creates a Feature value from a generic JSON value.
 func BuildFeature(val interface{}) *Feature {
 	feature := Feature{}
 	dict, ok := val.(map[string]interface{})
 	if !ok {
+		logError(ErrJSONInvalidType, "Feature")
 		return &feature
 	}
 	defaultValue, ok := dict["defaultValue"]
@@ -93,7 +118,11 @@ func BuildFeature(val interface{}) *Feature {
 	}
 	rules, ok := dict["rules"]
 	if ok {
-		rulesArray := rules.([]interface{})
+		rulesArray, ok := rules.([]interface{})
+		if !ok {
+			logError(ErrJSONInvalidType, "Feature")
+			return &feature
+		}
 		feature.Rules = make([]*FeatureRule, len(rulesArray))
 		for i := range rulesArray {
 			feature.Rules[i] = BuildFeatureRule(rulesArray[i])
@@ -102,43 +131,87 @@ func BuildFeature(val interface{}) *Feature {
 	return &feature
 }
 
+// BuildFeatureRule creates an FeatureRule value from a generic JSON
+// value.
 func BuildFeatureRule(val interface{}) *FeatureRule {
 	rule := FeatureRule{}
 	dict, ok := val.(map[string]interface{})
 	if !ok {
+		logError(ErrJSONInvalidType, "FeatureRule")
 		return &rule
 	}
+KeyLoop:
 	for k, v := range dict {
 		switch k {
 		case "condition":
-			rule.Condition, _ = BuildCondition(v.(map[string]interface{}))
+			condmap, ok := v.(map[string]interface{})
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureRule", "condition")
+				continue
+			}
+			rule.Condition = BuildCondition(condmap)
 		case "coverage":
-			tmp := v.(float64)
+			tmp, ok := v.(float64)
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureRule", "coverage")
+				continue
+			}
 			rule.Coverage = &tmp
 		case "force":
 			rule.Force = v
 		case "variations":
 			rule.Variations = BuildFeatureValues(v)
 		case "key":
-			tmp := v.(string)
+			tmp, ok := v.(string)
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureRule", "key")
+				continue
+			}
 			rule.TrackingKey = &tmp
 		case "weights":
-			vals := v.([]interface{})
+			vals, ok := v.([]interface{})
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureRule", "weights")
+				continue
+			}
 			weights := make([]float64, len(vals))
 			for i := range vals {
-				weights[i] = vals[i].(float64)
+				tmp, ok := vals[i].(float64)
+				if !ok {
+					logError(ErrJSONInvalidType, "FeatureRule", "weights")
+					continue KeyLoop
+				}
+				weights[i] = tmp
 			}
 			rule.Weights = weights
 		case "namespace":
 			rule.Namespace = BuildNamespace(v)
 		case "hashAttribute":
-			tmp := v.(string)
+			tmp, ok := v.(string)
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureRule", "hashAttribute")
+				continue
+			}
 			rule.HashAttribute = &tmp
+		default:
+			logWarn(WarnJSONUnknownKey, "FeatureRule", k)
 		}
 	}
 	return &rule
 }
 
+// ParseNamespace creates a Namespace value from raw JSON input.
+func ParseNamespace(data []byte) *Namespace {
+	array := []interface{}{}
+	err := json.Unmarshal(data, &array)
+	if err != nil {
+		logError(ErrJSONFailedToParse, "Namespace")
+		return nil
+	}
+	return BuildNamespace(array)
+}
+
+// BuildNamespace creates a Namespace value from a generic JSON value.
 func BuildNamespace(val interface{}) *Namespace {
 	array, ok := val.([]interface{})
 	if !ok || len(array) != 3 {
@@ -153,19 +226,52 @@ func BuildNamespace(val interface{}) *Namespace {
 	return &Namespace{id, start, end}
 }
 
+// BuildFeatureResult creates an FeatureResult value from a JSON
+// object represented as a Go map.
 func BuildFeatureResult(dict map[string]interface{}) *FeatureResult {
 	result := FeatureResult{}
-	result.Value = dict["value"]
-	result.On = dict["on"].(bool)
-	result.Off = dict["off"].(bool)
-	result.Source = ParseFeatureResultSource(dict["source"].(string))
-	experimentDict, ok := dict["experiment"].(map[string]interface{})
-	if ok {
-		result.Experiment = BuildExperiment(experimentDict)
-	}
-	experimentResultDict, ok := dict["experimentResult"].(map[string]interface{})
-	if ok {
-		result.ExperimentResult = BuildExperimentResult(experimentResultDict)
+	for k, v := range dict {
+		switch k {
+		case "value":
+			result.Value = v
+		case "on":
+			tmp, ok := v.(bool)
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureResult", "on")
+				continue
+			}
+			result.On = tmp
+		case "off":
+			tmp, ok := v.(bool)
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureResult", "off")
+				continue
+			}
+			result.Off = tmp
+		case "source":
+			tmp, ok := v.(string)
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureResult", "source")
+				continue
+			}
+			result.Source = ParseFeatureResultSource(tmp)
+		case "experiment":
+			tmp, ok := v.(map[string]interface{})
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureResult", "experiment")
+				continue
+			}
+			result.Experiment = BuildExperiment(tmp)
+		case "experimentResult":
+			tmp, ok := v.(map[string]interface{})
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureResult", "experimentResult")
+				continue
+			}
+			result.ExperimentResult = BuildExperimentResult(tmp)
+		default:
+			logWarn(WarnJSONUnknownKey, "FeatureResult", k)
+		}
 	}
 	return &result
 }

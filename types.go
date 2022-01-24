@@ -20,7 +20,8 @@ type Feature struct {
 // IDs.
 type FeatureMap map[string]*Feature
 
-// FeatureResultSource represents the source of a FeatureResult.
+// FeatureResultSource is an enumerated type representing the source
+// of a FeatureResult.
 type FeatureResultSource uint
 
 // FeatureResultSource values.
@@ -31,7 +32,8 @@ const (
 	ExperimentResultSource
 )
 
-// ParseFeatureResultSource ...
+// ParseFeatureResultSource creates a FeatureResultSource value from
+// its string representation.
 func ParseFeatureResultSource(source string) FeatureResultSource {
 	switch source {
 	case "defaultValue":
@@ -47,7 +49,6 @@ func ParseFeatureResultSource(source string) FeatureResultSource {
 
 // FeatureResult is the result of evaluating a feature.
 type FeatureResult struct {
-	// CHECK: interface{} => OK? Feature values again.
 	Value            FeatureValue
 	On               bool
 	Off              bool
@@ -68,11 +69,9 @@ type ExperimentResult struct {
 
 // FeatureRule overrides the default value of a Feature.
 type FeatureRule struct {
-	Condition Condition
-	Coverage  *float64
-	// CHECK: interface{} => OK, Feature values.
-	Force FeatureValue
-	// CHECK: interface{} => OK, Feature values.
+	Condition     Condition
+	Coverage      *float64
+	Force         FeatureValue
 	Variations    []FeatureValue
 	TrackingKey   *string
 	Weights       []float64

@@ -73,7 +73,8 @@ func (gb *GrowthBook) WithEnabled(enabled bool) *GrowthBook {
 	return gb
 }
 
-// GetValueWithDefault ...
+// GetValueWithDefault extracts a value from a FeatureResult with a
+// default.
 func (fr *FeatureResult) GetValueWithDefault(def FeatureValue) FeatureValue {
 	if fr.Value == nil {
 		return def
@@ -138,7 +139,8 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 			return getFeatureResult(rule.Force, ForceResultSource, nil, nil)
 		}
 
-		// Otherwise, convert the rule to an Experiment object.
+		// Otherwise, convert the rule to an Experiment object, copying
+		// values from the rule as necessary.
 		experiment := Experiment{
 			Key:        key,
 			Variations: rule.Variations,
@@ -148,20 +150,36 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 			experiment.Key = *rule.TrackingKey
 		}
 		if rule.Coverage != nil {
-			// TODO: COPY?
-			experiment.Coverage = rule.Coverage
+			var tmp *float64
+			if rule.Coverage != nil {
+				val := *rule.Coverage
+				tmp = &val
+			}
+			experiment.Coverage = tmp
 		}
 		if rule.Weights != nil {
-			// TODO: COPY?
-			experiment.Weights = rule.Weights
+			var tmp []float64
+			if rule.Weights != nil {
+				tmp = make([]float64, len(rule.Weights))
+				copy(tmp, rule.Weights)
+			}
+			experiment.Weights = tmp
 		}
 		if rule.HashAttribute != nil {
-			// TODO: COPY?
-			experiment.HashAttribute = rule.HashAttribute
+			var tmp *string
+			if rule.HashAttribute != nil {
+				val := *rule.HashAttribute
+				tmp = &val
+			}
+			experiment.HashAttribute = tmp
 		}
 		if rule.Namespace != nil {
-			// TODO: COPY?
-			experiment.Namespace = rule.Namespace
+			var tmp *Namespace
+			if rule.Namespace != nil {
+				val := Namespace{rule.Namespace.ID, rule.Namespace.Start, rule.Namespace.End}
+				tmp = &val
+			}
+			experiment.Namespace = tmp
 		}
 
 		// Run the experiment.
@@ -228,7 +246,7 @@ func (gb *GrowthBook) getExperimentResult(exp *Experiment, variationIndex int, i
 	}
 }
 
-// Run ...
+// Run an experiment.
 func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
 	// 1. If exp.Variations has fewer than 2 variations, return default
 	//    result.
@@ -257,9 +275,6 @@ func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
 	}
 
 	// 5. If exp.Active is set to false, return default result.
-	// TODO: CHECK THAT THIS BEHAVIOUR IS RIGHT! Active MIGHT BE
-	// OPTIONAL HERE -- IT SHOULD DEFAULT TO TRUE IF IT's NOT EXPLICITLY
-	// SET TO FALSE!
 	if !exp.Active {
 		return gb.getExperimentResult(exp, 0, false)
 	}

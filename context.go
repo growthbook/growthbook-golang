@@ -8,13 +8,13 @@ import (
 // Context contains the options for creating a new GrowthBook
 // instance.
 type Context struct {
-	Enabled          bool                // Required: default to true in NewContext
-	Attributes       Attributes          // Optional (OK: map)
-	URL              *url.URL            // Optional (OK: pointer)
-	Features         FeatureMap          // Optional (OK: map)
-	ForcedVariations ForcedVariationsMap // Optional (OK: map)
-	QAMode           bool                // Required (OK: defaults to false)
-	TrackingCallback TrackingCallback    // Optional (OK: function pointer)
+	Enabled          bool
+	Attributes       Attributes
+	URL              *url.URL
+	Features         FeatureMap
+	ForcedVariations ForcedVariationsMap
+	QAMode           bool
+	TrackingCallback TrackingCallback
 }
 
 // TrackingCallback is a callback function that is executed every time
@@ -79,7 +79,7 @@ func ParseContext(data []byte) *Context {
 	dict := map[string]interface{}{}
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
-		logError(ErrCtxJSONFailedToParse)
+		logError(ErrJSONFailedToParse, "Context")
 		return NewContext()
 	}
 	return BuildContext(dict)
@@ -113,7 +113,7 @@ func BuildContext(dict map[string]interface{}) *Context {
 		case "qaMode":
 			context = context.WithQAMode(v.(bool))
 		default:
-			logWarn(WarnCtxJSONUnknownKey, k)
+			logWarn(WarnJSONUnknownKey, "Context", k)
 		}
 	}
 	return context
