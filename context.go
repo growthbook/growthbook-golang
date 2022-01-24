@@ -14,12 +14,16 @@ type Context struct {
 	Features         FeatureMap
 	ForcedVariations ForcedVariationsMap
 	QAMode           bool
-	TrackingCallback TrackingCallback
+	TrackingCallback ExperimentCallback
 }
 
-// TrackingCallback is a callback function that is executed every time
-// a user is included in an Experiment.
-type TrackingCallback func(experiment *Experiment, result *ExperimentResult)
+// ExperimentCallback is a callback function that is executed every
+// time a user is included in an Experiment. It is also the type used
+// for subscription functions, which are called whenever
+// Experiment.Run is called and the experiment result changes,
+// independent of whether a user is inncluded in the experiment or
+// not.
+type ExperimentCallback func(experiment *Experiment, result *ExperimentResult)
 
 // NewContext creates a context with default settings: enabled, but
 // all other fields empty.
@@ -69,7 +73,7 @@ func (ctx *Context) WithQAMode(qaMode bool) *Context {
 
 // WithTrackingCallback is used to set a tracking callback for a
 // context.
-func (ctx *Context) WithTrackingCallback(trackingCallback TrackingCallback) *Context {
+func (ctx *Context) WithTrackingCallback(trackingCallback ExperimentCallback) *Context {
 	ctx.TrackingCallback = trackingCallback
 	return ctx
 }

@@ -5,71 +5,81 @@ import (
 	"strconv"
 )
 
+type subscriptionID uint
+
 // GrowthBook is the main export of the SDK.
 type GrowthBook struct {
-	Context            *Context
-	TrackedExperiments map[string]bool
+	context            *Context
+	trackedExperiments map[string]bool
+	nextSubscriptionID subscriptionID
+	subscriptions      map[subscriptionID]ExperimentCallback
+	latestResults      map[string]*ExperimentResult
 }
 
 // New created a new GrowthBook instance.
 func New(context *Context) *GrowthBook {
-	return &GrowthBook{context, map[string]bool{}}
+	return &GrowthBook{
+		context,
+		map[string]bool{},
+		1, map[subscriptionID]ExperimentCallback{},
+		map[string]*ExperimentResult{},
+	}
 }
 
 // Attributes returns the attributes from a GrowthBook's context.
 func (gb *GrowthBook) Attributes() Attributes {
-	return gb.Context.Attributes
+	return gb.context.Attributes
 }
 
 // WithAttributes updates the attributes in a GrowthBook's context.
 func (gb *GrowthBook) WithAttributes(attrs Attributes) *GrowthBook {
-	gb.Context.Attributes = attrs
+	gb.context.Attributes = attrs
 	return gb
 }
 
 // Features returns the features from a GrowthBook's context.
 func (gb *GrowthBook) Features() FeatureMap {
-	return gb.Context.Features
+	return gb.context.Features
 }
 
 // WithFeatures update the features in a GrowthBook's context.
 func (gb *GrowthBook) WithFeatures(features FeatureMap) *GrowthBook {
-	gb.Context.Features = features
+	gb.context.Features = features
 	return gb
 }
 
 // ForcedVariations returns the forced variations from a GrowthBook's
 // context.
 func (gb *GrowthBook) ForcedVariations() ForcedVariationsMap {
-	return gb.Context.ForcedVariations
+	return gb.context.ForcedVariations
 }
 
 // WithForcedVariations sets the forced variations in a GrowthBook's
 // context.
 func (gb *GrowthBook) WithForcedVariations(forcedVariations ForcedVariationsMap) *GrowthBook {
-	gb.Context.ForcedVariations = forcedVariations
+	gb.context.ForcedVariations = forcedVariations
 	return gb
 }
 
 // URL returns the URL from a GrowthBook's context.
 func (gb *GrowthBook) URL() *url.URL {
-	return gb.Context.URL
+	return gb.context.URL
 }
 
 // WithURL sets the URL in a GrowthBook's context.
 func (gb *GrowthBook) WithURL(url *url.URL) *GrowthBook {
-	gb.Context.URL = url
+	gb.context.URL = url
 	return gb
 }
 
 // Enabled returns the enabled flag from a GrowthBook's context.
 func (gb *GrowthBook) Enabled() bool {
-	return gb.Context.Enabled
+	return gb.context.Enabled
 }
 
 // WithEnabled sets the enabled flag in a GrowthBook's context.
 func (gb *GrowthBook) WithEnabled(enabled bool) *GrowthBook {
-	gb.Context.Enabled = enabled
+	gb.context.Enabled = enabled
 	return gb
 }
 
@@ -86,7 +96,7 @@ func (fr *FeatureResult) GetValueWithDefault(def FeatureValue) FeatureValue {
 // feature key.
 func (gb *GrowthBook) Feature(key string) *FeatureResult {
 	// Handle unknown features.
-	feature, ok := gb.Context.Features[key]
+	feature, ok := gb.context.Features[key]
 	if !ok {
 		return getFeatureResult(nil, UnknownFeatureResultSource, nil, nil)
 	}
@@ -225,8 +235,8 @@ func (gb *GrowthBook) getExperimentResult(exp *Experiment, variationIndex int, i
 		hashAttribute = *exp.HashAttribute
 	}
 	hashValue := ""
-	if _, ok := gb.Context.Attributes[hashAttribute]; ok {
-		tmp, ok := gb.Context.Attributes[hashAttribute].(string)
+	if _, ok := gb.context.Attributes[hashAttribute]; ok {
+		tmp, ok := gb.context.Attributes[hashAttribute].(string)
 		if ok {
 			hashValue = tmp
 		}
@@ -246,8 +256,38 @@ func (gb *GrowthBook) getExperimentResult(exp *Experiment, variationIndex int, i
 	}
 }
 
-// Run an experiment.
+// Run an experiment. (Uses doRun to make wrapping for subscriptions
+// simple.)
 func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
+	// Actually run the experiment.
+	result := gb.doRun(exp)
+
+	// Determine whether the result changed from the last stored result
+	// for the experiment.
+	changed := false
+	storedResult, exists := gb.latestResults[exp.Key]
+	if exists {
+		if storedResult.InExperiment != result.InExperiment ||
+			storedResult.VariationID != result.VariationID {
+			changed = true
+		}
+	}
+
+	// Store the experiment result.
+	gb.latestResults[exp.Key] = result
+
+	// If the result changed, trigger all subscriptions.
+	if changed || !exists {
+		for _, sub := range gb.subscriptions {
+			sub(exp, result)
+		}
+	}
+
+	return result
+}
+
+// Worker function to run an experiment.
+func (gb *GrowthBook) doRun(exp *Experiment) *ExperimentResult {
 	// 1. If exp.Variations has fewer than 2 variations, return default
 	//    result.
 	if len(exp.Variations) < 2 {
@@ -255,21 +295,21 @@ func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
 	}
 
 	// 2. If context.Enabled is false, return default result.
-	if !gb.Context.Enabled {
+	if !gb.context.Enabled {
 		return gb.getExperimentResult(exp, 0, false)
 	}
 
 	// 3. If context.URL exists, check for query string override and use
 	//    it if it exists.
-	if gb.Context.URL != nil {
-		qsOverride := getQueryStringOverride(exp.Key, gb.Context.URL, len(exp.Variations))
+	if gb.context.URL != nil {
+		qsOverride := getQueryStringOverride(exp.Key, gb.context.URL, len(exp.Variations))
 		if qsOverride != nil {
 			return gb.getExperimentResult(exp, *qsOverride, false)
 		}
 	}
 
 	// 4. Return forced result if forced via context.
-	force, forced := gb.Context.ForcedVariations[exp.Key]
+	force, forced := gb.context.ForcedVariations[exp.Key]
 	if forced {
 		return gb.getExperimentResult(exp, force, false)
 	}
@@ -285,8 +325,8 @@ func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
 		hashAttribute = *exp.HashAttribute
 	}
 	hashValue := ""
-	if _, ok := gb.Context.Attributes[hashAttribute]; ok {
-		tmp, ok := gb.Context.Attributes[hashAttribute].(string)
+	if _, ok := gb.context.Attributes[hashAttribute]; ok {
+		tmp, ok := gb.context.Attributes[hashAttribute].(string)
 		if ok {
 			hashValue = tmp
 		}
@@ -304,7 +344,7 @@ func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
 
 	// 8. If exp.Condition is set, return if it evaluates to false.
 	if exp.Condition != nil {
-		if !exp.Condition.Eval(gb.Context.Attributes) {
+		if !exp.Condition.Eval(gb.context.Attributes) {
 			return gb.getExperimentResult(exp, 0, false)
 		}
 	}
@@ -329,7 +369,7 @@ func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
 	}
 
 	// 12. If in QA mode, return default result.
-	if gb.Context.QAMode {
+	if gb.context.QAMode {
 		return gb.getExperimentResult(exp, 0, false)
 	}
 
@@ -346,7 +386,7 @@ func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
 // hashAttribute, hashValue, experiment key, and variation ID has not
 // been tracked before.
 func (gb *GrowthBook) track(exp *Experiment, result *ExperimentResult) {
-	if gb.Context.TrackingCallback == nil {
+	if gb.context.TrackingCallback == nil {
 		return
 	}
 
@@ -354,10 +394,35 @@ func (gb *GrowthBook) track(exp *Experiment, result *ExperimentResult) {
 	// experiment.
 	key := result.HashAttribute + result.HashValue +
 		exp.Key + strconv.Itoa(result.VariationID)
-	if _, exists := gb.TrackedExperiments[key]; exists {
+	if _, exists := gb.trackedExperiments[key]; exists {
 		return
 	}
 
-	gb.TrackedExperiments[key] = true
-	gb.Context.TrackingCallback(exp, result)
+	gb.trackedExperiments[key] = true
+	gb.context.TrackingCallback(exp, result)
+}
+
+// Subscribe adds a callback that is called every time GrowthBook.Run
+// is called. This is different from the tracking callback since it
+// also fires when a user is not included in an experiment.
+func (gb *GrowthBook) Subscribe(callback ExperimentCallback) func() {
+	id := gb.nextSubscriptionID
+	gb.subscriptions[id] = callback
+	gb.nextSubscriptionID++
+	return func() {
+		delete(gb.subscriptions, id)
+	}
+}
+
+// GetAllResults returns a map containing all the latest results from
+// all experiments that have been run, indexed by the experiment key.
+func (gb *GrowthBook) GetAllResults() map[string]*ExperimentResult {
+	return gb.latestResults
+}
+
+// ClearSavedResults clears out any experiment results saved within a
+// GrowthBook instance (used for deciding whether to send data to
+// subscriptions).
+func (gb *GrowthBook) ClearSavedResults() {
+	gb.latestResults = map[string]*ExperimentResult{}
 }
