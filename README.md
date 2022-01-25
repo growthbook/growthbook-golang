@@ -119,12 +119,9 @@ map generated this way to the `WithFeatures` method of `Context` or
 
 ```go
 featureMap := ParseFeatureMap([]byte(
-  `{
-     "features": {
-       "feature-1": {...},
-       "feature-2": {...},
-       "another-feature": {...},
-     }
+  `{ "feature-1": {...},
+     "feature-2": {...},
+     "another-feature": {...}
    }`))
 
 gb := NewContext().WithFeatures(featureMap)
