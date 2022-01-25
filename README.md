@@ -25,7 +25,8 @@ The main public API for the SDK is provided through the `Context` and
 `GrowthBook` types. The `Context` type provides a means to pass
 settings to the main `GrowthBook` type, while the `GrowthBook` type
 provides a `Feature` method for accessing feature values, and a `Run`
-method for running inline experiments.
+method for running inline experiments. (See
+[below](#complete-code-example) for a more complete code example.)
 
 ```go
 // Parse feature map from JSON data.
@@ -444,3 +445,117 @@ that are called any time `Run` is called, irrespective of whether or
 not a user is included in an experiment. The subscription system
 ensures that subscription callbacks are only called when the result of
 an experiment changes, or a new experiment is run.
+
+
+## Complete code example
+
+This shows a complete (although simple) example, demonstrating how to
+import and use the Go SDK:
+
+```go
+package main
+
+import (
+	"fmt"
+	"log"
+	"os"
+
+	growthbook "github.com/growthbook/growthbook-golang"
+)
+
+func main() {
+	// Set up development logger: logs all messages from GrowthBook SDK
+	// and exits on errors.
+	growthbook.SetLogger(&growthbook.DevLogger{})
+
+	// Read JSON feature file.
+	featureJSON, err := os.ReadFile("features.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Parse feature map from JSON.
+	features := growthbook.ParseFeatureMap(featureJSON)
+
+	// Create context and main GrowthBook object.
+	context := growthbook.NewContext().
+		WithFeatures(features).
+		WithAttributes(growthbook.Attributes{
+			"country": "US",
+			"browser": "firefox",
+		})
+	gb := growthbook.New(context)
+
+	// Perform feature test.
+	fmt.Print("test-feature (US, firefox): ")
+	if gb.Feature("test-feature").On {
+		fmt.Print("ON")
+	} else {
+		fmt.Println("OFF")
+	}
+	fmt.Println("  value =", gb.Feature("test-feature").Value)
+
+	// Perform feature test with different user attributes.
+	gb.WithAttributes(growthbook.Attributes{
+		"country": "AT",
+		"browser": "firefox",
+	})
+	fmt.Print("test-feature (AT, firefox): ")
+	if gb.Feature("test-feature").On {
+		fmt.Print("ON")
+	} else {
+		fmt.Println("OFF")
+	}
+	fmt.Println("  value =", gb.Feature("test-feature").Value)
+
+	// Feature value lookup with default.
+	color := gb.Feature("signup-button-color").GetValueWithDefault("blue")
+	fmt.Printf("\nsignup-button-color: %s\n", color)
+
+	// Run simple experiment.
+	experiment :=
+		growthbook.NewExperiment("my-experiment").
+			WithVariations("A", "B")
+
+	result := gb.Run(experiment)
+
+	fmt.Printf("\nmy-experiment value: %s\n\n", result.Value)
+
+	// Run more complex experiment.
+	experiment2 :=
+		growthbook.NewExperiment("complex-experiment").
+			WithVariations(
+				map[string]string{"color": "blue", "size": "small"},
+				map[string]string{"color": "green", "size": "large"},
+			).
+			WithWeights(0.8, 0.2).
+			WithCoverage(0.5)
+
+	result2 := gb.Run(experiment2)
+	fmt.Println("complex-experiment values:",
+		result2.Value.(map[string]string)["color"],
+		result2.Value.(map[string]string)["size"])
+}
+```
+
+The `features.json` file referenced in the above code looks like this:
+
+```json
+{
+  "test-feature": {
+    "defaultValue": 5,
+    "rules": [
+      {
+        "force": 10,
+        "condition": {
+          "country": { "$in": ["US", "CA"] },
+          "browser": "firefox"
+        }
+      }
+    ]
+  },
+  "signup-button-color": {
+    "defaultValue": "green"
+  }
+}
+```
