@@ -487,26 +487,14 @@ func main() {
 	gb := growthbook.New(context)
 
 	// Perform feature test.
-	fmt.Print("test-feature (US, firefox): ")
-	if gb.Feature("test-feature").On {
-		fmt.Print("ON")
-	} else {
-		fmt.Println("OFF")
-	}
-	fmt.Println("  value =", gb.Feature("test-feature").Value)
+	fmt.Println("test-feature (US, firefox): ", gb.Feature("test-feature").Value)
 
 	// Perform feature test with different user attributes.
 	gb.WithAttributes(growthbook.Attributes{
 		"country": "AT",
 		"browser": "firefox",
 	})
-	fmt.Print("test-feature (AT, firefox): ")
-	if gb.Feature("test-feature").On {
-		fmt.Print("ON")
-	} else {
-		fmt.Println("OFF")
-	}
-	fmt.Println("  value =", gb.Feature("test-feature").Value)
+	fmt.Println("test-feature (AT, firefox): ", gb.Feature("test-feature").Value)
 
 	// Feature value lookup with default.
 	color := gb.Feature("signup-button-color").GetValueWithDefault("blue")
