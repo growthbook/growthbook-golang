@@ -428,3 +428,9 @@ func (gb *GrowthBook) GetAllResults() map[string]*ExperimentResult {
 func (gb *GrowthBook) ClearSavedResults() {
 	gb.latestResults = map[string]*ExperimentResult{}
 }
+
+// ClearTrackingData clears out records of calls to the experiment
+// tracking callback.
+func (gb *GrowthBook) ClearTrackingData() {
+	gb.trackedExperiments = map[string]bool{}
+}
