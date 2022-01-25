@@ -27,43 +27,42 @@ settings to the main `GrowthBook` type, while the `GrowthBook` type
 provides a `Feature` method for accessing feature values, and a `Run`
 method for running inline experiments.
 
-
 ```go
-	// Parse feature map from JSON data.
-	features := growthbook.ParseFeatureMap(jsonBody)
+// Parse feature map from JSON data.
+features := growthbook.ParseFeatureMap(jsonBody)
 
-	// Create context and main GrowthBook object.
-	context := growthbook.NewContext().WithFeatures(features)
-	gb := growthbook.New(context)
+// Create context and main GrowthBook object.
+context := growthbook.NewContext().WithFeatures(features)
+gb := growthbook.New(context)
 
-	// Perform feature test.
-	if gb.Feature("my-feature").On {
-		// ...
-	}
+// Perform feature test.
+if gb.Feature("my-feature").On {
+  // ...
+}
 
-	color := gb.Feature("signup-button-color").GetValueWithDefault("blue")
-	fmt.Println(color)
+color := gb.Feature("signup-button-color").GetValueWithDefault("blue")
+fmt.Println(color)
 
-	experiment :=
-		growthbook.NewExperiment("my-experiment").
-			WithVariations("A", "B")
+experiment :=
+  growthbook.NewExperiment("my-experiment").
+    WithVariations("A", "B")
 
-	result := gb.Run(experiment)
+result := gb.Run(experiment)
 
-	fmt.Println(result.Value)
+fmt.Println(result.Value)
 
-	experiment2 :=
-		growthbook.NewExperiment("complex-experiment").
-			WithVariations(
-				map[string]string{"color": "blue", "size": "small"},
-				map[string]string{"color": "green", "size": "large"},
-			).
-			WithWeights(0.8, 0.2).
-			WithCoverage(0.5)
+experiment2 :=
+  growthbook.NewExperiment("complex-experiment").
+    WithVariations(
+      map[string]string{"color": "blue", "size": "small"},
+      map[string]string{"color": "green", "size": "large"},
+    ).
+    WithWeights(0.8, 0.2).
+    WithCoverage(0.5)
 
-	result2 := gb.Run(experiment2)
-	fmt.Println(result2.Value.(map[string]string)["color"],
-		result2.Value.(map[string]string)["size"])
+result2 := gb.Run(experiment2)
+fmt.Println(result2.Value.(map[string]string)["color"],
+  result2.Value.(map[string]string)["size"])
 ```
 
 ## The GrowthBook Context
@@ -73,11 +72,12 @@ fields can be set using the `WithEnabled`, `WithAttributes`,
 `WithURL`, `WithFeatures`, `WithForcedVariations`, `WithQAMode` and
 `WithTrackingCallback` methods. These `With...` methods return a
 `Context` pointer to enable call chaining. Context details can
-alternatively be parsed from JSON data (see "JSON data
-representations" below). The fields in a `Context` include information
-about the user for whom feature results will be evaluated (the
-`Attributes`), the features that are defined, plus some additional
-values to control forcing of feature results under some circumstances.
+alternatively be parsed from JSON data (see [JSON data
+representations](#json-data-representations)). The fields in a
+`Context` include information about the user for whom feature results
+will be evaluated (the `Attributes`), the features that are defined,
+plus some additional values to control forcing of feature results
+under some circumstances.
 
 Given a `Context` value, a new `GrowthBook` value can be created using
 the `New` function. The `GrowthBook` type has some getter and setter
@@ -99,20 +99,117 @@ features := growthbook.ParseFeatureMap(featureJSON)
 
 // Create context and main GrowthBook object.
 context := growthbook.NewContext().
-	WithFeatures(features).
-	WithAttributes(growthbook.Attributes{
-		"country": "US",
-		"browser": "firefox",
-	})
+  WithFeatures(features).
+  WithAttributes(growthbook.Attributes{
+    "country": "US",
+    "browser": "firefox",
+  })
 gb := growthbook.New(context)
 ```
 
 ### Features
 
+The `WithFeatures` method of `Context` takes a `FeatureMap` value,
+which is defined as `map[string]*Feature`, and which can be created
+from JSON data using the `ParseFeatureMap` function (see [JSON data
+representations](#json-data-representations)). You can pass a feature
+map generated this way to the `WithFeatures` method of `Context` or
+`GrowthBook`:
+
+```go
+featureMap := ParseFeatureMap([]byte(
+  `{
+     "features": {
+       "feature-1": {...},
+       "feature-2": {...},
+       "another-feature": {...},
+     }
+   }`))
+
+gb := NewContext().WithFeatures(featureMap)
+```
+
+If you need to load feature definitions from a remote source like an
+API or database, you can update the context at any time with
+`WithFeatures`.
+
+If you use the GrowthBook App to manage your features, you don't need
+to build this JSON file yourself -- it will auto-generate one for you
+and make it available via an API endpoint.
+
+If you prefer to build this file by hand or you want to know how it
+works under the hood, check out the detailed [Feature
+Definitions](#feature-definitions) section below.
+
 ### Attributes
+
+You can specify attributes about the current user and request. These
+are used for two things:
+
+ * Feature targeting (e.g. paid users get one value, free users get
+   another);
+   
+ * Assigning persistent variations in A/B tests (e.g. user id "123"
+   always gets variation B).
+
+Attributes can be any JSON data type -- boolean, integer, string,
+array, or object and are represented by the `Attributes` type, which
+is an alias for the generic `map[string]interface{}` type that Go uses
+for JSON objects. If you know them up front, you can pass them into
+`Context` or `GrowthBook` using `WithAttributes`:
+
+```go
+gb := growthbook.New(context).
+  WithAttributes(Attributes{
+    "id":       "123",
+    "loggedIn": true,
+    "deviceId": "abc123def456",
+    "company":  "acme",
+    "paid":     false,
+    "url":      "/pricing",
+    "browser":  "chrome",
+    "mobile":   false,
+    "country":  "US",
+  })
+```
+
+You can also set or update attributes asynchronously at any time with
+the `WithAttributes` method. This will completely overwrite the
+attributes object with whatever you pass in. If you want to merge
+attributes instead, you can get the existing ones with `Attributes`:
+
+```go
+attrs := gb.Attributes()
+attrs["url"] = "/checkout"
+gb.WithAttributes(attrs)
+```
+
+Be aware that changing attributes may change the assigned feature
+values. This can be disorienting to users if not handled carefully. A
+common approach is to only refresh attributes on navigation, when the
+window is focused, and/or after a user performs a major action like
+logging in.
 
 ### Tracking Callback
 
+Any time an experiment is run to determine the value of a feature, we
+can run a callback function so you can record the assigned value in
+your event tracking or analytics system of choice.
+
+```go
+context.WithTrackingCallback(func(experiment *growthbook.Experiment,
+  result *growthbook.ExperimentResult) {
+    // Example using Segment.io
+    client.Enqueue(analytics.Track{
+      UserId: context.Attributes()["id"],
+      Event: "Experiment Viewed",
+      Properties: analytics.NewProperties().
+        Set("experimentId", experiment.Key).
+        Set("variationId", result.VariationID)
+    })
+  }
+)
+```
 
 
 ## Using Features
