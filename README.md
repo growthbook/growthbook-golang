@@ -212,71 +212,6 @@ context.WithTrackingCallback(func(experiment *growthbook.Experiment,
 ```
 
 
-## Using Features
-
-Given a `GrowthBook` object, feature results can be retrieved using
-the `Feature` method. This takes the name of a feature as a parameter,
-and uses the stored feature definitions and attributes to evaluate
-whether the feature is active and what the feature value is. For
-example:
-
-```go
-if gb.Feature("test-feature").On {
-	...
-}
-```
-
-Defaulting of the values of feature results is assisted by the
-`GetValueWithDefault` method on the `FeatureResult` type. For example,
-this code evaluates the result of a feature and returns the feature
-value, defaulting to "blue" if the feature has no value:
-
-```go
-color := gb.Feature("signup-button-color").GetValueWithDefault("blue")
-```
-
-## Feature Definitions
-
-### Basic Feature
-
-#### Default Values
-
-### Override Rules
-
-#### Rule Conditions
-
-#### Force Rules
-
-##### Gradual Rollouts
-
-#### Experiment Rules
-
-##### Weights
-
-##### Tracking Key
-
-##### Hash Attribute
-
-##### Coverage
-
-##### Namespaces
-
-
-
-## Inline Experiments
-
-Experiments can be defined and run using the `Experiment` type and the
-`Run` method of the `GrowthBook` type. Experiment definitions can be
-created directly as values of the `Experiment` type, or parsed from
-JSON definitions using the `ParseExperiment` function. Passing an
-`Experiment` value to the `Run` method of the `GrowthBook` type will
-run the experiment, returing an `ExperimentResult` value that contains
-the resulting feature value. This allows users to run arbitrary
-experiments without providing feature definitions up-front.
-
-### Inline Experiment Return Value
-
-
 ## Error handling
 
 The GrowthBook public API does not return errors under any normal
@@ -310,6 +245,141 @@ server code will never crash because of problems in the GrowthBook
 SDK. The only effect of error conditions in the inputs to the SDK may
 be that feature values and results of experiments are not what you
 expect.
+
+
+## Using Features
+
+The main method, `GrowthBook.Feature(key)`, takes a feature key and
+uses the stored feature definitions and attributes to evaluate the
+feature value. It returns a `FeatureResult` value with the following
+fields:
+
+ * `Value`: the JSON value of the feature (or null if not defined), as
+   a `FeatureValue` value (which is just an alias for `interface{}`,
+   using Go's default behavior for handling JSON values);
+ * `On` and `Off`: the JSON value cast to booleans (to make your code
+   easier to read);
+ * `Source`: a value of type `FeatureResultSource`, telling why the
+   value was assigned to the user. One of
+   `UnknownFeatureResultSource`, `DefaultValueResultSource`,
+   `ForceResultSource`, or `ExperimentResultSource`.
+ * `Experiment`: information about the experiment (if any) which was
+   used to assign the value to the user.
+ * `ExperimentResult`: the result of the experiment (if any) which was
+   used to assign the value to the user.
+
+Here's an example that uses all of them:
+
+```go
+result := gb.Feature("my-feature")
+
+// The JSON value (might be null, string, boolean, number, array, or
+// object).
+fmt.Println(result.Value)
+
+if result.On {
+  // Feature value is truthy (in a Javascript sense)
+}
+if result.Off {
+  // Feature value is falsy
+}
+
+// If the feature value was assigned as part of an experiment
+if result.Source == growthbook.ExperimentResultSource {
+  // Get all the possible variations that could have been assigned
+  fmt.Println(result.Experiment.Variations)
+}
+```
+
+Defaulting of the values of feature results is assisted by the
+`GetValueWithDefault` method on the `FeatureResult` type. For example,
+this code evaluates the result of a feature and returns the feature
+value, defaulting to "blue" if the feature has no value:
+
+```go
+color := gb.Feature("signup-button-color").GetValueWithDefault("blue")
+```
+
+
+## Feature Definitions
+
+For details of the JSON format used for feature definitions, consult
+the documentation for the [GrowthBook Javascript
+SDK](https://docs.growthbook.io/lib/js). The Go SDK uses exactly the
+same logic for processing features, and can ingest the same JSON
+feature definitions as are used by the Javascript SDK (see [JSON data
+representations](#json-data-representations)).
+
+It is possible to create `Feature` values in the Go SDK by hand,
+simply by creating Go values of the appropriate types (`Feature`,
+`FeatureValue`, `FeatureRule`), but the most common use case is
+likely to be ingesting feature definitions from JSON data using the
+`ParseFeatureMap` function.
+
+
+## Inline Experiments
+
+Experiments can be defined and run using the `Experiment` type and the
+`Run` method of the `GrowthBook` type. Experiment definitions can be
+created directly as values of the `Experiment` type, or parsed from
+JSON definitions using the `ParseExperiment` function. Passing an
+`Experiment` value to the `Run` method of the `GrowthBook` type will
+run the experiment, returing an `ExperimentResult` value that contains
+the resulting feature value. This allows users to run arbitrary
+experiments without providing feature definitions up-front.
+
+```go
+experiment :=
+  growthbook.NewExperiment("my-experiment").
+    WithVariations("red", "blue", "green")
+
+result := gb.Run(experiment)
+```
+
+All other experiment settings (weights, hash attribute, coverage,
+namespace, condition) are supported when using inline experiments: the
+`Experiment` type has `With...` methods that allow these fields to be
+set easily (i.e. `WithWeights`, `WithHashAttribute`, `WithCoverage`,
+`WithNamespace`, `WithCondition`).
+
+In addition, there are a few other settings that only really make
+sense for inline experiments:
+
+ * `Force` can be set to one of the variation array indexes. Everyone
+   will be immediately assigned the specified value.
+   
+ * `Active` can be set to `false` to disable the experiment and return
+    the control for everyone.
+    
+### Inline Experiment Return Value
+
+A call to `GrowthBook.Run(experiment)` returns a value of type
+`*ExperimentResult`:
+
+```go
+experiment := growthbook.NewExperiment("my-experiment").
+  WithVariations("A", "B")
+result := gb.Run(experiment)
+
+// If user is part of the experiment
+fmt.Println(result.InExperiment) // true or false
+
+// The index of the assigned variation
+fmt.Println(result.VariationID) // 0 or 1
+
+// The value of the assigned variation
+fmt.Println(result.Value) // "A" or "B"
+
+// The user attribute used to assign a variation
+fmt.Println(result.HashAttribute) // "id"
+
+// The value of that attribute
+fmt.Println(result.HashValue) // e.g. "123"
+```
+
+The `InExperiment` flag is only set to true if the user was randomly
+assigned a variation. If the user failed any targeting rules or was
+forced into a specific variation, this flag will be false.
 
 
 ## JSON data representations
