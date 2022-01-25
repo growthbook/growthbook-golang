@@ -1,3 +1,5 @@
+// Package growthbook provides a Go SDK for the GrowthBook A/B testing
+// and feature flagging service.
 package growthbook
 
 import (
