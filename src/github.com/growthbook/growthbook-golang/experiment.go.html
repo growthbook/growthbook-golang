@@ -1,0 +1,236 @@
+<!DOCTYPE html><html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#375EAB"/>
+
+  <title>growthbook-golang - Documentation</title>
+
+
+
+
+
+
+
+
+
+
+<link type="text/css" rel="stylesheet" href="../../../../lib/style.css"/></head>
+<body>
+
+<div id="lowframe" style="position: fixed; bottom: 0; left: 0; height: 0; width: 100%; border-top: thin solid grey; background-color: white; overflow: auto;">
+...
+</div><!-- #lowframe -->
+
+<div id="topbar" class="wide"><div class="container">
+<div class="top-heading" id="heading-wide"><a href="../../../../">Documentation</a></div>
+<div class="top-heading" id="heading-narrow"><a href="../../../../">Documentation</a></div>
+<!--<a href="#" id="menu-button"><span id="menu-button-arrow">▽</span></a>-->
+<div id="menu">
+<a href="../../../../" style="margin-right: 10px;">Package Index</a>
+</div>
+</div></div>
+
+
+
+<div id="page" class="wide">
+<div class="container">
+
+
+  <h1>
+    Source file
+    <a href="/src">src</a>/<a href="../../../../src/github.com.html">github.com</a>/<a href="../../../../src/github.com/growthbook">growthbook</a>/<a href="../../../../src/github.com/growthbook/growthbook-golang">growthbook-golang</a>/<span class="text-muted">experiment.go</span>
+  </h1>
+
+
+
+
+
+  <h2>
+    Documentation: <a href="../../../../github.com/growthbook/growthbook-golang">github.com/growthbook/growthbook-golang</a>
+  </h2>
+
+
+
+<div id="nav"></div>
+
+
+
+<pre><span id="L1" class="ln">     1  </span>package growthbook
+<span id="L2" class="ln">     2  </span>
+<span id="L3" class="ln">     3  </span>import &#34;encoding/json&#34;
+<span id="L4" class="ln">     4  </span>
+<span id="L5" class="ln">     5  </span><span class="comment">// Experiment defines a single experiment.</span>
+<span id="L6" class="ln">     6  </span>type Experiment struct {
+<span id="L7" class="ln">     7  </span>	Key           string
+<span id="L8" class="ln">     8  </span>	Variations    []FeatureValue
+<span id="L9" class="ln">     9  </span>	Weights       []float64
+<span id="L10" class="ln">    10  </span>	Active        bool
+<span id="L11" class="ln">    11  </span>	Coverage      *float64
+<span id="L12" class="ln">    12  </span>	Condition     Condition
+<span id="L13" class="ln">    13  </span>	Namespace     *Namespace
+<span id="L14" class="ln">    14  </span>	Force         *int
+<span id="L15" class="ln">    15  </span>	HashAttribute *string
+<span id="L16" class="ln">    16  </span>}
+<span id="L17" class="ln">    17  </span>
+<span id="L18" class="ln">    18  </span><span class="comment">// NewExperiment creates an experiment with default settings: active,</span>
+<span id="L19" class="ln">    19  </span><span class="comment">// but all other fields empty.</span>
+<span id="L20" class="ln">    20  </span>func NewExperiment(key string) *Experiment {
+<span id="L21" class="ln">    21  </span>	return &amp;Experiment{
+<span id="L22" class="ln">    22  </span>		Key:    key,
+<span id="L23" class="ln">    23  </span>		Active: true,
+<span id="L24" class="ln">    24  </span>	}
+<span id="L25" class="ln">    25  </span>}
+<span id="L26" class="ln">    26  </span>
+<span id="L27" class="ln">    27  </span><span class="comment">// WithVariations set the feature variations for an experiment.</span>
+<span id="L28" class="ln">    28  </span>func (exp *Experiment) WithVariations(variations ...FeatureValue) *Experiment {
+<span id="L29" class="ln">    29  </span>	exp.Variations = variations
+<span id="L30" class="ln">    30  </span>	return exp
+<span id="L31" class="ln">    31  </span>}
+<span id="L32" class="ln">    32  </span>
+<span id="L33" class="ln">    33  </span><span class="comment">// WithWeights set the weights for an experiment.</span>
+<span id="L34" class="ln">    34  </span>func (exp *Experiment) WithWeights(weights ...float64) *Experiment {
+<span id="L35" class="ln">    35  </span>	exp.Weights = weights
+<span id="L36" class="ln">    36  </span>	return exp
+<span id="L37" class="ln">    37  </span>}
+<span id="L38" class="ln">    38  </span>
+<span id="L39" class="ln">    39  </span><span class="comment">// WithActive sets the enabled flag for an experiment.</span>
+<span id="L40" class="ln">    40  </span>func (exp *Experiment) WithActive(active bool) *Experiment {
+<span id="L41" class="ln">    41  </span>	exp.Active = active
+<span id="L42" class="ln">    42  </span>	return exp
+<span id="L43" class="ln">    43  </span>}
+<span id="L44" class="ln">    44  </span>
+<span id="L45" class="ln">    45  </span><span class="comment">// WithCoverage sets the coverage for an experiment.</span>
+<span id="L46" class="ln">    46  </span>func (exp *Experiment) WithCoverage(coverage float64) *Experiment {
+<span id="L47" class="ln">    47  </span>	exp.Coverage = &amp;coverage
+<span id="L48" class="ln">    48  </span>	return exp
+<span id="L49" class="ln">    49  </span>}
+<span id="L50" class="ln">    50  </span>
+<span id="L51" class="ln">    51  </span><span class="comment">// WithCondition sets the condition for an experiment.</span>
+<span id="L52" class="ln">    52  </span>func (exp *Experiment) WithCondition(condition Condition) *Experiment {
+<span id="L53" class="ln">    53  </span>	exp.Condition = condition
+<span id="L54" class="ln">    54  </span>	return exp
+<span id="L55" class="ln">    55  </span>}
+<span id="L56" class="ln">    56  </span>
+<span id="L57" class="ln">    57  </span><span class="comment">// WithNamespace sets the namespace for an experiment.</span>
+<span id="L58" class="ln">    58  </span>func (exp *Experiment) WithNamespace(namespace *Namespace) *Experiment {
+<span id="L59" class="ln">    59  </span>	exp.Namespace = namespace
+<span id="L60" class="ln">    60  </span>	return exp
+<span id="L61" class="ln">    61  </span>}
+<span id="L62" class="ln">    62  </span>
+<span id="L63" class="ln">    63  </span><span class="comment">// WithForce sets the forced value index for an experiment.</span>
+<span id="L64" class="ln">    64  </span>func (exp *Experiment) WithForce(force int) *Experiment {
+<span id="L65" class="ln">    65  </span>	exp.Force = &amp;force
+<span id="L66" class="ln">    66  </span>	return exp
+<span id="L67" class="ln">    67  </span>}
+<span id="L68" class="ln">    68  </span>
+<span id="L69" class="ln">    69  </span><span class="comment">// WithHashAttribute sets the hash attribute for an experiment.</span>
+<span id="L70" class="ln">    70  </span>func (exp *Experiment) WithHashAttribute(hashAttribute string) *Experiment {
+<span id="L71" class="ln">    71  </span>	exp.HashAttribute = &amp;hashAttribute
+<span id="L72" class="ln">    72  </span>	return exp
+<span id="L73" class="ln">    73  </span>}
+<span id="L74" class="ln">    74  </span>
+<span id="L75" class="ln">    75  </span><span class="comment">// ParseExperiment creates an Experiment value from raw JSON input.</span>
+<span id="L76" class="ln">    76  </span>func ParseExperiment(data []byte) *Experiment {
+<span id="L77" class="ln">    77  </span>	dict := map[string]interface{}{}
+<span id="L78" class="ln">    78  </span>	err := json.Unmarshal(data, &amp;dict)
+<span id="L79" class="ln">    79  </span>	if err != nil {
+<span id="L80" class="ln">    80  </span>		logError(ErrJSONFailedToParse, &#34;Experiment&#34;)
+<span id="L81" class="ln">    81  </span>		return NewExperiment(&#34;&#34;)
+<span id="L82" class="ln">    82  </span>	}
+<span id="L83" class="ln">    83  </span>	return BuildExperiment(dict)
+<span id="L84" class="ln">    84  </span>}
+<span id="L85" class="ln">    85  </span>
+<span id="L86" class="ln">    86  </span><span class="comment">// BuildExperiment creates an Experiment value from a JSON object</span>
+<span id="L87" class="ln">    87  </span><span class="comment">// represented as a Go map.</span>
+<span id="L88" class="ln">    88  </span>func BuildExperiment(dict map[string]interface{}) *Experiment {
+<span id="L89" class="ln">    89  </span>	exp := NewExperiment(&#34;tmp&#34;)
+<span id="L90" class="ln">    90  </span>	gotKey := false
+<span id="L91" class="ln">    91  </span>	for k, v := range dict {
+<span id="L92" class="ln">    92  </span>		switch k {
+<span id="L93" class="ln">    93  </span>		case &#34;key&#34;:
+<span id="L94" class="ln">    94  </span>			tmp, ok := v.(string)
+<span id="L95" class="ln">    95  </span>			if !ok {
+<span id="L96" class="ln">    96  </span>				logError(ErrJSONInvalidType, &#34;Experiment&#34;, &#34;key&#34;)
+<span id="L97" class="ln">    97  </span>				continue
+<span id="L98" class="ln">    98  </span>			}
+<span id="L99" class="ln">    99  </span>			exp.Key = tmp
+<span id="L100" class="ln">   100  </span>			gotKey = true
+<span id="L101" class="ln">   101  </span>		case &#34;variations&#34;:
+<span id="L102" class="ln">   102  </span>			exp = exp.WithVariations(BuildFeatureValues(v)...)
+<span id="L103" class="ln">   103  </span>		case &#34;weights&#34;:
+<span id="L104" class="ln">   104  </span>			vals, ok := v.([]interface{})
+<span id="L105" class="ln">   105  </span>			if !ok {
+<span id="L106" class="ln">   106  </span>				logError(ErrJSONInvalidType, &#34;Experiment&#34;, &#34;weights&#34;)
+<span id="L107" class="ln">   107  </span>				continue
+<span id="L108" class="ln">   108  </span>			}
+<span id="L109" class="ln">   109  </span>			weights := make([]float64, len(vals))
+<span id="L110" class="ln">   110  </span>			for i := range vals {
+<span id="L111" class="ln">   111  </span>				val, ok := vals[i].(float64)
+<span id="L112" class="ln">   112  </span>				if !ok {
+<span id="L113" class="ln">   113  </span>					logError(ErrJSONInvalidType, &#34;Experiment&#34;, &#34;weights&#34;)
+<span id="L114" class="ln">   114  </span>					continue
+<span id="L115" class="ln">   115  </span>				}
+<span id="L116" class="ln">   116  </span>				weights[i] = val
+<span id="L117" class="ln">   117  </span>			}
+<span id="L118" class="ln">   118  </span>			exp = exp.WithWeights(weights...)
+<span id="L119" class="ln">   119  </span>		case &#34;active&#34;:
+<span id="L120" class="ln">   120  </span>			tmp, ok := v.(bool)
+<span id="L121" class="ln">   121  </span>			if !ok {
+<span id="L122" class="ln">   122  </span>				logError(ErrJSONInvalidType, &#34;Experiment&#34;, &#34;key&#34;)
+<span id="L123" class="ln">   123  </span>				continue
+<span id="L124" class="ln">   124  </span>			}
+<span id="L125" class="ln">   125  </span>			exp = exp.WithActive(tmp)
+<span id="L126" class="ln">   126  </span>		case &#34;coverage&#34;:
+<span id="L127" class="ln">   127  </span>			tmp, ok := v.(float64)
+<span id="L128" class="ln">   128  </span>			if !ok {
+<span id="L129" class="ln">   129  </span>				logError(ErrJSONInvalidType, &#34;Experiment&#34;, &#34;coverage&#34;)
+<span id="L130" class="ln">   130  </span>				continue
+<span id="L131" class="ln">   131  </span>			}
+<span id="L132" class="ln">   132  </span>			exp = exp.WithCoverage(tmp)
+<span id="L133" class="ln">   133  </span>		case &#34;condition&#34;:
+<span id="L134" class="ln">   134  </span>			tmp, ok := v.(map[string]interface{})
+<span id="L135" class="ln">   135  </span>			if !ok {
+<span id="L136" class="ln">   136  </span>				logError(ErrJSONInvalidType, &#34;Experiment&#34;, &#34;condition&#34;)
+<span id="L137" class="ln">   137  </span>				continue
+<span id="L138" class="ln">   138  </span>			}
+<span id="L139" class="ln">   139  </span>			cond := BuildCondition(tmp)
+<span id="L140" class="ln">   140  </span>			if cond == nil {
+<span id="L141" class="ln">   141  </span>				logError(ErrExpJSONInvalidCondition)
+<span id="L142" class="ln">   142  </span>			} else {
+<span id="L143" class="ln">   143  </span>				exp = exp.WithCondition(cond)
+<span id="L144" class="ln">   144  </span>			}
+<span id="L145" class="ln">   145  </span>		case &#34;namespace&#34;:
+<span id="L146" class="ln">   146  </span>			exp = exp.WithNamespace(BuildNamespace(v))
+<span id="L147" class="ln">   147  </span>		case &#34;force&#34;:
+<span id="L148" class="ln">   148  </span>			tmp, ok := v.(float64)
+<span id="L149" class="ln">   149  </span>			if !ok {
+<span id="L150" class="ln">   150  </span>				logError(ErrJSONInvalidType, &#34;Experiment&#34;, &#34;force&#34;)
+<span id="L151" class="ln">   151  </span>				continue
+<span id="L152" class="ln">   152  </span>			}
+<span id="L153" class="ln">   153  </span>			exp = exp.WithForce(int(tmp))
+<span id="L154" class="ln">   154  </span>		case &#34;hashAttribute&#34;:
+<span id="L155" class="ln">   155  </span>			tmp, ok := v.(string)
+<span id="L156" class="ln">   156  </span>			if !ok {
+<span id="L157" class="ln">   157  </span>				logError(ErrJSONInvalidType, &#34;Experiment&#34;, &#34;hashAttribute&#34;)
+<span id="L158" class="ln">   158  </span>				continue
+<span id="L159" class="ln">   159  </span>			}
+<span id="L160" class="ln">   160  </span>			exp = exp.WithHashAttribute(tmp)
+<span id="L161" class="ln">   161  </span>		default:
+<span id="L162" class="ln">   162  </span>			logWarn(WarnJSONUnknownKey, &#34;Experiment&#34;, k)
+<span id="L163" class="ln">   163  </span>		}
+<span id="L164" class="ln">   164  </span>	}
+<span id="L165" class="ln">   165  </span>	if !gotKey {
+<span id="L166" class="ln">   166  </span>		logWarn(WarnExpJSONKeyNotSet)
+<span id="L167" class="ln">   167  </span>	}
+<span id="L168" class="ln">   168  </span>	return exp
+<span id="L169" class="ln">   169  </span>}
+<span id="L170" class="ln">   170  </span>
+</pre><p><a href="../../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?m=text">View as plain text</a></p>
+
+<div id="footer"><a href="../../../../docs.zip">Download docs.zip</a> to browse offline - Generated by <a href="https://godoc.org/golang.org/x/tools/godoc" target="_blank">godoc</a> + <a href="https://code.rocketnine.space/tslocum/godoc-static" target="_blank">godoc-static</a></div>
+
+</div><!-- .container -->
+</div><!-- #page -->
+
+
+</body></html>
