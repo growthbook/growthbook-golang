@@ -15,7 +15,7 @@ jobs:
           # Add ~/go/bin to path
           export PATH="$HOME/go/bin:$PATH"
           
-          mkdir .docs
+          mkdir docs
           
           # godoc and dependencies
           go get golang.org/x/tools/cmd/godoc
@@ -26,9 +26,9 @@ jobs:
           go install code.rocketnine.space/tslocum/godoc-static
           
           # Generate
-          godoc-static -destination=.docs .
+          godoc-static -destination=docs .
       - name: Publish docs
         uses: peaceiris/actions-gh-pages@v3
         with:
           GITHUB_TOKEN: ${{ github.token }}
-          publish_dir: .docs
+          publish_dir: docs
