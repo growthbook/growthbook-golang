@@ -13,9 +13,16 @@ jobs:
       - name: Generate docs
         run: |
           mkdir .docs
+          
+          # godoc and dependencies
           go get golang.org/x/tools/cmd/godoc
           go install golang.org/x/tools/cmd/godoc
+          
+          # godoc-static and dependencies
+          go get code.rocketnine.space/tslocum/godoc-static
           go install code.rocketnine.space/tslocum/godoc-static
+          
+          # Generate
           godoc-static -destination=.docs .
       - name: Publish docs
         uses: peaceiris/actions-gh-pages@v3
