@@ -1,0 +1,23 @@
+name: Documentation
+on:
+  push:
+    branches:
+      - ci # TODO: Remove
+      - main
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Generate docs
+        run: |
+          mkdir .docs
+          go install golang.org/x/tools/cmd/godoc
+          go install code.rocketnine.space/tslocum/godoc-static
+          godoc-static -destination=.docs .
+      - name: Publish docs
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          GITHUB_TOKEN: ${{ github.token }}
+          publish_dir: .docs
