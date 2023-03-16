@@ -13,6 +13,7 @@ jobs:
       - name: Generate docs
         run: |
           mkdir .docs
+          go get golang.org/x/tools/cmd/godoc
           go install golang.org/x/tools/cmd/godoc
           go install code.rocketnine.space/tslocum/godoc-static
           godoc-static -destination=.docs .
