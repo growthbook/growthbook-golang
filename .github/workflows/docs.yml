@@ -12,6 +12,9 @@ jobs:
       - uses: actions/checkout@v2
       - name: Generate docs
         run: |
+          # Add ~/go/bin to path
+          export PATH="$HOME/go/bin:$PATH"
+          
           mkdir .docs
           
           # godoc and dependencies
