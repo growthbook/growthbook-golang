@@ -10,6 +10,7 @@ const (
 	ErrJSONFailedToParse       = "failed parsing JSON input"
 	ErrJSONInvalidType         = "invalid JSON data type"
 	ErrCtxJSONInvalidURL       = "invalid URL in JSON context data"
+	ErrCtxArrayInAttributes    = "array values not permitted in attributes (use a slice)"
 	ErrExpJSONInvalidCondition = "invalid condition in JSON experiment data"
 	ErrCondJSONNot             = "invalid $not in JSON condition data"
 	ErrCondJSONSequence        = "something wrong in condition sequence"
