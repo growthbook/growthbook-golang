@@ -20,6 +20,9 @@ type GrowthBook struct {
 
 // New created a new GrowthBook instance.
 func New(context *Context) *GrowthBook {
+	if !context.Valid {
+		return nil
+	}
 	return &GrowthBook{
 		context,
 		map[string]bool{},
@@ -105,6 +108,7 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 
 	// Loop through the feature rules (if any).
 	for _, rule := range feature.Rules {
+
 		// If the rule has a condition and the condition does not pass,
 		// skip this rule.
 		if rule.Condition != nil && !rule.Condition.Eval(gb.Attributes()) {

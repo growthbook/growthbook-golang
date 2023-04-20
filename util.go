@@ -3,6 +3,7 @@ package growthbook
 import (
 	"hash/fnv"
 	"net/url"
+	"reflect"
 	"strconv"
 )
 
@@ -144,4 +145,24 @@ func truthy(v interface{}) bool {
 		return v.(float64) != 0
 	}
 	return true
+}
+
+// This function converts slices of concrete types to []interface{}.
+// This is needed to handle the common case where a user passes an
+// attribute as a []string (or []int), and this needs to be compared
+// against feature data deserialized from JSON, which always results
+// in []interface{} slices.
+func fixSliceTypes(vin interface{}) interface{} {
+	// Convert all type-specific slices to interface{} slices.
+	v := reflect.ValueOf(vin)
+	rv := vin
+	if v.Kind() == reflect.Slice {
+		srv := make([]interface{}, v.Len())
+		for i := 0; i < v.Len(); i++ {
+			elem := v.Index(i).Interface()
+			srv[i] = elem
+		}
+		rv = srv
+	}
+	return rv
 }
