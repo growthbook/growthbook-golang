@@ -84,13 +84,11 @@
 			</div>
 			<div class="expanded">
 				<h2 class="toggleButton" title="Click to hide Overview section">Overview ▾</h2>
-				<p>
-Package growthbook provides a Go SDK for the GrowthBook A/B testing
+				<p>Package growthbook provides a Go SDK for the GrowthBook A/B testing
 and feature flagging service.
-</p>
 
 				
-			</div>
+			</p></div>
 		</div>
 
 		<div id="pkg-index" class="toggleVisible">
@@ -414,14 +412,13 @@ and feature flagging service.
 		
 			<h2 id="pkg-constants">Constants</h2>
 			
-				<p>
-Message constants used for logging.
-</p>
+				<p>Message constants used for logging.
 
-				<pre>const (
+				</p><pre>const (
     <span id="ErrJSONFailedToParse">ErrJSONFailedToParse</span>       = &#34;failed parsing JSON input&#34;
     <span id="ErrJSONInvalidType">ErrJSONInvalidType</span>         = &#34;invalid JSON data type&#34;
     <span id="ErrCtxJSONInvalidURL">ErrCtxJSONInvalidURL</span>       = &#34;invalid URL in JSON context data&#34;
+    <span id="ErrCtxArrayInAttributes">ErrCtxArrayInAttributes</span>    = &#34;array values not permitted in attributes (use a slice)&#34;
     <span id="ErrExpJSONInvalidCondition">ErrExpJSONInvalidCondition</span> = &#34;invalid condition in JSON experiment data&#34;
     <span id="ErrCondJSONNot">ErrCondJSONNot</span>             = &#34;invalid $not in JSON condition data&#34;
     <span id="ErrCondJSONSequence">ErrCondJSONSequence</span>        = &#34;something wrong in condition sequence&#34;
@@ -448,14 +445,13 @@ Message constants used for logging.
 		
 			
 			
-			<h2 id="SetLogger">func <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=2718:2751#L47">SetLogger</a>
+			<h2 id="SetLogger">func <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=2805:2838#L48">SetLogger</a>
 				<a class="permalink" href="#SetLogger">¶</a>
 				
 				
 			</h2>
 			<pre>func SetLogger(userLogger <a href="#Logger">Logger</a>)</pre>
-			<p>
-SetLogger sets up the logging interface used throughout. The idea
+			<p>SetLogger sets up the logging interface used throughout. The idea
 here is to provide developers with the option of handling errors
 and warnings in a strict way during development and a lenient way
 in production. For example, in development, setting a logger that
@@ -465,7 +461,6 @@ would make more sense to log only warnings and errors and to
 proceed without halting. All GrowthBook SDK functions leave values
 in a sensible default state after errors, so production systems can
 essentially ignore any errors.
-</p>
 
 			
 			
@@ -474,17 +469,15 @@ essentially ignore any errors.
 		
 			
 			
-			<h2 id="Attributes">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=105:143#L1">Attributes</a>
+			</p><h2 id="Attributes">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=105:143#L1">Attributes</a>
 				<a class="permalink" href="#Attributes">¶</a>
 				
 				
 			</h2>
-			<p>
-Attributes is an arbitrary JSON object containing user and request
+			<p>Attributes is an arbitrary JSON object containing user and request
 attributes.
-</p>
 
-			<pre>type Attributes map[<a href="../../../builtin/#string">string</a>]interface{}</pre>
+			</p><pre>type Attributes map[<a href="../../../builtin/#string">string</a>]interface{}</pre>
 
 			
 
@@ -505,12 +498,10 @@ attributes.
 				
 				
 			</h2>
-			<p>
-Condition represents conditions used to target features/experiments
+			<p>Condition represents conditions used to target features/experiments
 to specific users.
-</p>
 
-			<pre>type Condition interface {
+			</p><pre>type Condition interface {
     Eval(attrs <a href="#Attributes">Attributes</a>) <a href="../../../builtin/#bool">bool</a>
 }</pre>
 
@@ -530,24 +521,20 @@ to specific users.
 					
 				</h3>
 				<pre>func BuildCondition(cond map[<a href="../../../builtin/#string">string</a>]interface{}) <a href="#Condition">Condition</a></pre>
-				<p>
-BuildCondition creates a Condition value from a JSON object
+				<p>BuildCondition creates a Condition value from a JSON object
 represented as a Go map.
-</p>
 
 				
 				
 			
 				
-				<h3 id="ParseCondition">func <a href="../../../src/github.com/growthbook/growthbook-golang/conditions.go.html?s=2105:2147#L85">ParseCondition</a>
+				</p><h3 id="ParseCondition">func <a href="../../../src/github.com/growthbook/growthbook-golang/conditions.go.html?s=2105:2147#L85">ParseCondition</a>
 					<a class="permalink" href="#ParseCondition">¶</a>
 					
 					
 				</h3>
 				<pre>func ParseCondition(data []<a href="../../../builtin/#byte">byte</a>) <a href="#Condition">Condition</a></pre>
-				<p>
-ParseCondition creates a Condition value from raw JSON input.
-</p>
+				<p>ParseCondition creates a Condition value from raw JSON input.
 
 				
 				
@@ -557,18 +544,17 @@ ParseCondition creates a Condition value from raw JSON input.
 		
 			
 			
-			<h2 id="Context">type <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=135:364#L1">Context</a>
+			</p><h2 id="Context">type <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=146:398#L1">Context</a>
 				<a class="permalink" href="#Context">¶</a>
 				
 				
 			</h2>
-			<p>
-Context contains the options for creating a new GrowthBook
+			<p>Context contains the options for creating a new GrowthBook
 instance.
-</p>
 
-			<pre>type Context struct {
+			</p><pre>type Context struct {
 <span id="Context.Enabled"></span>    Enabled          <a href="../../../builtin/#bool">bool</a>
+<span id="Context.Valid"></span>    Valid            <a href="../../../builtin/#bool">bool</a>
 <span id="Context.Attributes"></span>    Attributes       <a href="#Attributes">Attributes</a>
 <span id="Context.URL"></span>    URL              *<a href="../../../net/url/">url</a>.<a href="../../../net/url/#URL">URL</a>
 <span id="Context.Features"></span>    Features         <a href="#FeatureMap">FeatureMap</a>
@@ -588,45 +574,39 @@ instance.
 
 			
 				
-				<h3 id="BuildContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2699:2754#L84">BuildContext</a>
+				<h3 id="BuildContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=3037:3092#L96">BuildContext</a>
 					<a class="permalink" href="#BuildContext">¶</a>
 					
 					
 				</h3>
 				<pre>func BuildContext(dict map[<a href="../../../builtin/#string">string</a>]interface{}) *<a href="#Context">Context</a></pre>
-				<p>
-BuildContext creates a Context value from a JSON object represented
+				<p>BuildContext creates a Context value from a JSON object represented
 as a Go map.
-</p>
 
 				
 				
 			
 				
-				<h3 id="NewContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=874:900#L20">NewContext</a>
+				</p><h3 id="NewContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=908:934#L22">NewContext</a>
 					<a class="permalink" href="#NewContext">¶</a>
 					
 					
 				</h3>
 				<pre>func NewContext() *<a href="#Context">Context</a></pre>
-				<p>
-NewContext creates a context with default settings: enabled, but
+				<p>NewContext creates a context with default settings: enabled, but
 all other fields empty.
-</p>
 
 				
 				
 			
 				
-				<h3 id="ParseContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2384:2423#L72">ParseContext</a>
+				</p><h3 id="ParseContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2722:2761#L84">ParseContext</a>
 					<a class="permalink" href="#ParseContext">¶</a>
 					
 					
 				</h3>
 				<pre>func ParseContext(data []<a href="../../../builtin/#byte">byte</a>) *<a href="#Context">Context</a></pre>
-				<p>
-ParseContext creates a Context value from raw JSON input.
-</p>
+				<p>ParseContext creates a Context value from raw JSON input.
 
 				
 				
@@ -634,110 +614,96 @@ ParseContext creates a Context value from raw JSON input.
 
 			
 				
-				<h3 id="Context.WithAttributes">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1138:1204#L31">WithAttributes</a>
+				</p><h3 id="Context.WithAttributes">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1185:1251#L33">WithAttributes</a>
 					<a class="permalink" href="#Context.WithAttributes">¶</a>
 					
 					
 				</h3>
 				<pre>func (ctx *<a href="#Context">Context</a>) WithAttributes(attributes <a href="#Attributes">Attributes</a>) *<a href="#Context">Context</a></pre>
-				<p>
-WithAttributes sets the attributes for a context.
-</p>
+				<p>WithAttributes sets the attributes for a context.
 
 				
 				
 				
 			
 				
-				<h3 id="Context.WithEnabled">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=990:1044#L25">WithEnabled</a>
+				</p><h3 id="Context.WithEnabled">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1037:1091#L27">WithEnabled</a>
 					<a class="permalink" href="#Context.WithEnabled">¶</a>
 					
 					
 				</h3>
 				<pre>func (ctx *<a href="#Context">Context</a>) WithEnabled(enabled <a href="../../../builtin/#bool">bool</a>) *<a href="#Context">Context</a></pre>
-				<p>
-WithEnabled sets the enabled flag for a context.
-</p>
+				<p>WithEnabled sets the enabled flag for a context.
 
 				
 				
 				
 			
 				
-				<h3 id="Context.WithFeatures">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1511:1573#L44">WithFeatures</a>
+				</p><h3 id="Context.WithFeatures">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1849:1911#L56">WithFeatures</a>
 					<a class="permalink" href="#Context.WithFeatures">¶</a>
 					
 					
 				</h3>
 				<pre>func (ctx *<a href="#Context">Context</a>) WithFeatures(features <a href="#FeatureMap">FeatureMap</a>) *<a href="#Context">Context</a></pre>
-				<p>
-WithFeatures sets the features for a context (as a value of type
+				<p>WithFeatures sets the features for a context (as a value of type
 FeatureMap, which is a map from feature names to *Feature values).
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="Context.WithForcedVariations">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1787:1874#L52">WithForcedVariations</a>
+				</p><h3 id="Context.WithForcedVariations">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2125:2212#L64">WithForcedVariations</a>
 					<a class="permalink" href="#Context.WithForcedVariations">¶</a>
 					
 					
 				</h3>
 				<pre>func (ctx *<a href="#Context">Context</a>) WithForcedVariations(forcedVariations <a href="#ForcedVariationsMap">ForcedVariationsMap</a>) *<a href="#Context">Context</a></pre>
-				<p>
-WithForcedVariations sets the forced variations for a context (as a
+				<p>WithForcedVariations sets the forced variations for a context (as a
 value of type ForcedVariationsMap, which is a map from experiment
 keys to variation indexes).
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="Context.WithQAMode">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2010:2062#L59">WithQAMode</a>
+				</p><h3 id="Context.WithQAMode">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2348:2400#L71">WithQAMode</a>
 					<a class="permalink" href="#Context.WithQAMode">¶</a>
 					
 					
 				</h3>
 				<pre>func (ctx *<a href="#Context">Context</a>) WithQAMode(qaMode <a href="../../../builtin/#bool">bool</a>) *<a href="#Context">Context</a></pre>
-				<p>
-WithQAMode can be used to enable or disable the QA mode for a
+				<p>WithQAMode can be used to enable or disable the QA mode for a
 context.
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="Context.WithTrackingCallback">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2178:2264#L66">WithTrackingCallback</a>
+				</p><h3 id="Context.WithTrackingCallback">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2516:2602#L78">WithTrackingCallback</a>
 					<a class="permalink" href="#Context.WithTrackingCallback">¶</a>
 					
 					
 				</h3>
 				<pre>func (ctx *<a href="#Context">Context</a>) WithTrackingCallback(trackingCallback <a href="#ExperimentCallback">ExperimentCallback</a>) *<a href="#Context">Context</a></pre>
-				<p>
-WithTrackingCallback is used to set a tracking callback for a
+				<p>WithTrackingCallback is used to set a tracking callback for a
 context.
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="Context.WithURL">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1290:1340#L37">WithURL</a>
+				</p><h3 id="Context.WithURL">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1628:1678#L49">WithURL</a>
 					<a class="permalink" href="#Context.WithURL">¶</a>
 					
 					
 				</h3>
 				<pre>func (ctx *<a href="#Context">Context</a>) WithURL(url *<a href="../../../net/url/">url</a>.<a href="../../../net/url/#URL">URL</a>) *<a href="#Context">Context</a></pre>
-				<p>
-WithURL sets the URL for a context.
-</p>
+				<p>WithURL sets the URL for a context.
 
 				
 				
@@ -746,17 +712,15 @@ WithURL sets the URL for a context.
 		
 			
 			
-			<h2 id="DevLogger">type <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3677:3700#L94">DevLogger</a>
+			</p><h2 id="DevLogger">type <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3764:3787#L95">DevLogger</a>
 				<a class="permalink" href="#DevLogger">¶</a>
 				
 				
 			</h2>
-			<p>
-DevLogger is a logger instance suitable for use in development. It
+			<p>DevLogger is a logger instance suitable for use in development. It
 prints all logged messages to standard output, and exits on errors.
-</p>
 
-			<pre>type DevLogger struct{}
+			</p><pre>type DevLogger struct{}
 </pre>
 
 			
@@ -771,7 +735,7 @@ prints all logged messages to standard output, and exits on errors.
 
 			
 				
-				<h3 id="DevLogger.Error">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3702:3762#L96">Error</a>
+				<h3 id="DevLogger.Error">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3789:3849#L97">Error</a>
 					<a class="permalink" href="#DevLogger.Error">¶</a>
 					
 					
@@ -783,7 +747,7 @@ prints all logged messages to standard output, and exits on errors.
 				
 			
 				
-				<h3 id="DevLogger.Errorf">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3872:3936#L105">Errorf</a>
+				<h3 id="DevLogger.Errorf">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3959:4023#L106">Errorf</a>
 					<a class="permalink" href="#DevLogger.Errorf">¶</a>
 					
 					
@@ -795,7 +759,7 @@ prints all logged messages to standard output, and exits on errors.
 				
 			
 				
-				<h3 id="DevLogger.Info">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4274:4333#L122">Info</a>
+				<h3 id="DevLogger.Info">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4361:4420#L123">Info</a>
 					<a class="permalink" href="#DevLogger.Info">¶</a>
 					
 					
@@ -807,7 +771,7 @@ prints all logged messages to standard output, and exits on errors.
 				
 			
 				
-				<h3 id="DevLogger.Infof">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4430:4493#L130">Infof</a>
+				<h3 id="DevLogger.Infof">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4517:4580#L131">Infof</a>
 					<a class="permalink" href="#DevLogger.Infof">¶</a>
 					
 					
@@ -819,7 +783,7 @@ prints all logged messages to standard output, and exits on errors.
 				
 			
 				
-				<h3 id="DevLogger.Warn">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3999:4058#L110">Warn</a>
+				<h3 id="DevLogger.Warn">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4086:4145#L111">Warn</a>
 					<a class="permalink" href="#DevLogger.Warn">¶</a>
 					
 					
@@ -831,7 +795,7 @@ prints all logged messages to standard output, and exits on errors.
 				
 			
 				
-				<h3 id="DevLogger.Warnf">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4158:4221#L118">Warnf</a>
+				<h3 id="DevLogger.Warnf">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4245:4308#L119">Warnf</a>
 					<a class="permalink" href="#DevLogger.Warnf">¶</a>
 					
 					
@@ -850,11 +814,9 @@ prints all logged messages to standard output, and exits on errors.
 				
 				
 			</h2>
-			<p>
-Experiment defines a single experiment.
-</p>
+			<p>Experiment defines a single experiment.
 
-			<pre>type Experiment struct {
+			</p><pre>type Experiment struct {
 <span id="Experiment.Key"></span>    Key           <a href="../../../builtin/#string">string</a>
 <span id="Experiment.Variations"></span>    Variations    []<a href="#FeatureValue">FeatureValue</a>
 <span id="Experiment.Weights"></span>    Weights       []<a href="../../../builtin/#float64">float64</a>
@@ -883,39 +845,33 @@ Experiment defines a single experiment.
 					
 				</h3>
 				<pre>func BuildExperiment(dict map[<a href="../../../builtin/#string">string</a>]interface{}) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-BuildExperiment creates an Experiment value from a JSON object
+				<p>BuildExperiment creates an Experiment value from a JSON object
 represented as a Go map.
-</p>
 
 				
 				
 			
 				
-				<h3 id="NewExperiment">func <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=431:473#L10">NewExperiment</a>
+				</p><h3 id="NewExperiment">func <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=431:473#L10">NewExperiment</a>
 					<a class="permalink" href="#NewExperiment">¶</a>
 					
 					
 				</h3>
 				<pre>func NewExperiment(key <a href="../../../builtin/#string">string</a>) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-NewExperiment creates an experiment with default settings: active,
+				<p>NewExperiment creates an experiment with default settings: active,
 but all other fields empty.
-</p>
 
 				
 				
 			
 				
-				<h3 id="ParseExperiment">func <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1945:1990#L66">ParseExperiment</a>
+				</p><h3 id="ParseExperiment">func <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1945:1990#L66">ParseExperiment</a>
 					<a class="permalink" href="#ParseExperiment">¶</a>
 					
 					
 				</h3>
 				<pre>func ParseExperiment(data []<a href="../../../builtin/#byte">byte</a>) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-ParseExperiment creates an Experiment value from raw JSON input.
-</p>
+				<p>ParseExperiment creates an Experiment value from raw JSON input.
 
 				
 				
@@ -923,120 +879,104 @@ ParseExperiment creates an Experiment value from raw JSON input.
 
 			
 				
-				<h3 id="Experiment.WithActive">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=934:992#L30">WithActive</a>
+				</p><h3 id="Experiment.WithActive">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=934:992#L30">WithActive</a>
 					<a class="permalink" href="#Experiment.WithActive">¶</a>
 					
 					
 				</h3>
 				<pre>func (exp *<a href="#Experiment">Experiment</a>) WithActive(active <a href="../../../builtin/#bool">bool</a>) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-WithActive sets the enabled flag for an experiment.
-</p>
+				<p>WithActive sets the enabled flag for an experiment.
 
 				
 				
 				
 			
 				
-				<h3 id="Experiment.WithCondition">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1248:1317#L42">WithCondition</a>
+				</p><h3 id="Experiment.WithCondition">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1248:1317#L42">WithCondition</a>
 					<a class="permalink" href="#Experiment.WithCondition">¶</a>
 					
 					
 				</h3>
 				<pre>func (exp *<a href="#Experiment">Experiment</a>) WithCondition(condition <a href="#Condition">Condition</a>) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-WithCondition sets the condition for an experiment.
-</p>
+				<p>WithCondition sets the condition for an experiment.
 
 				
 				
 				
 			
 				
-				<h3 id="Experiment.WithCoverage">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1084:1149#L36">WithCoverage</a>
+				</p><h3 id="Experiment.WithCoverage">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1084:1149#L36">WithCoverage</a>
 					<a class="permalink" href="#Experiment.WithCoverage">¶</a>
 					
 					
 				</h3>
 				<pre>func (exp *<a href="#Experiment">Experiment</a>) WithCoverage(coverage <a href="../../../builtin/#float64">float64</a>) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-WithCoverage sets the coverage for an experiment.
-</p>
+				<p>WithCoverage sets the coverage for an experiment.
 
 				
 				
 				
 			
 				
-				<h3 id="Experiment.WithForce">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1592:1647#L54">WithForce</a>
+				</p><h3 id="Experiment.WithForce">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1592:1647#L54">WithForce</a>
 					<a class="permalink" href="#Experiment.WithForce">¶</a>
 					
 					
 				</h3>
 				<pre>func (exp *<a href="#Experiment">Experiment</a>) WithForce(force <a href="../../../builtin/#int">int</a>) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-WithForce sets the forced value index for an experiment.
-</p>
+				<p>WithForce sets the forced value index for an experiment.
 
 				
 				
 				
 			
 				
-				<h3 id="Experiment.WithHashAttribute">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1749:1823#L60">WithHashAttribute</a>
+				</p><h3 id="Experiment.WithHashAttribute">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1749:1823#L60">WithHashAttribute</a>
 					<a class="permalink" href="#Experiment.WithHashAttribute">¶</a>
 					
 					
 				</h3>
 				<pre>func (exp *<a href="#Experiment">Experiment</a>) WithHashAttribute(hashAttribute <a href="../../../builtin/#string">string</a>) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-WithHashAttribute sets the hash attribute for an experiment.
-</p>
+				<p>WithHashAttribute sets the hash attribute for an experiment.
 
 				
 				
 				
 			
 				
-				<h3 id="Experiment.WithNamespace">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1417:1487#L48">WithNamespace</a>
+				</p><h3 id="Experiment.WithNamespace">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=1417:1487#L48">WithNamespace</a>
 					<a class="permalink" href="#Experiment.WithNamespace">¶</a>
 					
 					
 				</h3>
 				<pre>func (exp *<a href="#Experiment">Experiment</a>) WithNamespace(namespace *<a href="#Namespace">Namespace</a>) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-WithNamespace sets the namespace for an experiment.
-</p>
+				<p>WithNamespace sets the namespace for an experiment.
 
 				
 				
 				
 			
 				
-				<h3 id="Experiment.WithVariations">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=598:675#L18">WithVariations</a>
+				</p><h3 id="Experiment.WithVariations">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=598:675#L18">WithVariations</a>
 					<a class="permalink" href="#Experiment.WithVariations">¶</a>
 					
 					
 				</h3>
 				<pre>func (exp *<a href="#Experiment">Experiment</a>) WithVariations(variations ...<a href="#FeatureValue">FeatureValue</a>) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-WithVariations set the feature variations for an experiment.
-</p>
+				<p>WithVariations set the feature variations for an experiment.
 
 				
 				
 				
 			
 				
-				<h3 id="Experiment.WithWeights">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=772:838#L24">WithWeights</a>
+				</p><h3 id="Experiment.WithWeights">func (*Experiment) <a href="../../../src/github.com/growthbook/growthbook-golang/experiment.go.html?s=772:838#L24">WithWeights</a>
 					<a class="permalink" href="#Experiment.WithWeights">¶</a>
 					
 					
 				</h3>
 				<pre>func (exp *<a href="#Experiment">Experiment</a>) WithWeights(weights ...<a href="../../../builtin/#float64">float64</a>) *<a href="#Experiment">Experiment</a></pre>
-				<p>
-WithWeights set the weights for an experiment.
-</p>
+				<p>WithWeights set the weights for an experiment.
 
 				
 				
@@ -1045,21 +985,19 @@ WithWeights set the weights for an experiment.
 		
 			
 			
-			<h2 id="ExperimentCallback">type <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=699:777#L16">ExperimentCallback</a>
+			</p><h2 id="ExperimentCallback">type <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=733:811#L18">ExperimentCallback</a>
 				<a class="permalink" href="#ExperimentCallback">¶</a>
 				
 				
 			</h2>
-			<p>
-ExperimentCallback is a callback function that is executed every
+			<p>ExperimentCallback is a callback function that is executed every
 time a user is included in an Experiment. It is also the type used
 for subscription functions, which are called whenever
 Experiment.Run is called and the experiment result changes,
 independent of whether a user is inncluded in the experiment or
 not.
-</p>
 
-			<pre>type ExperimentCallback func(experiment *<a href="#Experiment">Experiment</a>, result *<a href="#ExperimentResult">ExperimentResult</a>)</pre>
+			</p><pre>type ExperimentCallback func(experiment *<a href="#Experiment">Experiment</a>, result *<a href="#ExperimentResult">ExperimentResult</a>)</pre>
 
 			
 
@@ -1080,12 +1018,10 @@ not.
 				
 				
 			</h2>
-			<p>
-ExperimentResult records the result of running an Experiment given
+			<p>ExperimentResult records the result of running an Experiment given
 a specific Context.
-</p>
 
-			<pre>type ExperimentResult struct {
+			</p><pre>type ExperimentResult struct {
 <span id="ExperimentResult.InExperiment"></span>    InExperiment  <a href="../../../builtin/#bool">bool</a>
 <span id="ExperimentResult.VariationID"></span>    VariationID   <a href="../../../builtin/#int">int</a>
 <span id="ExperimentResult.Value"></span>    Value         <a href="#FeatureValue">FeatureValue</a>
@@ -1110,10 +1046,8 @@ a specific Context.
 					
 				</h3>
 				<pre>func BuildExperimentResult(dict map[<a href="../../../builtin/#string">string</a>]interface{}) *<a href="#ExperimentResult">ExperimentResult</a></pre>
-				<p>
-BuildExperimentResult creates an ExperimentResult value from a JSON
+				<p>BuildExperimentResult creates an ExperimentResult value from a JSON
 object represented as a Go map.
-</p>
 
 				
 				
@@ -1123,17 +1057,15 @@ object represented as a Go map.
 		
 			
 			
-			<h2 id="Feature">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=427:506#L4">Feature</a>
+			</p><h2 id="Feature">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=427:506#L4">Feature</a>
 				<a class="permalink" href="#Feature">¶</a>
 				
 				
 			</h2>
-			<p>
-Feature has a default value plus rules than can override the
+			<p>Feature has a default value plus rules than can override the
 default.
-</p>
 
-			<pre>type Feature struct {
+			</p><pre>type Feature struct {
 <span id="Feature.DefaultValue"></span>    DefaultValue <a href="#FeatureValue">FeatureValue</a>
 <span id="Feature.Rules"></span>    Rules        []*<a href="#FeatureRule">FeatureRule</a>
 }
@@ -1155,23 +1087,19 @@ default.
 					
 				</h3>
 				<pre>func BuildFeature(val interface{}) *<a href="#Feature">Feature</a></pre>
-				<p>
-BuildFeature creates a Feature value from a generic JSON value.
-</p>
+				<p>BuildFeature creates a Feature value from a generic JSON value.
 
 				
 				
 			
 				
-				<h3 id="ParseFeature">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=2531:2570#L87">ParseFeature</a>
+				</p><h3 id="ParseFeature">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=2531:2570#L87">ParseFeature</a>
 					<a class="permalink" href="#ParseFeature">¶</a>
 					
 					
 				</h3>
 				<pre>func ParseFeature(data []<a href="../../../builtin/#byte">byte</a>) *<a href="#Feature">Feature</a></pre>
-				<p>
-ParseFeature creates a single Feature value from raw JSON input.
-</p>
+				<p>ParseFeature creates a single Feature value from raw JSON input.
 
 				
 				
@@ -1181,17 +1109,15 @@ ParseFeature creates a single Feature value from raw JSON input.
 		
 			
 			
-			<h2 id="FeatureMap">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=583:618#L11">FeatureMap</a>
+			</p><h2 id="FeatureMap">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=583:618#L11">FeatureMap</a>
 				<a class="permalink" href="#FeatureMap">¶</a>
 				
 				
 			</h2>
-			<p>
-FeatureMap is a map of feature objects, keyed by string feature
+			<p>FeatureMap is a map of feature objects, keyed by string feature
 IDs.
-</p>
 
-			<pre>type FeatureMap map[<a href="../../../builtin/#string">string</a>]*<a href="#Feature">Feature</a></pre>
+			</p><pre>type FeatureMap map[<a href="../../../builtin/#string">string</a>]*<a href="#Feature">Feature</a></pre>
 
 			
 
@@ -1209,24 +1135,20 @@ IDs.
 					
 				</h3>
 				<pre>func BuildFeatureMap(dict map[<a href="../../../builtin/#string">string</a>]interface{}) <a href="#FeatureMap">FeatureMap</a></pre>
-				<p>
-BuildFeatureMap creates a FeatureMap value from a JSON object
+				<p>BuildFeatureMap creates a FeatureMap value from a JSON object
 represented as a Go map.
-</p>
 
 				
 				
 			
 				
-				<h3 id="ParseFeatureMap">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=1982:2026#L66">ParseFeatureMap</a>
+				</p><h3 id="ParseFeatureMap">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=1982:2026#L66">ParseFeatureMap</a>
 					<a class="permalink" href="#ParseFeatureMap">¶</a>
 					
 					
 				</h3>
 				<pre>func ParseFeatureMap(data []<a href="../../../builtin/#byte">byte</a>) <a href="#FeatureMap">FeatureMap</a></pre>
-				<p>
-ParseFeatureMap creates a FeatureMap value from raw JSON input.
-</p>
+				<p>ParseFeatureMap creates a FeatureMap value from raw JSON input.
 
 				
 				
@@ -1236,16 +1158,14 @@ ParseFeatureMap creates a FeatureMap value from raw JSON input.
 		
 			
 			
-			<h2 id="FeatureResult">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=1354:1564#L41">FeatureResult</a>
+			</p><h2 id="FeatureResult">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=1354:1564#L41">FeatureResult</a>
 				<a class="permalink" href="#FeatureResult">¶</a>
 				
 				
 			</h2>
-			<p>
-FeatureResult is the result of evaluating a feature.
-</p>
+			<p>FeatureResult is the result of evaluating a feature.
 
-			<pre>type FeatureResult struct {
+			</p><pre>type FeatureResult struct {
 <span id="FeatureResult.Value"></span>    Value            <a href="#FeatureValue">FeatureValue</a>
 <span id="FeatureResult.On"></span>    On               <a href="../../../builtin/#bool">bool</a>
 <span id="FeatureResult.Off"></span>    Off              <a href="../../../builtin/#bool">bool</a>
@@ -1271,10 +1191,8 @@ FeatureResult is the result of evaluating a feature.
 					
 				</h3>
 				<pre>func BuildFeatureResult(dict map[<a href="../../../builtin/#string">string</a>]interface{}) *<a href="#FeatureResult">FeatureResult</a></pre>
-				<p>
-BuildFeatureResult creates an FeatureResult value from a JSON
+				<p>BuildFeatureResult creates an FeatureResult value from a JSON
 object represented as a Go map.
-</p>
 
 				
 				
@@ -1282,16 +1200,14 @@ object represented as a Go map.
 
 			
 				
-				<h3 id="FeatureResult.GetValueWithDefault">func (*FeatureResult) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2401:2476#L80">GetValueWithDefault</a>
+				</p><h3 id="FeatureResult.GetValueWithDefault">func (*FeatureResult) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2438:2513#L83">GetValueWithDefault</a>
 					<a class="permalink" href="#FeatureResult.GetValueWithDefault">¶</a>
 					
 					
 				</h3>
 				<pre>func (fr *<a href="#FeatureResult">FeatureResult</a>) GetValueWithDefault(def <a href="#FeatureValue">FeatureValue</a>) <a href="#FeatureValue">FeatureValue</a></pre>
-				<p>
-GetValueWithDefault extracts a value from a FeatureResult with a
+				<p>GetValueWithDefault extracts a value from a FeatureResult with a
 default.
-</p>
 
 				
 				
@@ -1300,24 +1216,20 @@ default.
 		
 			
 			
-			<h2 id="FeatureResultSource">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=712:741#L15">FeatureResultSource</a>
+			</p><h2 id="FeatureResultSource">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=712:741#L15">FeatureResultSource</a>
 				<a class="permalink" href="#FeatureResultSource">¶</a>
 				
 				
 			</h2>
-			<p>
-FeatureResultSource is an enumerated type representing the source
+			<p>FeatureResultSource is an enumerated type representing the source
 of a FeatureResult.
-</p>
 
-			<pre>type FeatureResultSource <a href="../../../builtin/#uint">uint</a></pre>
+			</p><pre>type FeatureResultSource <a href="../../../builtin/#uint">uint</a></pre>
 
 			
-				<p>
-FeatureResultSource values.
-</p>
+				<p>FeatureResultSource values.
 
-				<pre>const (
+				</p><pre>const (
     <span id="UnknownFeatureResultSource">UnknownFeatureResultSource</span> <a href="#FeatureResultSource">FeatureResultSource</a> = <a href="../../../builtin/#iota">iota</a> + 1
     <span id="DefaultValueResultSource">DefaultValueResultSource</span>
     <span id="ForceResultSource">ForceResultSource</span>
@@ -1339,10 +1251,8 @@ FeatureResultSource values.
 					
 				</h3>
 				<pre>func ParseFeatureResultSource(source <a href="../../../builtin/#string">string</a>) <a href="#FeatureResultSource">FeatureResultSource</a></pre>
-				<p>
-ParseFeatureResultSource creates a FeatureResultSource value from
+				<p>ParseFeatureResultSource creates a FeatureResultSource value from
 its string representation.
-</p>
 
 				
 				
@@ -1352,16 +1262,14 @@ its string representation.
 		
 			
 			
-			<h2 id="FeatureRule">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=1861:2092#L61">FeatureRule</a>
+			</p><h2 id="FeatureRule">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=1861:2092#L61">FeatureRule</a>
 				<a class="permalink" href="#FeatureRule">¶</a>
 				
 				
 			</h2>
-			<p>
-FeatureRule overrides the default value of a Feature.
-</p>
+			<p>FeatureRule overrides the default value of a Feature.
 
-			<pre>type FeatureRule struct {
+			</p><pre>type FeatureRule struct {
 <span id="FeatureRule.Condition"></span>    Condition     <a href="#Condition">Condition</a>
 <span id="FeatureRule.Coverage"></span>    Coverage      *<a href="../../../builtin/#float64">float64</a>
 <span id="FeatureRule.Force"></span>    Force         <a href="#FeatureValue">FeatureValue</a>
@@ -1389,10 +1297,8 @@ FeatureRule overrides the default value of a Feature.
 					
 				</h3>
 				<pre>func BuildFeatureRule(val interface{}) *<a href="#FeatureRule">FeatureRule</a></pre>
-				<p>
-BuildFeatureRule creates an FeatureRule value from a generic JSON
+				<p>BuildFeatureRule creates an FeatureRule value from a generic JSON
 value.
-</p>
 
 				
 				
@@ -1402,18 +1308,16 @@ value.
 		
 			
 			
-			<h2 id="FeatureValue">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=320:349#L1">FeatureValue</a>
+			</p><h2 id="FeatureValue">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=320:349#L1">FeatureValue</a>
 				<a class="permalink" href="#FeatureValue">¶</a>
 				
 				
 			</h2>
-			<p>
-FeatureValue is a wrapper around an arbitrary type representing the
+			<p>FeatureValue is a wrapper around an arbitrary type representing the
 value of a feature. Features can return any kinds of values, so
 this is an alias for interface{}.
-</p>
 
-			<pre>type FeatureValue interface{}</pre>
+			</p><pre>type FeatureValue interface{}</pre>
 
 			
 
@@ -1431,10 +1335,8 @@ this is an alias for interface{}.
 					
 				</h3>
 				<pre>func BuildFeatureValues(val interface{}) []<a href="#FeatureValue">FeatureValue</a></pre>
-				<p>
-BuildFeatureValues creates a FeatureValue array from a generic JSON
+				<p>BuildFeatureValues creates a FeatureValue array from a generic JSON
 value.
-</p>
 
 				
 				
@@ -1444,21 +1346,17 @@ value.
 		
 			
 			
-			<h2 id="ForcedVariationsMap">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=2292:2331#L77">ForcedVariationsMap</a>
+			</p><h2 id="ForcedVariationsMap">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=2292:2331#L77">ForcedVariationsMap</a>
 				<a class="permalink" href="#ForcedVariationsMap">¶</a>
 				
 				
 			</h2>
-			<p>
-ForcedVariationsMap is a map that forces an Experiment to always
+			<p>ForcedVariationsMap is a map that forces an Experiment to always
 assign a specific variation. Useful for QA.
-</p>
-<p>
-Keys are the experiment key, values are the array index of the
+</p><p>Keys are the experiment key, values are the array index of the
 variation.
-</p>
 
-			<pre>type ForcedVariationsMap map[<a href="../../../builtin/#string">string</a>]<a href="../../../builtin/#int">int</a></pre>
+			</p><pre>type ForcedVariationsMap map[<a href="../../../builtin/#string">string</a>]<a href="../../../builtin/#int">int</a></pre>
 
 			
 
@@ -1479,11 +1377,9 @@ variation.
 				
 				
 			</h2>
-			<p>
-GrowthBook is the main export of the SDK.
-</p>
+			<p>GrowthBook is the main export of the SDK.
 
-			<pre>type GrowthBook struct {
+			</p><pre>type GrowthBook struct {
     <span class="comment">// contains filtered or unexported fields</span>
 }
 </pre>
@@ -1504,9 +1400,7 @@ GrowthBook is the main export of the SDK.
 					
 				</h3>
 				<pre>func New(context *<a href="#Context">Context</a>) *<a href="#GrowthBook">GrowthBook</a></pre>
-				<p>
-New created a new GrowthBook instance.
-</p>
+				<p>New created a new GrowthBook instance.
 
 				
 				
@@ -1514,250 +1408,218 @@ New created a new GrowthBook instance.
 
 			
 				
-				<h3 id="GrowthBook.Attributes">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=752:797#L22">Attributes</a>
+				</p><h3 id="GrowthBook.Attributes">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=789:834#L25">Attributes</a>
 					<a class="permalink" href="#GrowthBook.Attributes">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) Attributes() <a href="#Attributes">Attributes</a></pre>
-				<p>
-Attributes returns the attributes from a GrowthBook&#39;s context.
-</p>
+				<p>Attributes returns the attributes from a GrowthBook&#39;s context.
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.ClearSavedResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11770:11811#L418">ClearSavedResults</a>
+				</p><h3 id="GrowthBook.ClearSavedResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11808:11849#L422">ClearSavedResults</a>
 					<a class="permalink" href="#GrowthBook.ClearSavedResults">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) ClearSavedResults()</pre>
-				<p>
-ClearSavedResults clears out any experiment results saved within a
+				<p>ClearSavedResults clears out any experiment results saved within a
 GrowthBook instance (used for deciding whether to send data to
 subscriptions).
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.ClearTrackingData">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11957:11998#L424">ClearTrackingData</a>
+				</p><h3 id="GrowthBook.ClearTrackingData">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11995:12036#L428">ClearTrackingData</a>
 					<a class="permalink" href="#GrowthBook.ClearTrackingData">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) ClearTrackingData()</pre>
-				<p>
-ClearTrackingData clears out records of calls to the experiment
+				<p>ClearTrackingData clears out records of calls to the experiment
 tracking callback.
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.Enabled">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2082:2118#L68">Enabled</a>
+				</p><h3 id="GrowthBook.Enabled">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2119:2155#L71">Enabled</a>
 					<a class="permalink" href="#GrowthBook.Enabled">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) Enabled() <a href="../../../builtin/#bool">bool</a></pre>
-				<p>
-Enabled returns the enabled flag from a GrowthBook&#39;s context.
-</p>
+				<p>Enabled returns the enabled flag from a GrowthBook&#39;s context.
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.Feature">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2620:2676#L89">Feature</a>
+				</p><h3 id="GrowthBook.Feature">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2657:2713#L92">Feature</a>
 					<a class="permalink" href="#GrowthBook.Feature">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) Feature(key <a href="../../../builtin/#string">string</a>) *<a href="#FeatureResult">FeatureResult</a></pre>
-				<p>
-Feature returns the result for a feature identified by a string
+				<p>Feature returns the result for a feature identified by a string
 feature key.
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.Features">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1077:1120#L33">Features</a>
+				</p><h3 id="GrowthBook.Features">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1114:1157#L36">Features</a>
 					<a class="permalink" href="#GrowthBook.Features">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) Features() <a href="#FeatureMap">FeatureMap</a></pre>
-				<p>
-Features returns the features from a GrowthBook&#39;s context.
-</p>
+				<p>Features returns the features from a GrowthBook&#39;s context.
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.ForcedVariations">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1415:1475#L45">ForcedVariations</a>
+				</p><h3 id="GrowthBook.ForcedVariations">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1452:1512#L48">ForcedVariations</a>
 					<a class="permalink" href="#GrowthBook.ForcedVariations">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) ForcedVariations() <a href="#ForcedVariationsMap">ForcedVariationsMap</a></pre>
-				<p>
-ForcedVariations returns the forced variations from a GrowthBook&#39;s
+				<p>ForcedVariations returns the forced variations from a GrowthBook&#39;s
 context.
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.GetAllResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11518:11584#L411">GetAllResults</a>
+				</p><h3 id="GrowthBook.GetAllResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11556:11622#L415">GetAllResults</a>
 					<a class="permalink" href="#GrowthBook.GetAllResults">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) GetAllResults() map[<a href="../../../builtin/#string">string</a>]*<a href="#ExperimentResult">ExperimentResult</a></pre>
-				<p>
-GetAllResults returns a map containing all the latest results from
+				<p>GetAllResults returns a map containing all the latest results from
 all experiments that have been run, indexed by the experiment key.
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.Run">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=7031:7091#L253">Run</a>
+				</p><h3 id="GrowthBook.Run">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=7069:7129#L257">Run</a>
 					<a class="permalink" href="#GrowthBook.Run">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) Run(exp *<a href="#Experiment">Experiment</a>) *<a href="#ExperimentResult">ExperimentResult</a></pre>
-				<p>
-Run an experiment. (Uses doRun to make wrapping for subscriptions
+				<p>Run an experiment. (Uses doRun to make wrapping for subscriptions
 simple.)
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.Subscribe">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11167:11234#L400">Subscribe</a>
+				</p><h3 id="GrowthBook.Subscribe">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11205:11272#L404">Subscribe</a>
 					<a class="permalink" href="#GrowthBook.Subscribe">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) Subscribe(callback <a href="#ExperimentCallback">ExperimentCallback</a>) func()</pre>
-				<p>
-Subscribe adds a callback that is called every time GrowthBook.Run
+				<p>Subscribe adds a callback that is called every time GrowthBook.Run
 is called. This is different from the tracking callback since it
 also fires when a user is not included in an experiment.
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.URL">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1807:1843#L57">URL</a>
+				</p><h3 id="GrowthBook.URL">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1844:1880#L60">URL</a>
 					<a class="permalink" href="#GrowthBook.URL">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) URL() *<a href="../../../net/url/">url</a>.<a href="../../../net/url/#URL">URL</a></pre>
-				<p>
-URL returns the URL from a GrowthBook&#39;s context.
-</p>
+				<p>URL returns the URL from a GrowthBook&#39;s context.
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.WithAttributes">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=901:967#L27">WithAttributes</a>
+				</p><h3 id="GrowthBook.WithAttributes">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=938:1004#L30">WithAttributes</a>
 					<a class="permalink" href="#GrowthBook.WithAttributes">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) WithAttributes(attrs <a href="#Attributes">Attributes</a>) *<a href="#GrowthBook">GrowthBook</a></pre>
-				<p>
-WithAttributes updates the attributes in a GrowthBook&#39;s context.
-</p>
+				<p>WithAttributes updates the attributes in a GrowthBook&#39;s context.
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.WithEnabled">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2215:2274#L73">WithEnabled</a>
+				</p><h3 id="GrowthBook.WithEnabled">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2252:2311#L76">WithEnabled</a>
 					<a class="permalink" href="#GrowthBook.WithEnabled">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) WithEnabled(enabled <a href="../../../builtin/#bool">bool</a>) *<a href="#GrowthBook">GrowthBook</a></pre>
-				<p>
-WithEnabled sets the enabled flag in a GrowthBook&#39;s context.
-</p>
+				<p>WithEnabled sets the enabled flag in a GrowthBook&#39;s context.
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.WithFeatures">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1217:1284#L38">WithFeatures</a>
+				</p><h3 id="GrowthBook.WithFeatures">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1254:1321#L41">WithFeatures</a>
 					<a class="permalink" href="#GrowthBook.WithFeatures">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) WithFeatures(features <a href="#FeatureMap">FeatureMap</a>) *<a href="#GrowthBook">GrowthBook</a></pre>
-				<p>
-WithFeatures update the features in a GrowthBook&#39;s context.
-</p>
+				<p>WithFeatures update the features in a GrowthBook&#39;s context.
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.WithForcedVariations">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1598:1690#L51">WithForcedVariations</a>
+				</p><h3 id="GrowthBook.WithForcedVariations">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1635:1727#L54">WithForcedVariations</a>
 					<a class="permalink" href="#GrowthBook.WithForcedVariations">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) WithForcedVariations(forcedVariations <a href="#ForcedVariationsMap">ForcedVariationsMap</a>) *<a href="#GrowthBook">GrowthBook</a></pre>
-				<p>
-WithForcedVariations sets the forced variations in a GrowthBook&#39;s
+				<p>WithForcedVariations sets the forced variations in a GrowthBook&#39;s
 context.
-</p>
 
 				
 				
 				
 			
 				
-				<h3 id="GrowthBook.WithURL">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1923:1978#L62">WithURL</a>
+				</p><h3 id="GrowthBook.WithURL">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1960:2015#L65">WithURL</a>
 					<a class="permalink" href="#GrowthBook.WithURL">¶</a>
 					
 					
 				</h3>
 				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) WithURL(url *<a href="../../../net/url/">url</a>.<a href="../../../net/url/#URL">URL</a>) *<a href="#GrowthBook">GrowthBook</a></pre>
-				<p>
-WithURL sets the URL in a GrowthBook&#39;s context.
-</p>
+				<p>WithURL sets the URL in a GrowthBook&#39;s context.
 
 				
 				
@@ -1766,19 +1628,17 @@ WithURL sets the URL in a GrowthBook&#39;s context.
 		
 			
 			
-			<h2 id="Logger">type <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=1796:2069#L28">Logger</a>
+			</p><h2 id="Logger">type <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=1883:2156#L29">Logger</a>
 				<a class="permalink" href="#Logger">¶</a>
 				
 				
 			</h2>
-			<p>
-Logger is a common interface for logging information and warning
+			<p>Logger is a common interface for logging information and warning
 messages (errors are returned directly by SDK functions, but there
 is some useful &#34;out of band&#34; data that&#39;s provided via this
 interface).
-</p>
 
-			<pre>type Logger interface {
+			</p><pre>type Logger interface {
     Error(msg <a href="../../../builtin/#string">string</a>, args ...interface{})
     Errorf(format <a href="../../../builtin/#string">string</a>, args ...interface{})
     Warn(msg <a href="../../../builtin/#string">string</a>, args ...interface{})
@@ -1801,18 +1661,16 @@ interface).
 		
 			
 			
-			<h2 id="Namespace">type <a href="../../../src/github.com/growthbook/growthbook-golang/util.go.html?s=2581:2650#L97">Namespace</a>
+			<h2 id="Namespace">type <a href="../../../src/github.com/growthbook/growthbook-golang/util.go.html?s=2592:2661#L98">Namespace</a>
 				<a class="permalink" href="#Namespace">¶</a>
 				
 				
 			</h2>
-			<p>
-Namespace specifies what part of a namespace an experiment
+			<p>Namespace specifies what part of a namespace an experiment
 includes. If two experiments are in the same namespace and their
 ranges don&#39;t overlap, they wil be mutually exclusive.
-</p>
 
-			<pre>type Namespace struct {
+			</p><pre>type Namespace struct {
 <span id="Namespace.ID"></span>    ID    <a href="../../../builtin/#string">string</a>
 <span id="Namespace.Start"></span>    Start <a href="../../../builtin/#float64">float64</a>
 <span id="Namespace.End"></span>    End   <a href="../../../builtin/#float64">float64</a>
@@ -1835,23 +1693,19 @@ ranges don&#39;t overlap, they wil be mutually exclusive.
 					
 				</h3>
 				<pre>func BuildNamespace(val interface{}) *<a href="#Namespace">Namespace</a></pre>
-				<p>
-BuildNamespace creates a Namespace value from a generic JSON value.
-</p>
+				<p>BuildNamespace creates a Namespace value from a generic JSON value.
 
 				
 				
 			
 				
-				<h3 id="ParseNamespace">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=5115:5158#L194">ParseNamespace</a>
+				</p><h3 id="ParseNamespace">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=5115:5158#L194">ParseNamespace</a>
 					<a class="permalink" href="#ParseNamespace">¶</a>
 					
 					
 				</h3>
 				<pre>func ParseNamespace(data []<a href="../../../builtin/#byte">byte</a>) *<a href="#Namespace">Namespace</a></pre>
-				<p>
-ParseNamespace creates a Namespace value from raw JSON input.
-</p>
+				<p>ParseNamespace creates a Namespace value from raw JSON input.
 
 				
 				
@@ -1861,16 +1715,14 @@ ParseNamespace creates a Namespace value from raw JSON input.
 		
 			
 			
-			<h2 id="VariationRange">type <a href="../../../src/github.com/growthbook/growthbook-golang/util.go.html?s=118:174#L1">VariationRange</a>
+			</p><h2 id="VariationRange">type <a href="../../../src/github.com/growthbook/growthbook-golang/util.go.html?s=129:185#L1">VariationRange</a>
 				<a class="permalink" href="#VariationRange">¶</a>
 				
 				
 			</h2>
-			<p>
-VariationRange represents a single bucket range.
-</p>
+			<p>VariationRange represents a single bucket range.
 
-			<pre>type VariationRange struct {
+			</p><pre>type VariationRange struct {
 <span id="VariationRange.Min"></span>    Min <a href="../../../builtin/#float64">float64</a>
 <span id="VariationRange.Max"></span>    Max <a href="../../../builtin/#float64">float64</a>
 }
