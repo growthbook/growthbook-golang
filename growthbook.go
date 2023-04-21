@@ -20,9 +20,6 @@ type GrowthBook struct {
 
 // New created a new GrowthBook instance.
 func New(context *Context) *GrowthBook {
-	if !context.Valid {
-		return nil
-	}
 	return &GrowthBook{
 		context,
 		map[string]bool{},

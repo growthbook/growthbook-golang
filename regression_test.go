@@ -130,7 +130,7 @@ func issue1(g *G, itest int) {
 		"loggedIn":            true,
 		"employee":            true,
 		"country":             "france",
-		"dietaryRestrictions": []string{"gluten_free"},
+		"dietaryRestrictions": [1]string{"gluten_free"},
 	}
 
 	features := ParseFeatureMap([]byte(issue1FeaturesJson))
