@@ -162,4 +162,9 @@ func issue5(g *G) {
 	}
 
 	issue1Like(g, attrs)
+
+	// Check that there's no problem using a nil context.
+	var nilContext *Context
+	gbTest := New(nilContext)
+	g.Assert(gbTest.Enabled()).IsTrue()
 }
