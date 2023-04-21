@@ -60,11 +60,13 @@ type FeatureResult struct {
 // ExperimentResult records the result of running an Experiment given
 // a specific Context.
 type ExperimentResult struct {
-	InExperiment  bool
-	VariationID   int
 	Value         FeatureValue
+	VariationID   int
+	InExperiment  bool
+	HashUsed      bool
 	HashAttribute string
 	HashValue     string
+	FeatureID     *string
 }
 
 // FeatureRule overrides the default value of a Feature.
