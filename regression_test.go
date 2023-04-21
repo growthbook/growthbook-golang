@@ -20,6 +20,7 @@ func TestRegressions(t *testing.T) {
 				test(g)
 			})
 		}
+		g.It("nil context", func() { nilContext(g) })
 	})
 }
 
@@ -120,7 +121,16 @@ const issue1ContextJson = `{
 
 const issue1ExpectedJson = `{ "meal_type": "gf", "dessert": "French Vanilla Ice Cream" }`
 
-func issue1Like(g *G, attrs Attributes) {
+func issue1(g *G) {
+	// Check with slice value for attribute.
+	attrs := Attributes{
+		"id":                  "user-employee-123456789",
+		"loggedIn":            true,
+		"employee":            true,
+		"country":             "france",
+		"dietaryRestrictions": []string{"gluten_free"},
+	}
+
 	features := ParseFeatureMap([]byte(issue1FeaturesJson))
 
 	context := NewContext().
@@ -138,19 +148,6 @@ func issue1Like(g *G, attrs Attributes) {
 	g.Assert(value).Equal(expectedValue)
 }
 
-func issue1(g *G) {
-	// Check with slice value for attribute.
-	attrs := Attributes{
-		"id":                  "user-employee-123456789",
-		"loggedIn":            true,
-		"employee":            true,
-		"country":             "france",
-		"dietaryRestrictions": []string{"gluten_free"},
-	}
-
-	issue1Like(g, attrs)
-}
-
 func issue5(g *G) {
 	// Check with array value for attribute.
 	attrs := Attributes{
@@ -161,8 +158,24 @@ func issue5(g *G) {
 		"dietaryRestrictions": [1]string{"gluten_free"},
 	}
 
-	issue1Like(g, attrs)
+	features := ParseFeatureMap([]byte(issue1FeaturesJson))
 
+	context := NewContext().
+		WithFeatures(features).
+		WithAttributes(attrs)
+
+	gb := New(context)
+
+	value := gb.Feature("meal_overrides_gluten_free").Value
+
+	expectedValue := map[string]interface{}{
+		"meal_type": "gf",
+		"dessert":   "French Vanilla Ice Cream",
+	}
+	g.Assert(value).Equal(expectedValue)
+}
+
+func nilContext(g *G) {
 	// Check that there's no problem using a nil context.
 	var nilContext *Context
 	gbTest := New(nilContext)
