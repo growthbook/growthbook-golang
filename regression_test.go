@@ -7,16 +7,17 @@ import (
 	. "github.com/franela/goblin"
 )
 
-var regressionTests = []func(g *G, itest int){
-	issue1, // https://github.com/growthbook/growthbook-golang/issues/1
+var regressionTests = map[int]func(g *G){
+	1: issue1, // https://github.com/growthbook/growthbook-golang/issues/1
+	5: issue5, // https://github.com/growthbook/growthbook-golang/issues/5
 }
 
 func TestRegressions(t *testing.T) {
 	g := Goblin(t)
-	g.Describe("regressions", func() {
+	g.Describe("regression tests", func() {
 		for itest, test := range regressionTests {
-			g.It(fmt.Sprintf("issue #%d", itest+1), func() {
-				test(g, itest+1)
+			g.It(fmt.Sprintf("issue #%d", itest), func() {
+				test(g)
 			})
 		}
 	})
@@ -119,20 +120,7 @@ const issue1ContextJson = `{
 
 const issue1ExpectedJson = `{ "meal_type": "gf", "dessert": "French Vanilla Ice Cream" }`
 
-type MealOverrides struct {
-	MealType string `json:"meal_type"`
-	Dessert  string `json:"dessert"`
-}
-
-func issue1(g *G, itest int) {
-	attrs := Attributes{
-		"id":                  "user-employee-123456789",
-		"loggedIn":            true,
-		"employee":            true,
-		"country":             "france",
-		"dietaryRestrictions": [1]string{"gluten_free"},
-	}
-
+func issue1Like(g *G, attrs Attributes) {
 	features := ParseFeatureMap([]byte(issue1FeaturesJson))
 
 	context := NewContext().
@@ -148,4 +136,30 @@ func issue1(g *G, itest int) {
 		"dessert":   "French Vanilla Ice Cream",
 	}
 	g.Assert(value).Equal(expectedValue)
+}
+
+func issue1(g *G) {
+	// Check with slice value for attribute.
+	attrs := Attributes{
+		"id":                  "user-employee-123456789",
+		"loggedIn":            true,
+		"employee":            true,
+		"country":             "france",
+		"dietaryRestrictions": []string{"gluten_free"},
+	}
+
+	issue1Like(g, attrs)
+}
+
+func issue5(g *G) {
+	// Check with array value for attribute.
+	attrs := Attributes{
+		"id":                  "user-employee-123456789",
+		"loggedIn":            true,
+		"employee":            true,
+		"country":             "france",
+		"dietaryRestrictions": [1]string{"gluten_free"},
+	}
+
+	issue1Like(g, attrs)
 }
