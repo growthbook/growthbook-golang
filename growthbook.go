@@ -131,13 +131,8 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 					logInfo(InfoRuleSkipNoHashAttribute, key, rule)
 					continue
 				}
-				hashString, ok := hashValue.(string)
+				hashString, ok := convertHashValue(hashValue)
 				if !ok {
-					logWarn(WarnRuleSkipHashAttributeType, key, rule)
-					continue
-				}
-				if hashString == "" {
-					logInfo(InfoRuleSkipEmptyHashAttribute, key, rule)
 					continue
 				}
 
@@ -246,12 +241,10 @@ func (gb *GrowthBook) getExperimentResult(
 	if exp.HashAttribute != nil {
 		hashAttribute = *exp.HashAttribute
 	}
-	hashValue := ""
-	if _, ok := gb.context.Attributes[hashAttribute]; ok {
-		tmp, ok := gb.context.Attributes[hashAttribute].(string)
-		if ok {
-			hashValue = tmp
-		}
+	hashString := ""
+	hashValue, ok := gb.context.Attributes[hashAttribute]
+	if ok {
+		hashString, _ = convertHashValue(hashValue)
 	}
 
 	// Return
@@ -266,7 +259,7 @@ func (gb *GrowthBook) getExperimentResult(
 		Value:         value,
 		HashUsed:      hashUsed,
 		HashAttribute: hashAttribute,
-		HashValue:     hashValue,
+		HashValue:     hashString,
 	}
 }
 
@@ -338,20 +331,18 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID *string) *ExperimentResul
 	if exp.HashAttribute != nil {
 		hashAttribute = *exp.HashAttribute
 	}
-	hashValue := ""
-	if _, ok := gb.context.Attributes[hashAttribute]; ok {
-		tmp, ok := gb.context.Attributes[hashAttribute].(string)
-		if ok {
-			hashValue = tmp
-		}
+	hashString := ""
+	hashValue, ok := gb.context.Attributes[hashAttribute]
+	if ok {
+		hashString, _ = convertHashValue(hashValue)
 	}
-	if hashValue == "" {
+	if hashString == "" {
 		return gb.getExperimentResult(exp, -1, false, featureID)
 	}
 
 	// 7. If exp.Namespace is set, return if not in range.
 	if exp.Namespace != nil {
-		if !inNamespace(hashValue, exp.Namespace) {
+		if !inNamespace(hashString, exp.Namespace) {
 			return gb.getExperimentResult(exp, -1, false, featureID)
 		}
 	}
@@ -369,7 +360,7 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID *string) *ExperimentResul
 		coverage = *exp.Coverage
 	}
 	ranges := getBucketRanges(len(exp.Variations), coverage, exp.Weights)
-	n := float64(hashFnv32a(hashValue+exp.Key)%1000) / 1000
+	n := float64(hashFnv32a(hashString+exp.Key)%1000) / 1000
 	assigned := chooseVariation(float64(n), ranges)
 
 	// 10. If assigned == -1, return default result.

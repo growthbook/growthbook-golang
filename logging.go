@@ -23,7 +23,6 @@ const (
 	WarnExpCoverageMustBeFraction = "Experiment coverage must be less than or equal to 1"
 	WarnExpWeightsWrongLength     = "Experiment weights and variations arrays must be the same length"
 	WarnExpWeightsWrongTotal      = "Experiment weights must add up to 1"
-	WarnRuleSkipHashAttributeType = "Skip rule because of non-string hash attribute"
 
 	InfoRuleSkipCondition          = "Skip rule because of condition"
 	InfoRuleSkipNoHashAttribute    = "Skip rule because of missing hash attribute"

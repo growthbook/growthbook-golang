@@ -46,7 +46,7 @@ func BuildExperimentResult(dict map[string]interface{}) *ExperimentResult {
 			}
 			res.HashAttribute = tmp
 		case "hashValue":
-			tmp, ok := v.(string)
+			tmp, ok := convertHashValue(v)
 			if !ok {
 				logError(ErrJSONInvalidType, "ExperimentResult", "hashValue")
 				continue

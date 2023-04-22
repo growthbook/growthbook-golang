@@ -8,6 +8,7 @@ import (
 	"log"
 	"math"
 	"net/url"
+	"reflect"
 	"testing"
 
 	. "github.com/franela/goblin"
@@ -49,7 +50,8 @@ func jsonTestFeature(g *G, itest int, test []interface{}) {
 		context := BuildContext(contextDict)
 		growthbook := New(context)
 		expected := BuildFeatureResult(expectedDict)
-		g.Assert(growthbook.Feature(featureKey)).Equal(expected)
+		retval := growthbook.Feature(featureKey)
+		g.Assert(reflect.DeepEqual(retval, expected)).IsTrue()
 	})
 }
 
