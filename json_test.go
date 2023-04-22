@@ -284,8 +284,8 @@ func jsonTest(t *testing.T, label string,
 		// but there should never be more than one per test).
 		g.BeforeEach(func() { testLog.reset() })
 		g.AfterEach(func() {
-			g.Assert(len(testLog.errors)).Equal(0)
-			g.Assert(len(testLog.warnings) <= 1).IsTrue()
+			g.Assert(len(testLog.errors)).Equal(0, "test log has errors:", testLog.allErrors())
+			g.Assert(len(testLog.warnings) <= 1).IsTrue("test log has warnings:", testLog.allWarnings())
 		})
 
 		// Run tests one at a time: each test's JSON data is an array,
@@ -331,16 +331,49 @@ type testLogger struct {
 
 var testLog = testLogger{}
 
+func (log *testLogger) allErrors() string {
+	s := ""
+	for i, e := range log.errors {
+		if i != 0 {
+			s += ", "
+		}
+		s += e
+	}
+	return s
+}
+
+func (log *testLogger) allWarnings() string {
+	s := ""
+	for i, e := range log.warnings {
+		if i != 0 {
+			s += ", "
+		}
+		s += e
+	}
+	return s
+}
+
 func (log *testLogger) reset() {
 	log.errors = []string{}
 	log.warnings = []string{}
 	log.info = []string{}
 }
 
+func formatArgs(args ...interface{}) string {
+	s := ""
+	for i, a := range args {
+		if i != 0 {
+			s += " "
+		}
+		s += fmt.Sprint(a)
+	}
+	return s
+}
+
 func (log *testLogger) Error(msg string, args ...interface{}) {
 	s := msg
 	if len(args) > 0 {
-		s += ": " + fmt.Sprint(args...)
+		s += ": " + formatArgs(args...)
 	}
 	log.errors = append(log.errors, s)
 }
@@ -352,7 +385,7 @@ func (log *testLogger) Errorf(format string, args ...interface{}) {
 func (log *testLogger) Warn(msg string, args ...interface{}) {
 	s := msg
 	if len(args) > 0 {
-		s += ": " + fmt.Sprint(args...)
+		s += ": " + formatArgs(args...)
 	}
 	log.warnings = append(log.warnings, s)
 }
