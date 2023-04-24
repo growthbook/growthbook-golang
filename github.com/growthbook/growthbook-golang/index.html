@@ -431,7 +431,6 @@ and feature flagging service.
     <span id="WarnExpCoverageMustBeFraction">WarnExpCoverageMustBeFraction</span> = &#34;Experiment coverage must be less than or equal to 1&#34;
     <span id="WarnExpWeightsWrongLength">WarnExpWeightsWrongLength</span>     = &#34;Experiment weights and variations arrays must be the same length&#34;
     <span id="WarnExpWeightsWrongTotal">WarnExpWeightsWrongTotal</span>      = &#34;Experiment weights must add up to 1&#34;
-    <span id="WarnRuleSkipHashAttributeType">WarnRuleSkipHashAttributeType</span> = &#34;Skip rule because of non-string hash attribute&#34;
 
     <span id="InfoRuleSkipCondition">InfoRuleSkipCondition</span>          = &#34;Skip rule because of condition&#34;
     <span id="InfoRuleSkipNoHashAttribute">InfoRuleSkipNoHashAttribute</span>    = &#34;Skip rule because of missing hash attribute&#34;
@@ -445,7 +444,7 @@ and feature flagging service.
 		
 			
 			
-			<h2 id="SetLogger">func <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=2805:2838#L48">SetLogger</a>
+			<h2 id="SetLogger">func <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=2723:2756#L47">SetLogger</a>
 				<a class="permalink" href="#SetLogger">¶</a>
 				
 				
@@ -711,7 +710,7 @@ context.
 		
 			
 			
-			</p><h2 id="DevLogger">type <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3764:3787#L95">DevLogger</a>
+			</p><h2 id="DevLogger">type <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3682:3705#L94">DevLogger</a>
 				<a class="permalink" href="#DevLogger">¶</a>
 				
 				
@@ -734,7 +733,7 @@ prints all logged messages to standard output, and exits on errors.
 
 			
 				
-				<h3 id="DevLogger.Error">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3789:3849#L97">Error</a>
+				<h3 id="DevLogger.Error">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3707:3767#L96">Error</a>
 					<a class="permalink" href="#DevLogger.Error">¶</a>
 					
 					
@@ -746,7 +745,7 @@ prints all logged messages to standard output, and exits on errors.
 				
 			
 				
-				<h3 id="DevLogger.Errorf">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3959:4023#L106">Errorf</a>
+				<h3 id="DevLogger.Errorf">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=3877:3941#L105">Errorf</a>
 					<a class="permalink" href="#DevLogger.Errorf">¶</a>
 					
 					
@@ -758,7 +757,7 @@ prints all logged messages to standard output, and exits on errors.
 				
 			
 				
-				<h3 id="DevLogger.Info">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4361:4420#L123">Info</a>
+				<h3 id="DevLogger.Info">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4279:4338#L122">Info</a>
 					<a class="permalink" href="#DevLogger.Info">¶</a>
 					
 					
@@ -770,7 +769,7 @@ prints all logged messages to standard output, and exits on errors.
 				
 			
 				
-				<h3 id="DevLogger.Infof">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4517:4580#L131">Infof</a>
+				<h3 id="DevLogger.Infof">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4435:4498#L130">Infof</a>
 					<a class="permalink" href="#DevLogger.Infof">¶</a>
 					
 					
@@ -782,7 +781,7 @@ prints all logged messages to standard output, and exits on errors.
 				
 			
 				
-				<h3 id="DevLogger.Warn">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4086:4145#L111">Warn</a>
+				<h3 id="DevLogger.Warn">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4004:4063#L110">Warn</a>
 					<a class="permalink" href="#DevLogger.Warn">¶</a>
 					
 					
@@ -794,7 +793,7 @@ prints all logged messages to standard output, and exits on errors.
 				
 			
 				
-				<h3 id="DevLogger.Warnf">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4245:4308#L119">Warnf</a>
+				<h3 id="DevLogger.Warnf">func (*DevLogger) <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=4163:4226#L118">Warnf</a>
 					<a class="permalink" href="#DevLogger.Warnf">¶</a>
 					
 					
@@ -1012,7 +1011,7 @@ not.
 		
 			
 			
-			<h2 id="ExperimentResult">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=1659:1802#L52">ExperimentResult</a>
+			<h2 id="ExperimentResult">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=1659:1845#L52">ExperimentResult</a>
 				<a class="permalink" href="#ExperimentResult">¶</a>
 				
 				
@@ -1021,11 +1020,13 @@ not.
 a specific Context.
 
 			</p><pre>type ExperimentResult struct {
-<span id="ExperimentResult.InExperiment"></span>    InExperiment  <a href="../../../builtin/#bool">bool</a>
-<span id="ExperimentResult.VariationID"></span>    VariationID   <a href="../../../builtin/#int">int</a>
 <span id="ExperimentResult.Value"></span>    Value         <a href="#FeatureValue">FeatureValue</a>
+<span id="ExperimentResult.VariationID"></span>    VariationID   <a href="../../../builtin/#int">int</a>
+<span id="ExperimentResult.InExperiment"></span>    InExperiment  <a href="../../../builtin/#bool">bool</a>
+<span id="ExperimentResult.HashUsed"></span>    HashUsed      <a href="../../../builtin/#bool">bool</a>
 <span id="ExperimentResult.HashAttribute"></span>    HashAttribute <a href="../../../builtin/#string">string</a>
 <span id="ExperimentResult.HashValue"></span>    HashValue     <a href="../../../builtin/#string">string</a>
+<span id="ExperimentResult.FeatureID"></span>    FeatureID     *<a href="../../../builtin/#string">string</a>
 }
 </pre>
 
@@ -1080,7 +1081,7 @@ default.
 
 			
 				
-				<h3 id="BuildFeature">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=2817:2860#L98">BuildFeature</a>
+				<h3 id="BuildFeature">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=3150:3193#L112">BuildFeature</a>
 					<a class="permalink" href="#BuildFeature">¶</a>
 					
 					
@@ -1092,7 +1093,7 @@ default.
 				
 			
 				
-				</p><h3 id="ParseFeature">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=2531:2570#L87">ParseFeature</a>
+				</p><h3 id="ParseFeature">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=2864:2903#L101">ParseFeature</a>
 					<a class="permalink" href="#ParseFeature">¶</a>
 					
 					
@@ -1128,7 +1129,7 @@ IDs.
 
 			
 				
-				<h3 id="BuildFeatureMap">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=2305:2365#L78">BuildFeatureMap</a>
+				<h3 id="BuildFeatureMap">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=2638:2698#L92">BuildFeatureMap</a>
 					<a class="permalink" href="#BuildFeatureMap">¶</a>
 					
 					
@@ -1141,7 +1142,7 @@ represented as a Go map.
 				
 			
 				
-				</p><h3 id="ParseFeatureMap">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=1982:2026#L66">ParseFeatureMap</a>
+				</p><h3 id="ParseFeatureMap">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=2315:2359#L80">ParseFeatureMap</a>
 					<a class="permalink" href="#ParseFeatureMap">¶</a>
 					
 					
@@ -1184,7 +1185,7 @@ represented as a Go map.
 
 			
 				
-				<h3 id="BuildFeatureResult">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=5813:5880#L221">BuildFeatureResult</a>
+				<h3 id="BuildFeatureResult">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=6146:6213#L235">BuildFeatureResult</a>
 					<a class="permalink" href="#BuildFeatureResult">¶</a>
 					
 					
@@ -1261,7 +1262,7 @@ its string representation.
 		
 			
 			
-			</p><h2 id="FeatureRule">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=1861:2092#L61">FeatureRule</a>
+			</p><h2 id="FeatureRule">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=1904:2135#L63">FeatureRule</a>
 				<a class="permalink" href="#FeatureRule">¶</a>
 				
 				
@@ -1290,7 +1291,7 @@ its string representation.
 
 			
 				
-				<h3 id="BuildFeatureRule">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=3494:3545#L126">BuildFeatureRule</a>
+				<h3 id="BuildFeatureRule">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=3827:3878#L140">BuildFeatureRule</a>
 					<a class="permalink" href="#BuildFeatureRule">¶</a>
 					
 					
@@ -1328,7 +1329,7 @@ this is an alias for interface{}.
 
 			
 				
-				<h3 id="BuildFeatureValues">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=1536:1591#L47">BuildFeatureValues</a>
+				<h3 id="BuildFeatureValues">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=1869:1924#L61">BuildFeatureValues</a>
 					<a class="permalink" href="#BuildFeatureValues">¶</a>
 					
 					
@@ -1345,7 +1346,7 @@ value.
 		
 			
 			
-			</p><h2 id="ForcedVariationsMap">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=2292:2331#L77">ForcedVariationsMap</a>
+			</p><h2 id="ForcedVariationsMap">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=2335:2374#L79">ForcedVariationsMap</a>
 				<a class="permalink" href="#ForcedVariationsMap">¶</a>
 				
 				
@@ -1420,7 +1421,7 @@ variation.
 				
 			
 				
-				</p><h3 id="GrowthBook.ClearSavedResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11820:11861#L422">ClearSavedResults</a>
+				</p><h3 id="GrowthBook.ClearSavedResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11936:11977#L421">ClearSavedResults</a>
 					<a class="permalink" href="#GrowthBook.ClearSavedResults">¶</a>
 					
 					
@@ -1435,7 +1436,7 @@ subscriptions).
 				
 			
 				
-				</p><h3 id="GrowthBook.ClearTrackingData">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=12007:12048#L428">ClearTrackingData</a>
+				</p><h3 id="GrowthBook.ClearTrackingData">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=12123:12164#L427">ClearTrackingData</a>
 					<a class="permalink" href="#GrowthBook.ClearTrackingData">¶</a>
 					
 					
@@ -1503,7 +1504,7 @@ context.
 				
 			
 				
-				</p><h3 id="GrowthBook.GetAllResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11568:11634#L415">GetAllResults</a>
+				</p><h3 id="GrowthBook.GetAllResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11684:11750#L414">GetAllResults</a>
 					<a class="permalink" href="#GrowthBook.GetAllResults">¶</a>
 					
 					
@@ -1517,7 +1518,7 @@ all experiments that have been run, indexed by the experiment key.
 				
 			
 				
-				</p><h3 id="GrowthBook.Run">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=7081:7141#L257">Run</a>
+				</p><h3 id="GrowthBook.Run">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=7067:7127#L258">Run</a>
 					<a class="permalink" href="#GrowthBook.Run">¶</a>
 					
 					
@@ -1531,7 +1532,7 @@ simple.)
 				
 			
 				
-				</p><h3 id="GrowthBook.Subscribe">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11217:11284#L404">Subscribe</a>
+				</p><h3 id="GrowthBook.Subscribe">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11333:11400#L403">Subscribe</a>
 					<a class="permalink" href="#GrowthBook.Subscribe">¶</a>
 					
 					
@@ -1627,7 +1628,7 @@ context.
 		
 			
 			
-			</p><h2 id="Logger">type <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=1883:2156#L29">Logger</a>
+			</p><h2 id="Logger">type <a href="../../../src/github.com/growthbook/growthbook-golang/logging.go.html?s=1801:2074#L28">Logger</a>
 				<a class="permalink" href="#Logger">¶</a>
 				
 				
@@ -1660,7 +1661,7 @@ interface).
 		
 			
 			
-			<h2 id="Namespace">type <a href="../../../src/github.com/growthbook/growthbook-golang/util.go.html?s=2592:2661#L98">Namespace</a>
+			<h2 id="Namespace">type <a href="../../../src/github.com/growthbook/growthbook-golang/util.go.html?s=2599:2668#L99">Namespace</a>
 				<a class="permalink" href="#Namespace">¶</a>
 				
 				
@@ -1686,7 +1687,7 @@ ranges don&#39;t overlap, they wil be mutually exclusive.
 
 			
 				
-				<h3 id="BuildNamespace">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=5407:5454#L205">BuildNamespace</a>
+				<h3 id="BuildNamespace">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=5740:5787#L219">BuildNamespace</a>
 					<a class="permalink" href="#BuildNamespace">¶</a>
 					
 					
@@ -1698,7 +1699,7 @@ ranges don&#39;t overlap, they wil be mutually exclusive.
 				
 			
 				
-				</p><h3 id="ParseNamespace">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=5115:5158#L194">ParseNamespace</a>
+				</p><h3 id="ParseNamespace">func <a href="../../../src/github.com/growthbook/growthbook-golang/json.go.html?s=5448:5491#L208">ParseNamespace</a>
 					<a class="permalink" href="#ParseNamespace">¶</a>
 					
 					
@@ -1714,7 +1715,7 @@ ranges don&#39;t overlap, they wil be mutually exclusive.
 		
 			
 			
-			</p><h2 id="VariationRange">type <a href="../../../src/github.com/growthbook/growthbook-golang/util.go.html?s=129:185#L1">VariationRange</a>
+			</p><h2 id="VariationRange">type <a href="../../../src/github.com/growthbook/growthbook-golang/util.go.html?s=136:192#L2">VariationRange</a>
 				<a class="permalink" href="#VariationRange">¶</a>
 				
 				
