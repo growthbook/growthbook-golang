@@ -131,13 +131,8 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 					logInfo(InfoRuleSkipNoHashAttribute, key, rule)
 					continue
 				}
-				hashString, ok := hashValue.(string)
+				hashString, ok := convertHashValue(hashValue)
 				if !ok {
-					logWarn(WarnRuleSkipHashAttributeType, key, rule)
-					continue
-				}
-				if hashString == "" {
-					logInfo(InfoRuleSkipEmptyHashAttribute, key, rule)
 					continue
 				}
 
@@ -199,7 +194,7 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 		}
 
 		// Run the experiment.
-		result := gb.Run(&experiment)
+		result := gb.doRun(&experiment, &key)
 
 		// If result.inExperiment is false, skip this rule and continue.
 		if !result.InExperiment {
@@ -229,10 +224,16 @@ func getFeatureResult(value FeatureValue, source FeatureResultSource,
 	}
 }
 
-func (gb *GrowthBook) getExperimentResult(exp *Experiment, variationIndex int, inExperiment bool) *ExperimentResult {
-	// Make sure the variationIndex is valid for the experiment
+func (gb *GrowthBook) getExperimentResult(
+	exp *Experiment, variationIndex int,
+	hashUsed bool, featureID *string) *ExperimentResult {
+	inExperiment := true
+
+	// If assigned variation is not valid, use the baseline and mark the
+	// user as not in the experiment
 	if variationIndex < 0 || variationIndex >= len(exp.Variations) {
 		variationIndex = 0
+		inExperiment = false
 	}
 
 	// Get the hashAttribute and hashValue
@@ -240,12 +241,10 @@ func (gb *GrowthBook) getExperimentResult(exp *Experiment, variationIndex int, i
 	if exp.HashAttribute != nil {
 		hashAttribute = *exp.HashAttribute
 	}
-	hashValue := ""
-	if _, ok := gb.context.Attributes[hashAttribute]; ok {
-		tmp, ok := gb.context.Attributes[hashAttribute].(string)
-		if ok {
-			hashValue = tmp
-		}
+	hashString := ""
+	hashValue, ok := gb.context.Attributes[hashAttribute]
+	if ok {
+		hashString, _ = convertHashValue(hashValue)
 	}
 
 	// Return
@@ -255,10 +254,12 @@ func (gb *GrowthBook) getExperimentResult(exp *Experiment, variationIndex int, i
 	}
 	return &ExperimentResult{
 		InExperiment:  inExperiment,
+		FeatureID:     featureID,
 		VariationID:   variationIndex,
 		Value:         value,
+		HashUsed:      hashUsed,
 		HashAttribute: hashAttribute,
-		HashValue:     hashValue,
+		HashValue:     hashString,
 	}
 }
 
@@ -266,7 +267,7 @@ func (gb *GrowthBook) getExperimentResult(exp *Experiment, variationIndex int, i
 // simple.)
 func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
 	// Actually run the experiment.
-	result := gb.doRun(exp)
+	result := gb.doRun(exp, nil)
 
 	// Determine whether the result changed from the last stored result
 	// for the experiment.
@@ -293,16 +294,16 @@ func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
 }
 
 // Worker function to run an experiment.
-func (gb *GrowthBook) doRun(exp *Experiment) *ExperimentResult {
+func (gb *GrowthBook) doRun(exp *Experiment, featureID *string) *ExperimentResult {
 	// 1. If exp.Variations has fewer than 2 variations, return default
 	//    result.
 	if len(exp.Variations) < 2 {
-		return gb.getExperimentResult(exp, 0, false)
+		return gb.getExperimentResult(exp, -1, false, featureID)
 	}
 
 	// 2. If context.Enabled is false, return default result.
 	if !gb.context.Enabled {
-		return gb.getExperimentResult(exp, 0, false)
+		return gb.getExperimentResult(exp, -1, false, featureID)
 	}
 
 	// 3. If context.URL exists, check for query string override and use
@@ -310,19 +311,19 @@ func (gb *GrowthBook) doRun(exp *Experiment) *ExperimentResult {
 	if gb.context.URL != nil {
 		qsOverride := getQueryStringOverride(exp.Key, gb.context.URL, len(exp.Variations))
 		if qsOverride != nil {
-			return gb.getExperimentResult(exp, *qsOverride, false)
+			return gb.getExperimentResult(exp, *qsOverride, false, featureID)
 		}
 	}
 
 	// 4. Return forced result if forced via context.
 	force, forced := gb.context.ForcedVariations[exp.Key]
 	if forced {
-		return gb.getExperimentResult(exp, force, false)
+		return gb.getExperimentResult(exp, force, false, featureID)
 	}
 
 	// 5. If exp.Active is set to false, return default result.
 	if !exp.Active {
-		return gb.getExperimentResult(exp, 0, false)
+		return gb.getExperimentResult(exp, -1, false, featureID)
 	}
 
 	// 6. Get the user hash value and return if empty.
@@ -330,28 +331,26 @@ func (gb *GrowthBook) doRun(exp *Experiment) *ExperimentResult {
 	if exp.HashAttribute != nil {
 		hashAttribute = *exp.HashAttribute
 	}
-	hashValue := ""
-	if _, ok := gb.context.Attributes[hashAttribute]; ok {
-		tmp, ok := gb.context.Attributes[hashAttribute].(string)
-		if ok {
-			hashValue = tmp
-		}
+	hashString := ""
+	hashValue, ok := gb.context.Attributes[hashAttribute]
+	if ok {
+		hashString, _ = convertHashValue(hashValue)
 	}
-	if hashValue == "" {
-		return gb.getExperimentResult(exp, 0, false)
+	if hashString == "" {
+		return gb.getExperimentResult(exp, -1, false, featureID)
 	}
 
 	// 7. If exp.Namespace is set, return if not in range.
 	if exp.Namespace != nil {
-		if !inNamespace(hashValue, exp.Namespace) {
-			return gb.getExperimentResult(exp, 0, false)
+		if !inNamespace(hashString, exp.Namespace) {
+			return gb.getExperimentResult(exp, -1, false, featureID)
 		}
 	}
 
 	// 8. If exp.Condition is set, return if it evaluates to false.
 	if exp.Condition != nil {
 		if !exp.Condition.Eval(gb.context.Attributes) {
-			return gb.getExperimentResult(exp, 0, false)
+			return gb.getExperimentResult(exp, -1, false, featureID)
 		}
 	}
 
@@ -361,26 +360,26 @@ func (gb *GrowthBook) doRun(exp *Experiment) *ExperimentResult {
 		coverage = *exp.Coverage
 	}
 	ranges := getBucketRanges(len(exp.Variations), coverage, exp.Weights)
-	n := float64(hashFnv32a(hashValue+exp.Key)%1000) / 1000
+	n := float64(hashFnv32a(hashString+exp.Key)%1000) / 1000
 	assigned := chooseVariation(float64(n), ranges)
 
 	// 10. If assigned == -1, return default result.
 	if assigned == -1 {
-		return gb.getExperimentResult(exp, 0, false)
+		return gb.getExperimentResult(exp, -1, false, featureID)
 	}
 
 	// 11. If experiment has a forced variation, return it.
 	if exp.Force != nil {
-		return gb.getExperimentResult(exp, *exp.Force, false)
+		return gb.getExperimentResult(exp, *exp.Force, false, featureID)
 	}
 
 	// 12. If in QA mode, return default result.
 	if gb.context.QAMode {
-		return gb.getExperimentResult(exp, 0, false)
+		return gb.getExperimentResult(exp, -1, false, featureID)
 	}
 
 	// 13. Build the result object.
-	result := gb.getExperimentResult(exp, assigned, true)
+	result := gb.getExperimentResult(exp, assigned, true, featureID)
 
 	// 14. Fire tracking callback if required.
 	gb.track(exp, result)

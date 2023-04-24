@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"fmt"
 	"hash/fnv"
 	"net/url"
 	"reflect"
@@ -115,6 +116,27 @@ type Namespace struct {
 func inNamespace(userID string, namespace *Namespace) bool {
 	n := float64(hashFnv32a(userID+"__"+namespace.ID)%1000) / 1000
 	return n >= namespace.Start && n < namespace.End
+}
+
+// Convert integer or string hash values to strings.
+func convertHashValue(vin interface{}) (string, bool) {
+	hashString, stringOK := vin.(string)
+	if stringOK {
+		if hashString == "" {
+			logInfo(InfoRuleSkipEmptyHashAttribute)
+			return "", false
+		}
+		return hashString, true
+	}
+	hashInt, intOK := vin.(int)
+	if intOK {
+		return fmt.Sprint(hashInt), true
+	}
+	hashFloat, floatOK := vin.(float64)
+	if floatOK {
+		return fmt.Sprint(int(hashFloat)), true
+	}
+	return "", false
 }
 
 // Simple wrapper around Go standard library FNV32a hash function.

@@ -15,13 +15,8 @@ func BuildExperimentResult(dict map[string]interface{}) *ExperimentResult {
 	res := ExperimentResult{}
 	for k, v := range dict {
 		switch k {
-		case "inExperiment":
-			tmp, ok := v.(bool)
-			if !ok {
-				logError(ErrJSONInvalidType, "ExperimentResult", "inExperiment")
-				continue
-			}
-			res.InExperiment = tmp
+		case "value":
+			res.Value = v
 		case "variationId":
 			tmp, ok := v.(float64)
 			if !ok {
@@ -29,8 +24,20 @@ func BuildExperimentResult(dict map[string]interface{}) *ExperimentResult {
 				continue
 			}
 			res.VariationID = int(tmp)
-		case "value":
-			res.Value = v
+		case "inExperiment":
+			tmp, ok := v.(bool)
+			if !ok {
+				logError(ErrJSONInvalidType, "ExperimentResult", "inExperiment")
+				continue
+			}
+			res.InExperiment = tmp
+		case "hashUsed":
+			tmp, ok := v.(bool)
+			if !ok {
+				logError(ErrJSONInvalidType, "ExperimentResult", "hashUsed")
+				continue
+			}
+			res.HashUsed = tmp
 		case "hashAttribute":
 			tmp, ok := v.(string)
 			if !ok {
@@ -39,12 +46,19 @@ func BuildExperimentResult(dict map[string]interface{}) *ExperimentResult {
 			}
 			res.HashAttribute = tmp
 		case "hashValue":
-			tmp, ok := v.(string)
+			tmp, ok := convertHashValue(v)
 			if !ok {
 				logError(ErrJSONInvalidType, "ExperimentResult", "hashValue")
 				continue
 			}
 			res.HashValue = tmp
+		case "featureId":
+			tmp, ok := v.(string)
+			if !ok {
+				logError(ErrJSONInvalidType, "ExperimentResult", "featureId")
+				continue
+			}
+			res.FeatureID = &tmp
 		default:
 			logWarn(WarnJSONUnknownKey, "ExperimentResult", k)
 		}
