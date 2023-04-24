@@ -3,14 +3,12 @@ package growthbook
 import (
 	"encoding/json"
 	"net/url"
-	"reflect"
 )
 
 // Context contains the options for creating a new GrowthBook
 // instance.
 type Context struct {
 	Enabled          bool
-	Valid            bool
 	Attributes       Attributes
 	URL              *url.URL
 	Features         FeatureMap
@@ -30,7 +28,7 @@ type ExperimentCallback func(experiment *Experiment, result *ExperimentResult)
 // NewContext creates a context with default settings: enabled, but
 // all other fields empty.
 func NewContext() *Context {
-	return &Context{Enabled: true, Valid: true}
+	return &Context{Enabled: true}
 }
 
 // WithEnabled sets the enabled flag for a context.
@@ -43,12 +41,6 @@ func (ctx *Context) WithEnabled(enabled bool) *Context {
 func (ctx *Context) WithAttributes(attributes Attributes) *Context {
 	savedAttributes := Attributes{}
 	for k, v := range attributes {
-		// Skip attributes that are arrays: not allowed.
-		if reflect.ValueOf(v).Kind() == reflect.Array {
-			ctx.Valid = false
-			logError(ErrCtxArrayInAttributes, k)
-			continue
-		}
 		savedAttributes[k] = fixSliceTypes(v)
 	}
 	ctx.Attributes = savedAttributes

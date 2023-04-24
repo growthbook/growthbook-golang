@@ -156,7 +156,7 @@ func fixSliceTypes(vin interface{}) interface{} {
 	// Convert all type-specific slices to interface{} slices.
 	v := reflect.ValueOf(vin)
 	rv := vin
-	if v.Kind() == reflect.Slice {
+	if v.Kind() == reflect.Slice || v.Kind() == reflect.Array {
 		srv := make([]interface{}, v.Len())
 		for i := 0; i < v.Len(); i++ {
 			elem := v.Index(i).Interface()
