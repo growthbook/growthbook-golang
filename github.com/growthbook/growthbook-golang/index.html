@@ -544,7 +544,7 @@ represented as a Go map.
 		
 			
 			
-			</p><h2 id="Context">type <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=146:398#L1">Context</a>
+			</p><h2 id="Context">type <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=135:364#L1">Context</a>
 				<a class="permalink" href="#Context">¶</a>
 				
 				
@@ -554,7 +554,6 @@ instance.
 
 			</p><pre>type Context struct {
 <span id="Context.Enabled"></span>    Enabled          <a href="../../../builtin/#bool">bool</a>
-<span id="Context.Valid"></span>    Valid            <a href="../../../builtin/#bool">bool</a>
 <span id="Context.Attributes"></span>    Attributes       <a href="#Attributes">Attributes</a>
 <span id="Context.URL"></span>    URL              *<a href="../../../net/url/">url</a>.<a href="../../../net/url/#URL">URL</a>
 <span id="Context.Features"></span>    Features         <a href="#FeatureMap">FeatureMap</a>
@@ -574,7 +573,7 @@ instance.
 
 			
 				
-				<h3 id="BuildContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=3037:3092#L96">BuildContext</a>
+				<h3 id="BuildContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2812:2867#L88">BuildContext</a>
 					<a class="permalink" href="#BuildContext">¶</a>
 					
 					
@@ -587,7 +586,7 @@ as a Go map.
 				
 			
 				
-				</p><h3 id="NewContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=908:934#L22">NewContext</a>
+				</p><h3 id="NewContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=874:900#L20">NewContext</a>
 					<a class="permalink" href="#NewContext">¶</a>
 					
 					
@@ -600,7 +599,7 @@ all other fields empty.
 				
 			
 				
-				</p><h3 id="ParseContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2722:2761#L84">ParseContext</a>
+				</p><h3 id="ParseContext">func <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2497:2536#L76">ParseContext</a>
 					<a class="permalink" href="#ParseContext">¶</a>
 					
 					
@@ -614,7 +613,7 @@ all other fields empty.
 
 			
 				
-				</p><h3 id="Context.WithAttributes">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1185:1251#L33">WithAttributes</a>
+				</p><h3 id="Context.WithAttributes">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1138:1204#L31">WithAttributes</a>
 					<a class="permalink" href="#Context.WithAttributes">¶</a>
 					
 					
@@ -627,7 +626,7 @@ all other fields empty.
 				
 			
 				
-				</p><h3 id="Context.WithEnabled">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1037:1091#L27">WithEnabled</a>
+				</p><h3 id="Context.WithEnabled">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=990:1044#L25">WithEnabled</a>
 					<a class="permalink" href="#Context.WithEnabled">¶</a>
 					
 					
@@ -640,7 +639,7 @@ all other fields empty.
 				
 			
 				
-				</p><h3 id="Context.WithFeatures">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1849:1911#L56">WithFeatures</a>
+				</p><h3 id="Context.WithFeatures">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1624:1686#L48">WithFeatures</a>
 					<a class="permalink" href="#Context.WithFeatures">¶</a>
 					
 					
@@ -654,7 +653,7 @@ FeatureMap, which is a map from feature names to *Feature values).
 				
 			
 				
-				</p><h3 id="Context.WithForcedVariations">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2125:2212#L64">WithForcedVariations</a>
+				</p><h3 id="Context.WithForcedVariations">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1900:1987#L56">WithForcedVariations</a>
 					<a class="permalink" href="#Context.WithForcedVariations">¶</a>
 					
 					
@@ -669,7 +668,7 @@ keys to variation indexes).
 				
 			
 				
-				</p><h3 id="Context.WithQAMode">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2348:2400#L71">WithQAMode</a>
+				</p><h3 id="Context.WithQAMode">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2123:2175#L63">WithQAMode</a>
 					<a class="permalink" href="#Context.WithQAMode">¶</a>
 					
 					
@@ -683,7 +682,7 @@ context.
 				
 			
 				
-				</p><h3 id="Context.WithTrackingCallback">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2516:2602#L78">WithTrackingCallback</a>
+				</p><h3 id="Context.WithTrackingCallback">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=2291:2377#L70">WithTrackingCallback</a>
 					<a class="permalink" href="#Context.WithTrackingCallback">¶</a>
 					
 					
@@ -697,7 +696,7 @@ context.
 				
 			
 				
-				</p><h3 id="Context.WithURL">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1628:1678#L49">WithURL</a>
+				</p><h3 id="Context.WithURL">func (*Context) <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=1403:1453#L41">WithURL</a>
 					<a class="permalink" href="#Context.WithURL">¶</a>
 					
 					
@@ -985,7 +984,7 @@ but all other fields empty.
 		
 			
 			
-			</p><h2 id="ExperimentCallback">type <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=733:811#L18">ExperimentCallback</a>
+			</p><h2 id="ExperimentCallback">type <a href="../../../src/github.com/growthbook/growthbook-golang/context.go.html?s=699:777#L16">ExperimentCallback</a>
 				<a class="permalink" href="#ExperimentCallback">¶</a>
 				
 				
@@ -1200,7 +1199,7 @@ object represented as a Go map.
 
 			
 				
-				</p><h3 id="FeatureResult.GetValueWithDefault">func (*FeatureResult) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2438:2513#L83">GetValueWithDefault</a>
+				</p><h3 id="FeatureResult.GetValueWithDefault">func (*FeatureResult) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2450:2525#L83">GetValueWithDefault</a>
 					<a class="permalink" href="#FeatureResult.GetValueWithDefault">¶</a>
 					
 					
@@ -1408,7 +1407,7 @@ variation.
 
 			
 				
-				</p><h3 id="GrowthBook.Attributes">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=789:834#L25">Attributes</a>
+				</p><h3 id="GrowthBook.Attributes">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=801:846#L25">Attributes</a>
 					<a class="permalink" href="#GrowthBook.Attributes">¶</a>
 					
 					
@@ -1421,7 +1420,7 @@ variation.
 				
 			
 				
-				</p><h3 id="GrowthBook.ClearSavedResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11808:11849#L422">ClearSavedResults</a>
+				</p><h3 id="GrowthBook.ClearSavedResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11820:11861#L422">ClearSavedResults</a>
 					<a class="permalink" href="#GrowthBook.ClearSavedResults">¶</a>
 					
 					
@@ -1436,7 +1435,7 @@ subscriptions).
 				
 			
 				
-				</p><h3 id="GrowthBook.ClearTrackingData">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11995:12036#L428">ClearTrackingData</a>
+				</p><h3 id="GrowthBook.ClearTrackingData">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=12007:12048#L428">ClearTrackingData</a>
 					<a class="permalink" href="#GrowthBook.ClearTrackingData">¶</a>
 					
 					
@@ -1450,7 +1449,7 @@ tracking callback.
 				
 			
 				
-				</p><h3 id="GrowthBook.Enabled">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2119:2155#L71">Enabled</a>
+				</p><h3 id="GrowthBook.Enabled">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2131:2167#L71">Enabled</a>
 					<a class="permalink" href="#GrowthBook.Enabled">¶</a>
 					
 					
@@ -1463,7 +1462,7 @@ tracking callback.
 				
 			
 				
-				</p><h3 id="GrowthBook.Feature">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2657:2713#L92">Feature</a>
+				</p><h3 id="GrowthBook.Feature">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2669:2725#L92">Feature</a>
 					<a class="permalink" href="#GrowthBook.Feature">¶</a>
 					
 					
@@ -1477,7 +1476,7 @@ feature key.
 				
 			
 				
-				</p><h3 id="GrowthBook.Features">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1114:1157#L36">Features</a>
+				</p><h3 id="GrowthBook.Features">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1126:1169#L36">Features</a>
 					<a class="permalink" href="#GrowthBook.Features">¶</a>
 					
 					
@@ -1490,7 +1489,7 @@ feature key.
 				
 			
 				
-				</p><h3 id="GrowthBook.ForcedVariations">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1452:1512#L48">ForcedVariations</a>
+				</p><h3 id="GrowthBook.ForcedVariations">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1464:1524#L48">ForcedVariations</a>
 					<a class="permalink" href="#GrowthBook.ForcedVariations">¶</a>
 					
 					
@@ -1504,7 +1503,7 @@ context.
 				
 			
 				
-				</p><h3 id="GrowthBook.GetAllResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11556:11622#L415">GetAllResults</a>
+				</p><h3 id="GrowthBook.GetAllResults">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11568:11634#L415">GetAllResults</a>
 					<a class="permalink" href="#GrowthBook.GetAllResults">¶</a>
 					
 					
@@ -1518,7 +1517,7 @@ all experiments that have been run, indexed by the experiment key.
 				
 			
 				
-				</p><h3 id="GrowthBook.Run">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=7069:7129#L257">Run</a>
+				</p><h3 id="GrowthBook.Run">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=7081:7141#L257">Run</a>
 					<a class="permalink" href="#GrowthBook.Run">¶</a>
 					
 					
@@ -1532,7 +1531,7 @@ simple.)
 				
 			
 				
-				</p><h3 id="GrowthBook.Subscribe">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11205:11272#L404">Subscribe</a>
+				</p><h3 id="GrowthBook.Subscribe">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=11217:11284#L404">Subscribe</a>
 					<a class="permalink" href="#GrowthBook.Subscribe">¶</a>
 					
 					
@@ -1547,7 +1546,7 @@ also fires when a user is not included in an experiment.
 				
 			
 				
-				</p><h3 id="GrowthBook.URL">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1844:1880#L60">URL</a>
+				</p><h3 id="GrowthBook.URL">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1856:1892#L60">URL</a>
 					<a class="permalink" href="#GrowthBook.URL">¶</a>
 					
 					
@@ -1560,7 +1559,7 @@ also fires when a user is not included in an experiment.
 				
 			
 				
-				</p><h3 id="GrowthBook.WithAttributes">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=938:1004#L30">WithAttributes</a>
+				</p><h3 id="GrowthBook.WithAttributes">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=950:1016#L30">WithAttributes</a>
 					<a class="permalink" href="#GrowthBook.WithAttributes">¶</a>
 					
 					
@@ -1573,7 +1572,7 @@ also fires when a user is not included in an experiment.
 				
 			
 				
-				</p><h3 id="GrowthBook.WithEnabled">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2252:2311#L76">WithEnabled</a>
+				</p><h3 id="GrowthBook.WithEnabled">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=2264:2323#L76">WithEnabled</a>
 					<a class="permalink" href="#GrowthBook.WithEnabled">¶</a>
 					
 					
@@ -1586,7 +1585,7 @@ also fires when a user is not included in an experiment.
 				
 			
 				
-				</p><h3 id="GrowthBook.WithFeatures">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1254:1321#L41">WithFeatures</a>
+				</p><h3 id="GrowthBook.WithFeatures">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1266:1333#L41">WithFeatures</a>
 					<a class="permalink" href="#GrowthBook.WithFeatures">¶</a>
 					
 					
@@ -1599,7 +1598,7 @@ also fires when a user is not included in an experiment.
 				
 			
 				
-				</p><h3 id="GrowthBook.WithForcedVariations">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1635:1727#L54">WithForcedVariations</a>
+				</p><h3 id="GrowthBook.WithForcedVariations">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1647:1739#L54">WithForcedVariations</a>
 					<a class="permalink" href="#GrowthBook.WithForcedVariations">¶</a>
 					
 					
@@ -1613,7 +1612,7 @@ context.
 				
 			
 				
-				</p><h3 id="GrowthBook.WithURL">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1960:2015#L65">WithURL</a>
+				</p><h3 id="GrowthBook.WithURL">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=1972:2027#L65">WithURL</a>
 					<a class="permalink" href="#GrowthBook.WithURL">¶</a>
 					
 					

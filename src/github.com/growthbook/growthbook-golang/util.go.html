@@ -213,7 +213,7 @@
 <span id="L156" class="ln">   156  </span>	<span class="comment">// Convert all type-specific slices to interface{} slices.</span>
 <span id="L157" class="ln">   157  </span>	v := reflect.ValueOf(vin)
 <span id="L158" class="ln">   158  </span>	rv := vin
-<span id="L159" class="ln">   159  </span>	if v.Kind() == reflect.Slice {
+<span id="L159" class="ln">   159  </span>	if v.Kind() == reflect.Slice || v.Kind() == reflect.Array {
 <span id="L160" class="ln">   160  </span>		srv := make([]interface{}, v.Len())
 <span id="L161" class="ln">   161  </span>		for i := 0; i &lt; v.Len(); i++ {
 <span id="L162" class="ln">   162  </span>			elem := v.Index(i).Interface()

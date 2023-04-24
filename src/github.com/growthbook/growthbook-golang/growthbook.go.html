@@ -77,8 +77,8 @@
 <span id="L20" class="ln">    20  </span>
 <span id="L21" class="ln">    21  </span><span class="comment">// New created a new GrowthBook instance.</span>
 <span id="L22" class="ln">    22  </span>func New(context *Context) *GrowthBook {
-<span id="L23" class="ln">    23  </span>	if !context.Valid {
-<span id="L24" class="ln">    24  </span>		return nil
+<span id="L23" class="ln">    23  </span>	if context == nil {
+<span id="L24" class="ln">    24  </span>		context = NewContext()
 <span id="L25" class="ln">    25  </span>	}
 <span id="L26" class="ln">    26  </span>	return &amp;GrowthBook{
 <span id="L27" class="ln">    27  </span>		context,
