@@ -137,10 +137,10 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 				}
 
 				// Hash the value.
-				n := float64(hashFnv32a(hashString+key)%1000) / 1000
+				n := hash("", hashString+key, 1)
 
 				// If the hash is greater than rule.Coverage, skip the rule.
-				if n > *rule.Coverage {
+				if *n > *rule.Coverage {
 					logInfo(InfoRuleSkipCoverage, key, rule)
 					continue
 				}
@@ -360,8 +360,8 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID *string) *ExperimentResul
 		coverage = *exp.Coverage
 	}
 	ranges := getBucketRanges(len(exp.Variations), coverage, exp.Weights)
-	n := float64(hashFnv32a(hashString+exp.Key)%1000) / 1000
-	assigned := chooseVariation(float64(n), ranges)
+	n := hash("", hashString+exp.Key, 1)
+	assigned := chooseVariation(*n, ranges)
 
 	// 10. If assigned == -1, return default result.
 	if assigned == -1 {

@@ -81,14 +81,28 @@ func jsonTestEvalCondition(g *G, itest int, test []interface{}) {
 //
 // Test parameters: value, hash
 func jsonTestHash(g *G, itest int, test []interface{}) {
-	string, ok0 := test[0].(string)
-	value, ok1 := test[1].(float64)
-	if !ok0 || !ok1 {
+	seed, ok0 := test[0].(string)
+	value, ok1 := test[1].(string)
+	version, ok2 := test[2].(float64)
+	expectedValue, ok3 := test[3].(float64)
+	var expected *float64
+	if ok3 {
+		expected = &expectedValue
+	} else {
+		ok3 = test[3] == nil
+	}
+	if !ok0 || !ok1 || !ok2 || !ok3 {
 		log.Fatal("unpacking test data")
 	}
 
-	g.It(fmt.Sprintf("hashFnv32a[%d] %s", itest, string), func() {
-		g.Assert(float64(hashFnv32a(string)%1000) / 1000).Equal(value)
+	g.It(fmt.Sprintf("hash[%d] '%s' + '%s'", itest, seed, value), func() {
+		result := hash(seed, value, int(version))
+		if expected == nil {
+			g.Assert(result == nil)
+		} else {
+			g.Assert(result != nil)
+			g.Assert(*result).Equal(*expected)
+		}
 	})
 }
 

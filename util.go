@@ -146,6 +146,20 @@ func hashFnv32a(s string) uint32 {
 	return hash.Sum32()
 }
 
+// Main hash function.
+func hash(seed string, value string, version int) *float64 {
+	switch version {
+	case 2:
+		v := float64(hashFnv32a(fmt.Sprint(hashFnv32a(seed+value)))%10000) / 10000
+		return &v
+	case 1:
+		v := float64(hashFnv32a(value+seed)%1000) / 1000
+		return &v
+	default:
+		return nil
+	}
+}
+
 // This function imitates Javascript's "truthiness" evaluation for Go
 // values of unknown type.
 func truthy(v interface{}) bool {
