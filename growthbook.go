@@ -12,6 +12,7 @@ type subscriptionID uint
 // GrowthBook is the main export of the SDK.
 type GrowthBook struct {
 	context            *Context
+	attributeOverrides Attributes
 	trackedExperiments map[string]bool
 	nextSubscriptionID subscriptionID
 	subscriptions      map[subscriptionID]ExperimentCallback
@@ -25,6 +26,7 @@ func New(context *Context) *GrowthBook {
 	}
 	return &GrowthBook{
 		context,
+		Attributes{},
 		map[string]bool{},
 		1, map[subscriptionID]ExperimentCallback{},
 		map[string]*ExperimentResult{},
@@ -39,6 +41,17 @@ func (gb *GrowthBook) Attributes() Attributes {
 // WithAttributes updates the attributes in a GrowthBook's context.
 func (gb *GrowthBook) WithAttributes(attrs Attributes) *GrowthBook {
 	gb.context.Attributes = attrs
+	return gb
+}
+
+// AttributeOverrides returns the current attribute overrides.
+func (gb *GrowthBook) AttributeOverrides() Attributes {
+	return gb.attributeOverrides
+}
+
+// WithAttributeOverrides returns the current attribute overrides.
+func (gb *GrowthBook) WithAttributeOverrides(overrides Attributes) *GrowthBook {
+	gb.attributeOverrides = overrides
 	return gb
 }
 
@@ -97,6 +110,61 @@ func (fr *FeatureResult) GetValueWithDefault(def FeatureValue) FeatureValue {
 	return fr.Value
 }
 
+func (gb *GrowthBook) getHashAttribute(attr *string) (string, string) {
+	hashAttribute := "id"
+	if attr != nil {
+		hashAttribute = *attr
+	}
+
+	hashValue, ok := gb.AttributeOverrides()[hashAttribute]
+	if !ok {
+		hashValue, ok = gb.Attributes()[hashAttribute]
+		if !ok {
+			return "", ""
+		}
+	}
+	hashString, ok := convertHashValue(hashValue)
+	if !ok {
+		return "", ""
+	}
+
+	return hashAttribute, hashString
+}
+
+func (gb *GrowthBook) isIncludedInRollout(
+	seed string,
+	hashAttribute *string,
+	rng *Range,
+	coverage *float64,
+	hashVersion *int,
+) bool {
+	if rng == nil && coverage == nil {
+		return true
+	}
+
+	_, hashValue := gb.getHashAttribute(hashAttribute)
+	if hashValue == "" {
+		return false
+	}
+
+	hv := 1
+	if hashVersion != nil {
+		hv = *hashVersion
+	}
+	n := hash(seed, hashValue, hv)
+	if n == nil {
+		return false
+	}
+
+	if rng != nil {
+		return rng.InRange(*n)
+	}
+	if coverage != nil {
+		return *n <= *coverage
+	}
+	return true
+}
+
 // Feature returns the result for a feature identified by a string
 // feature key.
 func (gb *GrowthBook) Feature(key string) *FeatureResult {
@@ -118,33 +186,23 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 
 		// If rule.Force has been set:
 		if rule.Force != nil {
-			// If rule.Coverage is set
-			if rule.Coverage != nil {
-				// Get the value of the hashAttribute, defaulting to "id", and
-				// if missing or empty, skip the rule.
-				hashAttribute := "id"
-				if rule.HashAttribute != nil {
-					hashAttribute = *rule.HashAttribute
-				}
-				hashValue, ok := gb.Attributes()[hashAttribute]
-				if !ok {
-					logInfo(InfoRuleSkipNoHashAttribute, key, rule)
-					continue
-				}
-				hashString, ok := convertHashValue(hashValue)
-				if !ok {
-					continue
-				}
-
-				// Hash the value.
-				n := hash("", hashString+key, 1)
-
-				// If the hash is greater than rule.Coverage, skip the rule.
-				if *n > *rule.Coverage {
-					logInfo(InfoRuleSkipCoverage, key, rule)
-					continue
-				}
+			seed := key
+			if rule.Seed != nil {
+				seed = *rule.Seed
 			}
+			if !gb.isIncludedInRollout(
+				seed,
+				rule.HashAttribute,
+				rule.Range,
+				rule.Coverage,
+				rule.HashVersion,
+			) {
+				// TODO: FIX THIS MESSAGE
+				logInfo(InfoRuleSkipUserNotInRollout, key, rule)
+				continue
+			}
+
+			// TODO: MORE LOGGING
 
 			// Return forced feature result.
 			return getFeatureResult(rule.Force, ForceResultSource, nil, nil)
@@ -157,8 +215,8 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 			Variations: rule.Variations,
 			Active:     true,
 		}
-		if rule.TrackingKey != nil {
-			experiment.Key = *rule.TrackingKey
+		if rule.Key != nil {
+			experiment.Key = *rule.Key
 		}
 		if rule.Coverage != nil {
 			var tmp *float64

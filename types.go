@@ -75,17 +75,32 @@ type Range struct {
 	High float64
 }
 
+func (r *Range) InRange(n float64) bool {
+	return n >= r.Low && n < r.High
+}
+
 // FeatureRule overrides the default value of a Feature.
 type FeatureRule struct {
+	ID            *string
 	Condition     Condition
-	Coverage      *float64
 	Force         FeatureValue
 	Variations    []FeatureValue
-	TrackingKey   *string
 	Weights       []float64
-	Namespace     *Namespace
+	Key           *string
 	HashAttribute *string
+	HashVersion   *int
+	Range         *Range
+	Coverage      *float64
+	Namespace     *Namespace
 	Ranges        []Range
+	Seed          *string
+	Name          *string
+	Phase         *string
+
+	// TBD:
+	// Meta
+	// Filters
+	// Tracks
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always

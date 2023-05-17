@@ -28,6 +28,7 @@ const (
 	InfoRuleSkipNoHashAttribute    = "Skip rule because of missing hash attribute"
 	InfoRuleSkipEmptyHashAttribute = "Skip rule because of empty hash attribute"
 	InfoRuleSkipCoverage           = "Skip rule because of coverage"
+	InfoRuleSkipUserNotInRollout   = "Skip rule because user not included in rollout"
 	InfoRuleSkipUserNotInExp       = "Skip rule because user not in experiment"
 )
 

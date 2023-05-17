@@ -1,6 +1,8 @@
 package growthbook
 
-import "encoding/json"
+import (
+	"encoding/json"
+)
 
 //  All of these functions build values of particular types from
 //  representations as JSON objects. These functions are useful both
@@ -157,6 +159,8 @@ func BuildFeatureRule(val interface{}) *FeatureRule {
 KeyLoop:
 	for k, v := range dict {
 		switch k {
+		case "id":
+			rule.ID = jsonString(v, "FeatureRule", "id")
 		case "condition":
 			condmap, ok := v.(map[string]interface{})
 			if !ok {
@@ -164,40 +168,31 @@ KeyLoop:
 				continue
 			}
 			rule.Condition = BuildCondition(condmap)
-		case "coverage":
-			tmp, ok := v.(float64)
-			if !ok {
-				logError(ErrJSONInvalidType, "FeatureRule", "coverage")
-				continue
-			}
-			rule.Coverage = &tmp
 		case "force":
 			rule.Force = v
 		case "variations":
 			rule.Variations = BuildFeatureValues(v)
-		case "key":
-			tmp, ok := v.(string)
-			if !ok {
-				logError(ErrJSONInvalidType, "FeatureRule", "key")
-				continue
-			}
-			rule.TrackingKey = &tmp
 		case "weights":
-			vals, ok := v.([]interface{})
-			if !ok {
-				logError(ErrJSONInvalidType, "FeatureRule", "weights")
-				continue
-			}
-			weights := make([]float64, len(vals))
-			for i := range vals {
-				tmp, ok := vals[i].(float64)
-				if !ok {
-					logError(ErrJSONInvalidType, "FeatureRule", "weights")
-					continue KeyLoop
+			rule.Weights = jsonFloatArray(v, "FeatureRule", "weights")
+		case "key":
+			rule.Key = jsonString(v, "FeatureRule", "key")
+		case "hashAttribute":
+			rule.HashAttribute = jsonString(v, "FeatureRule", "hashAttribute")
+		case "hashVersion":
+			rule.HashVersion = jsonInt(v, "FeatureRule", "hashVersion")
+		case "range":
+			vals := jsonFloatArray(v, "FeatureRule", "range")
+			if vals != nil {
+				if len(vals) != 2 {
+					logError(ErrJSONInvalidType, "FeatureRule", "ranges")
+					continue
 				}
-				weights[i] = tmp
+				rule.Range = &Range{vals[0], vals[1]}
 			}
-			rule.Weights = weights
+		case "coverage":
+			rule.Coverage = jsonFloat(v, "FeatureRule", "coverage")
+		case "namespace":
+			rule.Namespace = BuildNamespace(v)
 		case "ranges":
 			vals, ok := v.([]interface{})
 			if !ok {
@@ -206,34 +201,71 @@ KeyLoop:
 			}
 			ranges := make([]Range, len(vals))
 			for i := range vals {
-				tmp, ok := vals[i].([]interface{})
-				if !ok || len(tmp) != 2 {
+				tmp := jsonFloatArray(vals[i], "FeatureRule", "ranges")
+				if tmp == nil || len(tmp) != 2 {
 					logError(ErrJSONInvalidType, "FeatureRule", "ranges")
 					continue KeyLoop
 				}
-				lo, oklo := tmp[0].(float64)
-				hi, okhi := tmp[0].(float64)
-				if !oklo || !okhi {
-					logError(ErrJSONInvalidType, "FeatureRule", "ranges")
-					continue KeyLoop
-				}
-				ranges[i] = Range{lo, hi}
+				ranges[i] = Range{tmp[0], tmp[1]}
 			}
 			rule.Ranges = ranges
-		case "namespace":
-			rule.Namespace = BuildNamespace(v)
-		case "hashAttribute":
-			tmp, ok := v.(string)
-			if !ok {
-				logError(ErrJSONInvalidType, "FeatureRule", "hashAttribute")
-				continue
-			}
-			rule.HashAttribute = &tmp
+		case "seed":
+			rule.Seed = jsonString(v, "FeatureRule", "seed")
+		case "name":
+			rule.Name = jsonString(v, "FeatureRule", "name")
+		case "phase":
+			rule.Phase = jsonString(v, "FeatureRule", "phase")
 		default:
 			logWarn(WarnJSONUnknownKey, "FeatureRule", k)
 		}
 	}
 	return &rule
+}
+
+func jsonString(v interface{}, typeName string, fieldName string) *string {
+	tmp, ok := v.(string)
+	if ok {
+		return &tmp
+	}
+	logError(ErrJSONInvalidType, typeName, fieldName)
+	return nil
+}
+
+func jsonInt(v interface{}, typeName string, fieldName string) *int {
+	tmp, ok := v.(float64)
+	if ok {
+		retval := int(tmp)
+		return &retval
+	}
+	logError(ErrJSONInvalidType, typeName, fieldName)
+	return nil
+}
+
+func jsonFloat(v interface{}, typeName string, fieldName string) *float64 {
+	tmp, ok := v.(float64)
+	if ok {
+		return &tmp
+	}
+	logError(ErrJSONInvalidType, typeName, fieldName)
+	return nil
+}
+
+func jsonFloatArray(v interface{}, typeName string, fieldName string) []float64 {
+	vals, ok := v.([]interface{})
+	if !ok {
+		logError(ErrJSONInvalidType, typeName, fieldName)
+		return nil
+	}
+	fvals := make([]float64, len(vals))
+	for i := range vals {
+		tmp, ok := vals[i].(float64)
+		if !ok {
+			logError(ErrJSONInvalidType, typeName, fieldName)
+			return nil
+		}
+		fvals[i] = tmp
+	}
+	return fvals
 }
 
 // ParseNamespace creates a Namespace value from raw JSON input.
