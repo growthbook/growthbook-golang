@@ -198,6 +198,28 @@ KeyLoop:
 				weights[i] = tmp
 			}
 			rule.Weights = weights
+		case "ranges":
+			vals, ok := v.([]interface{})
+			if !ok {
+				logError(ErrJSONInvalidType, "FeatureRule", "ranges")
+				continue
+			}
+			ranges := make([]Range, len(vals))
+			for i := range vals {
+				tmp, ok := vals[i].([]interface{})
+				if !ok || len(tmp) != 2 {
+					logError(ErrJSONInvalidType, "FeatureRule", "ranges")
+					continue KeyLoop
+				}
+				lo, oklo := tmp[0].(float64)
+				hi, okhi := tmp[0].(float64)
+				if !oklo || !okhi {
+					logError(ErrJSONInvalidType, "FeatureRule", "ranges")
+					continue KeyLoop
+				}
+				ranges[i] = Range{lo, hi}
+			}
+			rule.Ranges = ranges
 		case "namespace":
 			rule.Namespace = BuildNamespace(v)
 		case "hashAttribute":

@@ -69,6 +69,12 @@ type ExperimentResult struct {
 	FeatureID     *string
 }
 
+// Range is used to express the traffic split ranges.
+type Range struct {
+	Low  float64
+	High float64
+}
+
 // FeatureRule overrides the default value of a Feature.
 type FeatureRule struct {
 	Condition     Condition
@@ -79,6 +85,7 @@ type FeatureRule struct {
 	Weights       []float64
 	Namespace     *Namespace
 	HashAttribute *string
+	Ranges        []Range
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always
