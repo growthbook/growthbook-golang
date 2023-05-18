@@ -1,18 +1,10 @@
 package growthbook
 
 import (
-	"fmt"
-	"hash/fnv"
 	"net/url"
 	"reflect"
 	"strconv"
 )
-
-// VariationRange represents a single bucket range.
-type VariationRange struct {
-	Min float64
-	Max float64
-}
 
 // Returns an array of floats with numVariations items that are all
 // equal and sum to 1.
@@ -25,59 +17,6 @@ func getEqualWeights(numVariations int) []float64 {
 		equal[i] = 1.0 / float64(numVariations)
 	}
 	return equal
-}
-
-// This converts an experiment's coverage and variation weights into
-// an array of bucket ranges.
-func getBucketRanges(numVariations int, coverage float64, weights []float64) []VariationRange {
-	// Make sure coverage is within bounds.
-	if coverage < 0 {
-		logWarn(WarnExpCoverageMustBePositive)
-		coverage = 0
-	}
-	if coverage > 1 {
-		logWarn(WarnExpCoverageMustBeFraction)
-		coverage = 1
-	}
-
-	// Default to equal weights if missing or invalid
-	if weights == nil || len(weights) == 0 {
-		weights = getEqualWeights(numVariations)
-	}
-	if len(weights) != numVariations {
-		logWarn(WarnExpWeightsWrongLength)
-		weights = getEqualWeights(numVariations)
-	}
-
-	// If weights don't add up to 1 (or close to it), default to equal weights
-	totalWeight := 0.0
-	for i := range weights {
-		totalWeight += weights[i]
-	}
-	if totalWeight < 0.99 || totalWeight > 1.01 {
-		logWarn(WarnExpWeightsWrongTotal)
-		weights = getEqualWeights(numVariations)
-	}
-
-	// Convert weights to ranges
-	cumulative := 0.0
-	ranges := make([]VariationRange, len(weights))
-	for i := range weights {
-		start := cumulative
-		cumulative += weights[i]
-		ranges[i] = VariationRange{start, start + coverage*weights[i]}
-	}
-	return ranges
-}
-
-// Given a hash and bucket ranges, assigns one of the bucket ranges.
-func chooseVariation(n float64, ranges []VariationRange) int {
-	for i := range ranges {
-		if n >= ranges[i].Min && n < ranges[i].Max {
-			return i
-		}
-	}
-	return -1
 }
 
 // Checks if an experiment variation is being forced via a URL query
@@ -101,63 +40,6 @@ func getQueryStringOverride(id string, url *url.URL, numVariations int) *int {
 	}
 
 	return &vi
-}
-
-// Namespace specifies what part of a namespace an experiment
-// includes. If two experiments are in the same namespace and their
-// ranges don't overlap, they wil be mutually exclusive.
-type Namespace struct {
-	ID    string
-	Start float64
-	End   float64
-}
-
-// Determine whether a user's ID lies within a given namespace.
-func inNamespace(userID string, namespace *Namespace) bool {
-	n := float64(hashFnv32a(userID+"__"+namespace.ID)%1000) / 1000
-	return n >= namespace.Start && n < namespace.End
-}
-
-// Convert integer or string hash values to strings.
-func convertHashValue(vin interface{}) (string, bool) {
-	hashString, stringOK := vin.(string)
-	if stringOK {
-		if hashString == "" {
-			logInfo(InfoRuleSkipEmptyHashAttribute)
-			return "", false
-		}
-		return hashString, true
-	}
-	hashInt, intOK := vin.(int)
-	if intOK {
-		return fmt.Sprint(hashInt), true
-	}
-	hashFloat, floatOK := vin.(float64)
-	if floatOK {
-		return fmt.Sprint(int(hashFloat)), true
-	}
-	return "", false
-}
-
-// Simple wrapper around Go standard library FNV32a hash function.
-func hashFnv32a(s string) uint32 {
-	hash := fnv.New32a()
-	hash.Write([]byte(s))
-	return hash.Sum32()
-}
-
-// Main hash function.
-func hash(seed string, value string, version int) *float64 {
-	switch version {
-	case 2:
-		v := float64(hashFnv32a(fmt.Sprint(hashFnv32a(seed+value)))%10000) / 10000
-		return &v
-	case 1:
-		v := float64(hashFnv32a(value+seed)%1000) / 1000
-		return &v
-	default:
-		return nil
-	}
 }
 
 // This function imitates Javascript's "truthiness" evaluation for Go

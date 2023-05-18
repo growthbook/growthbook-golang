@@ -256,15 +256,15 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 		if rule.HashVersion != 0 {
 			experiment.HashVersion = rule.HashVersion
 		}
-		// if rule.Filters != nil {
-		// 	experiment.Filters = rule.Filters
-		// }
+		if rule.Filters != nil {
+			experiment.Filters = rule.Filters
+		}
 
 		// Run the experiment.
 		result := gb.doRun(&experiment, key)
 
 		// Only return a value if the user is part of the experiment.
-		if result.InExperiment /* && !res.Passthrough */ {
+		if result.InExperiment && !result.Passthrough {
 			return getFeatureResult(key, result.Value, ExperimentResultSource, rule.ID, &experiment, result)
 		}
 	}
@@ -320,8 +320,12 @@ func (gb *GrowthBook) getResult(
 		hashString, _ = convertHashValue(hashValue)
 	}
 
-	// TODO: COPY META INFO FROM EXPERIMENT HERE
-	var metaKey *string
+	var meta *VariationMeta
+	if exp.Meta != nil {
+		if variationIndex < len(exp.Meta) {
+			meta = &exp.Meta[variationIndex]
+		}
+	}
 
 	// Return
 	var value FeatureValue
@@ -329,8 +333,16 @@ func (gb *GrowthBook) getResult(
 		value = exp.Variations[variationIndex]
 	}
 	key := fmt.Sprint(variationIndex)
-	if metaKey != nil {
-		key = *metaKey
+	name := ""
+	passthrough := false
+	if meta != nil {
+		if meta.Key != "" {
+			key = meta.Key
+		}
+		if meta.Name != "" {
+			name = meta.Name
+		}
+		passthrough = meta.Passthrough
 	}
 	return &Result{
 		Key:           key,
@@ -342,10 +354,9 @@ func (gb *GrowthBook) getResult(
 		HashAttribute: hashAttribute,
 		HashValue:     hashString,
 		Bucket:        bucket,
+		Name:          name,
+		Passthrough:   passthrough,
 	}
-
-	// if (meta.name) res.name = meta.name;
-	// if (meta.passthrough) res.passthrough = meta.passthrough;
 }
 
 // Run an experiment. (Uses doRun to make wrapping for subscriptions
@@ -427,7 +438,7 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 
 	// 7. If exp.Namespace is set, return if not in range.
 	if exp.Namespace != nil {
-		if !inNamespace(hashString, exp.Namespace) {
+		if !exp.Namespace.inNamespace(hashString) {
 			return gb.getResult(exp, -1, false, featureID, nil)
 		}
 	}
@@ -445,7 +456,15 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 		coverage = *exp.Coverage
 	}
 	ranges := getBucketRanges(len(exp.Variations), coverage, exp.Weights)
-	n := hash("", hashString+exp.Key, 1)
+	seed := exp.Key
+	if exp.Seed != "" {
+		seed = exp.Seed
+	}
+	hv := 1
+	if exp.HashVersion != 0 {
+		hv = exp.HashVersion
+	}
+	n := hash(seed, hashString, hv)
 	assigned := chooseVariation(*n, ranges)
 
 	// 10. If assigned == -1, return default result.

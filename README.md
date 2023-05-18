@@ -22,3 +22,13 @@ go get github.com/growthbook/growthbook-golang
 
 - [Usage Guide](https://docs.growthbook.io/lib/go)
 - [godoc](https://growthbook.github.io/growthbook-golang)
+
+
+## JSON support
+
+Most types used in the SDK have functions to build values from
+representations as JSON objects, e.g. `ParseExperiment`,
+`BuildFeatureRule`, etc. These functions are useful both for testing
+and for user creation of GrowthBook objects from JSON configuration
+data shared with GrowthBook SDK implementations in other languages,
+all of which use JSON as a common configuration format.

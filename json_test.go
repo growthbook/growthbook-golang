@@ -52,18 +52,22 @@ func jsonTestFeature(t *testing.T, test []interface{}) {
 	fmt.Println(retval.Experiment)
 	fmt.Println(retval.ExperimentResult)
 	if retval.ExperimentResult != nil {
-		fmt.Println(retval.ExperimentResult.Key)
-		fmt.Println(retval.ExperimentResult.Name)
-		fmt.Println(retval.ExperimentResult.Bucket)
+		fmt.Println("key = ", retval.ExperimentResult.Key)
+		fmt.Println("name = ", retval.ExperimentResult.Name)
+		if retval.ExperimentResult.Bucket != nil {
+			fmt.Println("bucket = ", *retval.ExperimentResult.Bucket)
+		}
 	}
 	fmt.Println("--------------------------------------------------------------------------------")
 	fmt.Println(expected)
 	fmt.Println(expected.Experiment)
 	fmt.Println(expected.ExperimentResult)
 	if expected.ExperimentResult != nil {
-		fmt.Println(expected.ExperimentResult.Key)
-		fmt.Println(expected.ExperimentResult.Name)
-		fmt.Println(expected.ExperimentResult.Bucket)
+		fmt.Println("key = ", expected.ExperimentResult.Key)
+		fmt.Println("name = ", expected.ExperimentResult.Name)
+		if expected.ExperimentResult.Bucket != nil {
+			fmt.Println("bucket = ", *expected.ExperimentResult.Bucket)
+		}
 	}
 	fmt.Println("================================================================================")
 
@@ -156,13 +160,13 @@ func jsonTestGetBucketRange(t *testing.T, test []interface{}) {
 		}
 	}
 
-	variations := make([]VariationRange, len(result))
+	variations := make([]Range, len(result))
 	for i, v := range result {
 		vr, ok := v.([]interface{})
 		if !ok || len(vr) != 2 {
 			log.Fatal("unpacking test data")
 		}
-		variations[i] = VariationRange{vr[0].(float64), vr[1].(float64)}
+		variations[i] = Range{vr[0].(float64), vr[1].(float64)}
 	}
 
 	ranges := roundRanges(getBucketRanges(int(numVariations), coverage, weights))
@@ -203,13 +207,13 @@ func jsonTestChooseVariation(t *testing.T, test []interface{}) {
 		log.Fatal("unpacking test data")
 	}
 
-	variations := make([]VariationRange, len(ranges))
+	variations := make([]Range, len(ranges))
 	for i, v := range ranges {
 		vr, ok := v.([]interface{})
 		if !ok || len(vr) != 2 {
 			log.Fatal("unpacking test data")
 		}
-		variations[i] = VariationRange{vr[0].(float64), vr[1].(float64)}
+		variations[i] = Range{vr[0].(float64), vr[1].(float64)}
 	}
 
 	variation := chooseVariation(hash, variations)
@@ -257,7 +261,7 @@ func jsonTestInNamespace(t *testing.T, test []interface{}) {
 	}
 
 	namespace := BuildNamespace(ns)
-	result := inNamespace(id, namespace)
+	result := namespace.inNamespace(id)
 	if result != expected {
 		t.Errorf("unexpected result: %v", result)
 	}
@@ -372,12 +376,12 @@ func jsonTest(t *testing.T, label string,
 
 // Helper to round variation ranges for comparison with fixed test
 // values.
-func roundRanges(ranges []VariationRange) []VariationRange {
-	result := make([]VariationRange, len(ranges))
+func roundRanges(ranges []Range) []Range {
+	result := make([]Range, len(ranges))
 	for i, r := range ranges {
 		rmin := math.Round(r.Min*1000000) / 1000000
 		rmax := math.Round(r.Max*1000000) / 1000000
-		result[i] = VariationRange{rmin, rmax}
+		result[i] = Range{rmin, rmax}
 	}
 	return result
 }
