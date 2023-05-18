@@ -18,14 +18,14 @@ import (
 func TestJSON(t *testing.T) {
 	SetLogger(&testLog)
 	jsonTest(t, "feature", jsonTestFeature)
-	// jsonTest(t, "evalCondition", jsonTestEvalCondition)
-	// jsonTest(t, "hash", jsonTestHash)
-	// jsonTest(t, "getBucketRange", jsonTestGetBucketRange)
-	// jsonTest(t, "chooseVariation", jsonTestChooseVariation)
-	// jsonTest(t, "getQueryStringOverride", jsonTestQueryStringOverride)
-	// jsonTest(t, "inNamespace", jsonTestInNamespace)
-	// jsonTest(t, "getEqualWeights", jsonTestGetEqualWeights)
-	// jsonTest(t, "run", jsonTestRun)
+	jsonTest(t, "evalCondition", jsonTestEvalCondition)
+	jsonTest(t, "hash", jsonTestHash)
+	jsonTest(t, "getBucketRange", jsonTestGetBucketRange)
+	jsonTest(t, "chooseVariation", jsonTestChooseVariation)
+	jsonTest(t, "getQueryStringOverride", jsonTestQueryStringOverride)
+	jsonTest(t, "inNamespace", jsonTestInNamespace)
+	jsonTest(t, "getEqualWeights", jsonTestGetEqualWeights)
+	jsonTest(t, "run", jsonTestRun)
 }
 
 // Test functions driven from JSON cases. Each of this has a similar
@@ -47,29 +47,6 @@ func jsonTestFeature(t *testing.T, test []interface{}) {
 	growthbook := New(context)
 	expected := BuildFeatureResult(expectedDict)
 	retval := growthbook.Feature(featureKey)
-	fmt.Println("================================================================================")
-	fmt.Println(retval)
-	fmt.Println(retval.Experiment)
-	fmt.Println(retval.ExperimentResult)
-	if retval.ExperimentResult != nil {
-		fmt.Println("key = ", retval.ExperimentResult.Key)
-		fmt.Println("name = ", retval.ExperimentResult.Name)
-		if retval.ExperimentResult.Bucket != nil {
-			fmt.Println("bucket = ", *retval.ExperimentResult.Bucket)
-		}
-	}
-	fmt.Println("--------------------------------------------------------------------------------")
-	fmt.Println(expected)
-	fmt.Println(expected.Experiment)
-	fmt.Println(expected.ExperimentResult)
-	if expected.ExperimentResult != nil {
-		fmt.Println("key = ", expected.ExperimentResult.Key)
-		fmt.Println("name = ", expected.ExperimentResult.Name)
-		if expected.ExperimentResult.Bucket != nil {
-			fmt.Println("bucket = ", *expected.ExperimentResult.Bucket)
-		}
-	}
-	fmt.Println("================================================================================")
 
 	if !reflect.DeepEqual(retval, expected) {
 		t.Errorf("unexpected value: %v", retval)

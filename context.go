@@ -15,6 +15,7 @@ type Context struct {
 	ForcedVariations ForcedVariationsMap
 	QAMode           bool
 	TrackingCallback ExperimentCallback
+	Groups           map[string]bool
 }
 
 // ExperimentCallback is a callback function that is executed every
@@ -72,6 +73,12 @@ func (ctx *Context) WithForcedVariations(forcedVariations ForcedVariationsMap) *
 // context.
 func (ctx *Context) WithQAMode(qaMode bool) *Context {
 	ctx.QAMode = qaMode
+	return ctx
+}
+
+// WithGroups sets the groups map of a context.
+func (ctx *Context) WithGroups(groups map[string]bool) *Context {
+	ctx.Groups = groups
 	return ctx
 }
 

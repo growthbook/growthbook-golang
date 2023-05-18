@@ -26,11 +26,18 @@ const (
 
 	InfoRuleSkipCondition          = "Skip rule because of condition"
 	InfoRuleSkipFilter             = "Skip rule because of filters"
+	InfoRuleSkipInclude            = "Skip rule because of include function"
+	InfoRuleSkipGroups             = "Skip rule because of groups"
+	InfoRuleSkipURL                = "Skip rule because of URL"
+	InfoRuleSkipURLTargeting       = "Skip rule because of URL targeting"
+	InfoRuleSkipBadHashVersion     = "Skip rule because of invalid hash version"
 	InfoRuleSkipNoHashAttribute    = "Skip rule because of missing hash attribute"
 	InfoRuleSkipEmptyHashAttribute = "Skip rule because of empty hash attribute"
 	InfoRuleSkipCoverage           = "Skip rule because of coverage"
 	InfoRuleSkipUserNotInRollout   = "Skip rule because user not included in rollout"
 	InfoRuleSkipUserNotInExp       = "Skip rule because user not in experiment"
+
+	InfoInExperiment = "In experiment"
 )
 
 // Logger is a common interface for logging information and warning

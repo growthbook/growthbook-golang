@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"encoding/json"
+	"regexp"
 )
 
 // Experiment defines a single experiment.
@@ -15,18 +16,18 @@ type Experiment struct {
 	Name       string
 	Phase      string
 	// URLPatterns
-	Weights   []float64
-	Condition Condition
-	Coverage  *float64
-	// Include?
+	Weights       []float64
+	Condition     Condition
+	Coverage      *float64
+	Include       func() bool
 	Namespace     *Namespace
 	Force         *int
 	Active        bool
 	HashAttribute string
 	HashVersion   int
+	Groups        []string
+	URL           *regexp.Regexp
 	// Status
-	// URL
-	// Groups
 }
 
 // NewExperiment creates an experiment with default settings: active,

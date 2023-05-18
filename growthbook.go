@@ -167,7 +167,6 @@ func (gb *GrowthBook) isIncludedInRollout(
 }
 
 func (gb *GrowthBook) isFilteredOut(filters []Filter) bool {
-	fmt.Println("isFilteredOut: filters = ", filters)
 	for _, filter := range filters {
 		_, hashValue := gb.getHashAttribute(filter.Attribute)
 		if hashValue == "" {
@@ -209,7 +208,8 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 	}
 
 	// Loop through the feature rules (if any).
-	for _, rule := range feature.Rules {
+	for i, rule := range feature.Rules {
+		logInfo("Rule ", i, ": ", *rule)
 
 		// If the rule has a condition and the condition does not pass,
 		// skip this rule.
@@ -219,13 +219,9 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 		}
 
 		// Apply any filters for who is included (e.g. namespaces).
-		if rule.Filters != nil {
-			filteredOut := gb.isFilteredOut(rule.Filters)
-			fmt.Println("filteredOut = ", filteredOut)
-			if filteredOut {
-				logInfo(InfoRuleSkipFilter, key, rule)
-				continue
-			}
+		if rule.Filters != nil && gb.isFilteredOut(rule.Filters) {
+			logInfo(InfoRuleSkipFilter, key, rule)
+			continue
 		}
 
 		// TODO: HANDLE FILTERING OUT
@@ -430,36 +426,56 @@ func (gb *GrowthBook) Run(exp *Experiment) *Result {
 	return result
 }
 
+func (gb *GrowthBook) mergeOverrides(exp *Experiment) *Experiment {
+	// TODO: FILL THIS IN
+	return exp
+}
+
+func (gb *GrowthBook) hasGroupOverlap(groups []string) bool {
+	// TODO: FILL THIS IN
+	return false
+}
+
 // Worker function to run an experiment.
 func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
-	// 1. If exp.Variations has fewer than 2 variations, return default
+	// 1. If experiment has fewer than two variations, return default
 	//    result.
 	if len(exp.Variations) < 2 {
+		// TODO: LOGGING
 		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
-	// 2. If context.Enabled is false, return default result.
+	// 2. If the context is disabled, return default result.
 	if !gb.context.Enabled {
+		// TODO: LOGGING
 		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
-	// 3. If context.URL exists, check for query string override and use
-	//    it if it exists.
+	// 2.5. Merge in experiment overrides from the context.
+	exp = gb.mergeOverrides(exp)
+
+	// 3. If a variation is forced from a querystring, return the forced
+	//    variation.
 	if gb.context.URL != nil {
 		qsOverride := getQueryStringOverride(exp.Key, gb.context.URL, len(exp.Variations))
 		if qsOverride != nil {
+			// TODO: LOGGING
 			return gb.getResult(exp, *qsOverride, false, featureID, nil)
 		}
 	}
 
-	// 4. Return forced result if forced via context.
+	// 4. If a variation is forced in the context, return the forced
+	//    variation.
 	force, forced := gb.context.ForcedVariations[exp.Key]
 	if forced {
+		// TODO: LOGGING
 		return gb.getResult(exp, force, false, featureID, nil)
 	}
 
-	// 5. If exp.Active is set to false, return default result.
+	// 5. Exclude inactive experiments and return default result.
+	// TODO: DRAFT STATUS?
 	if !exp.Active {
+		// TODO: LOGGING
 		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
@@ -474,29 +490,58 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 		hashString, _ = convertHashValue(hashValue)
 	}
 	if hashString == "" {
+		// TODO: LOGGING
 		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
 	// 7. If exp.Namespace is set, return if not in range.
-	if exp.Namespace != nil {
+	if exp.Filters != nil {
+		if gb.isFilteredOut(exp.Filters) {
+			logInfo(InfoRuleSkipFilter, exp.Key)
+			return gb.getResult(exp, -1, false, featureID, nil)
+		}
+	} else if exp.Namespace != nil {
 		if !exp.Namespace.inNamespace(hashString) {
+			// TODO: LOGGING
 			return gb.getResult(exp, -1, false, featureID, nil)
 		}
 	}
 
-	// 8. If exp.Condition is set, return if it evaluates to false.
+	// 7.5. Exclude if include function returns false.
+	if exp.Include != nil && !exp.Include() {
+		logInfo(InfoRuleSkipInclude, exp.Key)
+		return gb.getResult(exp, -1, false, featureID, nil)
+	}
+
+	// 8. Exclude if condition is false.
 	if exp.Condition != nil {
 		if !exp.Condition.Eval(gb.context.Attributes) {
+			// TODO: LOGGING
 			return gb.getResult(exp, -1, false, featureID, nil)
 		}
 	}
 
-	// 9. Calculate bucket ranges for the variations and choose one.
-	coverage := float64(1)
-	if exp.Coverage != nil {
-		coverage = *exp.Coverage
+	// 8.1. Exclude if user is not in a required group.
+	if exp.Groups != nil && !gb.hasGroupOverlap(exp.Groups) {
+		logInfo(InfoRuleSkipGroups, exp.Key)
+		return gb.getResult(exp, -1, false, featureID, nil)
 	}
-	ranges := getBucketRanges(len(exp.Variations), coverage, exp.Weights)
+
+	// 8.2. Old style URL targeting.
+	// TODO: FILL THIS IN
+	// if exp.URL != nil && !gb.urlIsValid(exp.URL) {
+	// 	logInfo(InfoRuleSkipURL, exp.Key)
+	// 	return gb.getResult(exp, -1, false, featureID, nil)
+	// }
+
+	// 8.3. New, more powerful URL targeting
+	// TODO: FILL THIS IN
+	// if exp.URLPatterns != nil && !isURLTargeted(gb.context.URL, exp.URLPatterns) {
+	// 	logInfo(InfoRuleSkipURLTargeting, exp.Key)
+	// 	return gb.getResult(exp, -1, false, featureID, nil)
+	// }
+
+	// 9. Calculate bucket ranges for the variations and choose one.
 	seed := exp.Key
 	if exp.Seed != "" {
 		seed = exp.Seed
@@ -506,10 +551,23 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 		hv = exp.HashVersion
 	}
 	n := hash(seed, hashString, hv)
+	if n == nil {
+		logInfo(InfoRuleSkipBadHashVersion, exp.Key)
+		return gb.getResult(exp, -1, false, featureID, nil)
+	}
+	coverage := float64(1)
+	if exp.Coverage != nil {
+		coverage = *exp.Coverage
+	}
+	ranges := exp.Ranges
+	if ranges == nil {
+		ranges = getBucketRanges(len(exp.Variations), coverage, exp.Weights)
+	}
 	assigned := chooseVariation(*n, ranges)
 
 	// 10. If assigned == -1, return default result.
 	if assigned == -1 {
+		logInfo(InfoRuleSkipCoverage, exp.Key)
 		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
@@ -523,12 +581,20 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
+	// 12.5. Exclude if experiment is stopped.
+	// TODO: FILL THIS IN
+	// if exp.Status == "stopped" {
+	// 	logInfo(InfoRuleSkipStopped, exp.Key)
+	// 	return gb.getResult(exp, -1, false, featureID, nil)
+	// }
+
 	// 13. Build the result object.
 	result := gb.getResult(exp, assigned, true, featureID, n)
 
 	// 14. Fire tracking callback if required.
 	gb.track(exp, result)
 
+	logInfo(InfoInExperiment, fmt.Sprintf("%s[%d]", exp.Key, result.VariationID))
 	return result
 }
 

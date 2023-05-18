@@ -56,7 +56,7 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []R
 // Given a hash and bucket ranges, assigns one of the bucket ranges.
 func chooseVariation(n float64, ranges []Range) int {
 	for i := range ranges {
-		if n >= ranges[i].Min && n < ranges[i].Max {
+		if ranges[i].InRange(n) {
 			return i
 		}
 	}
