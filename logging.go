@@ -25,6 +25,7 @@ const (
 	WarnExpWeightsWrongTotal      = "Experiment weights must add up to 1"
 
 	InfoRuleSkipCondition          = "Skip rule because of condition"
+	InfoRuleSkipFilter             = "Skip rule because of filters"
 	InfoRuleSkipNoHashAttribute    = "Skip rule because of missing hash attribute"
 	InfoRuleSkipEmptyHashAttribute = "Skip rule because of empty hash attribute"
 	InfoRuleSkipCoverage           = "Skip rule because of coverage"

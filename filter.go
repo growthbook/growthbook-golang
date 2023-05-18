@@ -54,7 +54,7 @@ func jsonFilter(v interface{}, typeName string, fieldName string) *Filter {
 			logError(ErrJSONInvalidType, typeName, fieldName)
 			return nil
 		}
-		vRanges = jsonRangeArray(tmp, typeName, fieldName)
+		ranges = jsonRangeArray(tmp, typeName, fieldName)
 	}
 
 	return &Filter{attribute, seed, hashVersion, ranges}

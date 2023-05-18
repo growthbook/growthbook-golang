@@ -166,6 +166,37 @@ func (gb *GrowthBook) isIncludedInRollout(
 	return true
 }
 
+func (gb *GrowthBook) isFilteredOut(filters []Filter) bool {
+	fmt.Println("isFilteredOut: filters = ", filters)
+	for _, filter := range filters {
+		_, hashValue := gb.getHashAttribute(filter.Attribute)
+		if hashValue == "" {
+			return true
+		}
+		hv := 1
+		if filter.HashVersion != 0 {
+			hv = filter.HashVersion
+		}
+		n := hash(filter.Seed, hashValue, hv)
+		if n == nil {
+			return true
+		}
+		if filter.Ranges != nil {
+			inRange := false
+			for _, rng := range filter.Ranges {
+				if rng.InRange(*n) {
+					inRange = true
+					break
+				}
+			}
+			if !inRange {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // Feature returns the result for a feature identified by a string
 // feature key.
 func (gb *GrowthBook) Feature(key string) *FeatureResult {
@@ -185,6 +216,16 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 		if rule.Condition != nil && !rule.Condition.Eval(gb.Attributes()) {
 			logInfo(InfoRuleSkipCondition, key, rule)
 			continue
+		}
+
+		// Apply any filters for who is included (e.g. namespaces).
+		if rule.Filters != nil {
+			filteredOut := gb.isFilteredOut(rule.Filters)
+			fmt.Println("filteredOut = ", filteredOut)
+			if filteredOut {
+				logInfo(InfoRuleSkipFilter, key, rule)
+				continue
+			}
 		}
 
 		// TODO: HANDLE FILTERING OUT
