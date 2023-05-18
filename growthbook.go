@@ -172,7 +172,7 @@ func (gb *GrowthBook) isFilteredOut(filters []Filter) bool {
 		if hashValue == "" {
 			return true
 		}
-		hv := 1
+		hv := 2
 		if filter.HashVersion != 0 {
 			hv = filter.HashVersion
 		}
