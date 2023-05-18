@@ -23,7 +23,7 @@ type Context struct {
 // Experiment.Run is called and the experiment result changes,
 // independent of whether a user is inncluded in the experiment or
 // not.
-type ExperimentCallback func(experiment *Experiment, result *ExperimentResult)
+type ExperimentCallback func(experiment *Experiment, result *Result)
 
 // NewContext creates a context with default settings: enabled, but
 // all other fields empty.

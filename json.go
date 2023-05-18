@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"encoding/json"
+	"fmt"
 )
 
 //  All of these functions build values of particular types from
@@ -11,58 +12,109 @@ import (
 //  other languages, all of which use JSON as a common configuration
 //  format.
 
-// BuildExperimentResult creates an ExperimentResult value from a JSON
-// object represented as a Go map.
-func BuildExperimentResult(dict map[string]interface{}) *ExperimentResult {
-	res := ExperimentResult{}
+// ParseExperiment creates an Experiment value from raw JSON input.
+func ParseExperiment(data []byte) *Experiment {
+	dict := map[string]interface{}{}
+	err := json.Unmarshal(data, &dict)
+	if err != nil {
+		logError(ErrJSONFailedToParse, "Experiment")
+		return NewExperiment("")
+	}
+	return BuildExperiment(dict)
+}
+
+// BuildExperiment creates an Experiment value from a JSON object
+// represented as a Go map.
+func BuildExperiment(dict map[string]interface{}) *Experiment {
+	exp := NewExperiment("tmp")
+	gotKey := false
+	for k, v := range dict {
+		switch k {
+		case "key":
+			exp.Key = jsonString(v, "Experiment", "key")
+			gotKey = true
+		case "variations":
+			exp = exp.WithVariations(BuildFeatureValues(v)...)
+		case "ranges":
+			exp = exp.WithRanges(jsonRangeArray(v, "Experiment", "ranges")...)
+		case "meta":
+			exp = exp.WithMeta(jsonVariationMetaArray(v, "Experiment", "meta")...)
+		case "seed":
+			exp = exp.WithSeed(jsonString(v, "FeatureRule", "seed"))
+		case "name":
+			exp = exp.WithName(jsonString(v, "FeatureRule", "name"))
+		case "phase":
+			exp = exp.WithPhase(jsonString(v, "FeatureRule", "phase"))
+		case "weights":
+			exp = exp.WithWeights(jsonFloatArray(v, "Experiment", "weights")...)
+		case "active":
+			exp = exp.WithActive(jsonBool(v, "Experiment", "active"))
+		case "coverage":
+			exp = exp.WithCoverage(jsonFloat(v, "Experiment", "coverage"))
+		case "condition":
+			tmp, ok := v.(map[string]interface{})
+			if !ok {
+				logError(ErrJSONInvalidType, "Experiment", "condition")
+				continue
+			}
+			cond := BuildCondition(tmp)
+			if cond == nil {
+				logError(ErrExpJSONInvalidCondition)
+			} else {
+				exp = exp.WithCondition(cond)
+			}
+		case "namespace":
+			exp = exp.WithNamespace(BuildNamespace(v))
+		case "force":
+			exp = exp.WithForce(jsonInt(v, "Experiment", "force"))
+		case "hashAttribute":
+			exp = exp.WithHashAttribute(jsonString(v, "Experiment", "hashAttribute"))
+		case "hashVersion":
+			exp.HashVersion = jsonInt(v, "Experiment", "hashVersion")
+		default:
+			logWarn(WarnJSONUnknownKey, "Experiment", k)
+		}
+	}
+	if !gotKey {
+		logWarn(WarnExpJSONKeyNotSet)
+	}
+	return exp
+}
+
+// BuildResult creates an Result value from a JSON object represented
+// as a Go map.
+func BuildResult(dict map[string]interface{}) *Result {
+	res := Result{}
 	for k, v := range dict {
 		switch k {
 		case "value":
 			res.Value = v
 		case "variationId":
-			tmp, ok := v.(float64)
-			if !ok {
-				logError(ErrJSONInvalidType, "ExperimentResult", "variationId")
-				continue
-			}
-			res.VariationID = int(tmp)
+			res.VariationID = jsonInt(v, "Result", "variationId")
 		case "inExperiment":
-			tmp, ok := v.(bool)
-			if !ok {
-				logError(ErrJSONInvalidType, "ExperimentResult", "inExperiment")
-				continue
-			}
-			res.InExperiment = tmp
+			res.InExperiment = jsonBool(v, "Result", "inExperiment")
 		case "hashUsed":
-			tmp, ok := v.(bool)
-			if !ok {
-				logError(ErrJSONInvalidType, "ExperimentResult", "hashUsed")
-				continue
-			}
-			res.HashUsed = tmp
+			res.HashUsed = jsonBool(v, "Result", "hashUsed")
 		case "hashAttribute":
-			tmp, ok := v.(string)
-			if !ok {
-				logError(ErrJSONInvalidType, "ExperimentResult", "hashAttribute")
-				continue
-			}
-			res.HashAttribute = tmp
+			res.HashAttribute = jsonString(v, "Result", "hashAttribute")
 		case "hashValue":
 			tmp, ok := convertHashValue(v)
 			if !ok {
-				logError(ErrJSONInvalidType, "ExperimentResult", "hashValue")
+				logError(ErrJSONInvalidType, "Result", "hashValue")
 				continue
 			}
 			res.HashValue = tmp
 		case "featureId":
-			tmp, ok := v.(string)
-			if !ok {
-				logError(ErrJSONInvalidType, "ExperimentResult", "featureId")
-				continue
-			}
-			res.FeatureID = &tmp
+			res.FeatureID = jsonString(v, "Result", "featureId")
+		case "bucket":
+			res.Bucket = jsonMaybeFloat(v, "Result", "bucket")
+		case "key":
+			res.Key = jsonString(v, "Result", "key")
+		case "name":
+			res.Name = jsonString(v, "Result", "name")
 		default:
-			logWarn(WarnJSONUnknownKey, "ExperimentResult", k)
+			fmt.Println("OOPS: ", k)
+			logWarn(WarnJSONUnknownKey, "Result", k)
 		}
 	}
 	return &res
@@ -156,7 +208,6 @@ func BuildFeatureRule(val interface{}) *FeatureRule {
 		logError(ErrJSONInvalidType, "FeatureRule")
 		return &rule
 	}
-KeyLoop:
 	for k, v := range dict {
 		switch k {
 		case "id":
@@ -181,34 +232,15 @@ KeyLoop:
 		case "hashVersion":
 			rule.HashVersion = jsonInt(v, "FeatureRule", "hashVersion")
 		case "range":
-			vals := jsonFloatArray(v, "FeatureRule", "range")
-			if vals != nil {
-				if len(vals) != 2 {
-					logError(ErrJSONInvalidType, "FeatureRule", "ranges")
-					continue
-				}
-				rule.Range = &Range{vals[0], vals[1]}
-			}
+			rule.Range = jsonRange(v, "FeatureRule", "range")
 		case "coverage":
-			rule.Coverage = jsonFloat(v, "FeatureRule", "coverage")
+			rule.Coverage = jsonMaybeFloat(v, "FeatureRule", "coverage")
 		case "namespace":
 			rule.Namespace = BuildNamespace(v)
 		case "ranges":
-			vals, ok := v.([]interface{})
-			if !ok {
-				logError(ErrJSONInvalidType, "FeatureRule", "ranges")
-				continue
-			}
-			ranges := make([]Range, len(vals))
-			for i := range vals {
-				tmp := jsonFloatArray(vals[i], "FeatureRule", "ranges")
-				if tmp == nil || len(tmp) != 2 {
-					logError(ErrJSONInvalidType, "FeatureRule", "ranges")
-					continue KeyLoop
-				}
-				ranges[i] = Range{tmp[0], tmp[1]}
-			}
-			rule.Ranges = ranges
+			rule.Ranges = jsonRangeArray(v, "FeatureRule", "ranges")
+		case "meta":
+			rule.Meta = jsonVariationMetaArray(v, "Experiment", "meta")
 		case "seed":
 			rule.Seed = jsonString(v, "FeatureRule", "seed")
 		case "name":
@@ -220,52 +252,6 @@ KeyLoop:
 		}
 	}
 	return &rule
-}
-
-func jsonString(v interface{}, typeName string, fieldName string) *string {
-	tmp, ok := v.(string)
-	if ok {
-		return &tmp
-	}
-	logError(ErrJSONInvalidType, typeName, fieldName)
-	return nil
-}
-
-func jsonInt(v interface{}, typeName string, fieldName string) *int {
-	tmp, ok := v.(float64)
-	if ok {
-		retval := int(tmp)
-		return &retval
-	}
-	logError(ErrJSONInvalidType, typeName, fieldName)
-	return nil
-}
-
-func jsonFloat(v interface{}, typeName string, fieldName string) *float64 {
-	tmp, ok := v.(float64)
-	if ok {
-		return &tmp
-	}
-	logError(ErrJSONInvalidType, typeName, fieldName)
-	return nil
-}
-
-func jsonFloatArray(v interface{}, typeName string, fieldName string) []float64 {
-	vals, ok := v.([]interface{})
-	if !ok {
-		logError(ErrJSONInvalidType, typeName, fieldName)
-		return nil
-	}
-	fvals := make([]float64, len(vals))
-	for i := range vals {
-		tmp, ok := vals[i].(float64)
-		if !ok {
-			logError(ErrJSONInvalidType, typeName, fieldName)
-			return nil
-		}
-		fvals[i] = tmp
-	}
-	return fvals
 }
 
 // ParseNamespace creates a Namespace value from raw JSON input.
@@ -303,26 +289,11 @@ func BuildFeatureResult(dict map[string]interface{}) *FeatureResult {
 		case "value":
 			result.Value = v
 		case "on":
-			tmp, ok := v.(bool)
-			if !ok {
-				logError(ErrJSONInvalidType, "FeatureResult", "on")
-				continue
-			}
-			result.On = tmp
+			result.On = jsonBool(v, "FeatureResult", "on")
 		case "off":
-			tmp, ok := v.(bool)
-			if !ok {
-				logError(ErrJSONInvalidType, "FeatureResult", "off")
-				continue
-			}
-			result.Off = tmp
+			result.Off = jsonBool(v, "FeatureResult", "off")
 		case "source":
-			tmp, ok := v.(string)
-			if !ok {
-				logError(ErrJSONInvalidType, "FeatureResult", "source")
-				continue
-			}
-			result.Source = ParseFeatureResultSource(tmp)
+			result.Source = ParseFeatureResultSource(jsonString(v, "FeatureResult", "source"))
 		case "experiment":
 			tmp, ok := v.(map[string]interface{})
 			if !ok {
@@ -336,10 +307,176 @@ func BuildFeatureResult(dict map[string]interface{}) *FeatureResult {
 				logError(ErrJSONInvalidType, "FeatureResult", "experimentResult")
 				continue
 			}
-			result.ExperimentResult = BuildExperimentResult(tmp)
+			result.ExperimentResult = BuildResult(tmp)
 		default:
 			logWarn(WarnJSONUnknownKey, "FeatureResult", k)
 		}
 	}
 	return &result
+}
+
+func jsonString(v interface{}, typeName string, fieldName string) string {
+	tmp, ok := v.(string)
+	if ok {
+		return tmp
+	}
+	logError(ErrJSONInvalidType, typeName, fieldName)
+	return ""
+}
+
+func jsonMaybeString(v interface{}, typeName string, fieldName string) *string {
+	tmp, ok := v.(string)
+	if ok {
+		return &tmp
+	}
+	logError(ErrJSONInvalidType, typeName, fieldName)
+	return nil
+}
+
+func jsonBool(v interface{}, typeName string, fieldName string) bool {
+	tmp, ok := v.(bool)
+	if ok {
+		return tmp
+	}
+	logError(ErrJSONInvalidType, typeName, fieldName)
+	return false
+}
+
+func jsonInt(v interface{}, typeName string, fieldName string) int {
+	tmp, ok := v.(float64)
+	if ok {
+		return int(tmp)
+	}
+	logError(ErrJSONInvalidType, typeName, fieldName)
+	return 0
+}
+
+func jsonMaybeInt(v interface{}, typeName string, fieldName string) *int {
+	tmp, ok := v.(float64)
+	if ok {
+		retval := int(tmp)
+		return &retval
+	}
+	logError(ErrJSONInvalidType, typeName, fieldName)
+	return nil
+}
+
+func jsonFloat(v interface{}, typeName string, fieldName string) float64 {
+	tmp, ok := v.(float64)
+	if ok {
+		return tmp
+	}
+	logError(ErrJSONInvalidType, typeName, fieldName)
+	return 0.0
+}
+
+func jsonMaybeFloat(v interface{}, typeName string, fieldName string) *float64 {
+	tmp, ok := v.(float64)
+	if ok {
+		return &tmp
+	}
+	logError(ErrJSONInvalidType, typeName, fieldName)
+	return nil
+}
+
+func jsonFloatArray(v interface{}, typeName string, fieldName string) []float64 {
+	vals, ok := v.([]interface{})
+	if !ok {
+		logError(ErrJSONInvalidType, typeName, fieldName)
+		return nil
+	}
+	fvals := make([]float64, len(vals))
+	for i := range vals {
+		tmp, ok := vals[i].(float64)
+		if !ok {
+			logError(ErrJSONInvalidType, typeName, fieldName)
+			return nil
+		}
+		fvals[i] = tmp
+	}
+	return fvals
+}
+
+func jsonRange(v interface{}, typeName string, fieldName string) *Range {
+	vals := jsonFloatArray(v, typeName, fieldName)
+	if vals == nil || len(vals) != 2 {
+		logError(ErrJSONInvalidType, typeName, fieldName)
+		return nil
+	}
+	return &Range{vals[0], vals[1]}
+}
+
+func jsonRangeArray(v interface{}, typeName string, fieldName string) []Range {
+	vals, ok := v.([]interface{})
+	if !ok {
+		logError(ErrJSONInvalidType, typeName, fieldName)
+		return nil
+	}
+	ranges := make([]Range, len(vals))
+	for i := range vals {
+		tmp := jsonRange(vals[i], typeName, fieldName)
+		if tmp == nil {
+			return nil
+		}
+		ranges[i] = *tmp
+	}
+	return ranges
+}
+
+func jsonVariationMeta(v interface{}, typeName string, fieldName string) *VariationMeta {
+	obj, ok := v.(map[string]interface{})
+	if !ok {
+		logError(ErrJSONInvalidType, typeName, fieldName)
+		return nil
+	}
+
+	passthrough := false
+	key := ""
+	name := ""
+	vPassthrough, ptOk := obj["passthrough"]
+	if ptOk {
+		tmp, ok := vPassthrough.(bool)
+		if !ok {
+			logError(ErrJSONInvalidType, typeName, fieldName)
+			return nil
+		}
+		passthrough = tmp
+	}
+	vKey, keyOk := obj["key"]
+	if keyOk {
+		tmp, ok := vKey.(string)
+		if !ok {
+			logError(ErrJSONInvalidType, typeName, fieldName)
+			return nil
+		}
+		key = tmp
+	}
+	vName, nameOk := obj["name"]
+	if nameOk {
+		tmp, ok := vName.(string)
+		if !ok {
+			logError(ErrJSONInvalidType, typeName, fieldName)
+			return nil
+		}
+		name = tmp
+	}
+
+	return &VariationMeta{passthrough, key, name}
+}
+
+func jsonVariationMetaArray(v interface{}, typeName string, fieldName string) []VariationMeta {
+	vals, ok := v.([]interface{})
+	if !ok {
+		logError(ErrJSONInvalidType, typeName, fieldName)
+		return nil
+	}
+	metas := make([]VariationMeta, len(vals))
+	for i := range vals {
+		tmp := jsonVariationMeta(vals[i], typeName, fieldName)
+		if tmp == nil {
+			return nil
+		}
+		metas[i] = *tmp
+	}
+	return metas
 }

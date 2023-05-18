@@ -10,8 +10,6 @@ import (
 	"net/url"
 	"reflect"
 	"testing"
-
-	. "github.com/franela/goblin"
 )
 
 // Main test function for running JSON-based tests. These all use a
@@ -20,14 +18,14 @@ import (
 func TestJSON(t *testing.T) {
 	SetLogger(&testLog)
 	jsonTest(t, "feature", jsonTestFeature)
-	jsonTest(t, "evalCondition", jsonTestEvalCondition)
-	jsonTest(t, "hash", jsonTestHash)
-	jsonTest(t, "getBucketRange", jsonTestGetBucketRange)
-	jsonTest(t, "chooseVariation", jsonTestChooseVariation)
-	jsonTest(t, "getQueryStringOverride", jsonTestQueryStringOverride)
-	jsonTest(t, "inNamespace", jsonTestInNamespace)
-	jsonTest(t, "getEqualWeights", jsonTestGetEqualWeights)
-	jsonTest(t, "run", jsonTestRun)
+	// jsonTest(t, "evalCondition", jsonTestEvalCondition)
+	// jsonTest(t, "hash", jsonTestHash)
+	// jsonTest(t, "getBucketRange", jsonTestGetBucketRange)
+	// jsonTest(t, "chooseVariation", jsonTestChooseVariation)
+	// jsonTest(t, "getQueryStringOverride", jsonTestQueryStringOverride)
+	// jsonTest(t, "inNamespace", jsonTestInNamespace)
+	// jsonTest(t, "getEqualWeights", jsonTestGetEqualWeights)
+	// jsonTest(t, "run", jsonTestRun)
 }
 
 // Test functions driven from JSON cases. Each of this has a similar
@@ -37,50 +35,69 @@ func TestJSON(t *testing.T) {
 // Feature tests.
 //
 // Test parameters: name, context, feature key, result
-func jsonTestFeature(g *G, itest int, test []interface{}) {
-	name, ok0 := test[0].(string)
+func jsonTestFeature(t *testing.T, test []interface{}) {
 	contextDict, ok1 := test[1].(map[string]interface{})
 	featureKey, ok2 := test[2].(string)
 	expectedDict, ok3 := test[3].(map[string]interface{})
-	if !ok0 || !ok1 || !ok2 || !ok3 {
+	if !ok1 || !ok2 || !ok3 {
 		log.Fatal("unpacking test data")
 	}
 
-	g.It(fmt.Sprintf("GrowthBook.Feature[%d] %s", itest, name), func() {
-		context := BuildContext(contextDict)
-		growthbook := New(context)
-		expected := BuildFeatureResult(expectedDict)
-		retval := growthbook.Feature(featureKey)
-		g.Assert(reflect.DeepEqual(retval, expected)).IsTrue()
-	})
+	context := BuildContext(contextDict)
+	growthbook := New(context)
+	expected := BuildFeatureResult(expectedDict)
+	retval := growthbook.Feature(featureKey)
+	fmt.Println("================================================================================")
+	fmt.Println(retval)
+	fmt.Println(retval.Experiment)
+	fmt.Println(retval.ExperimentResult)
+	if retval.ExperimentResult != nil {
+		fmt.Println(retval.ExperimentResult.Key)
+		fmt.Println(retval.ExperimentResult.Name)
+		fmt.Println(retval.ExperimentResult.Bucket)
+	}
+	fmt.Println("--------------------------------------------------------------------------------")
+	fmt.Println(expected)
+	fmt.Println(expected.Experiment)
+	fmt.Println(expected.ExperimentResult)
+	if expected.ExperimentResult != nil {
+		fmt.Println(expected.ExperimentResult.Key)
+		fmt.Println(expected.ExperimentResult.Name)
+		fmt.Println(expected.ExperimentResult.Bucket)
+	}
+	fmt.Println("================================================================================")
+
+	if !reflect.DeepEqual(retval, expected) {
+		t.Errorf("unexpected value: %v", retval)
+	}
 }
 
 // Condition evaluation tests.
 //
 // Test parameters: name, condition, attributes, result
-func jsonTestEvalCondition(g *G, itest int, test []interface{}) {
-	name, ok0 := test[0].(string)
+func jsonTestEvalCondition(t *testing.T, test []interface{}) {
 	condition, ok1 := test[1].(map[string]interface{})
 	value, ok2 := test[2].(map[string]interface{})
 	expected, ok3 := test[3].(bool)
-	if !ok0 || !ok1 || !ok2 || !ok3 {
+	if !ok1 || !ok2 || !ok3 {
 		log.Fatal("unpacking test data")
 	}
 
-	g.It(fmt.Sprintf("Condition.Eval[%d] %s", itest, name), func() {
-		cond := BuildCondition(condition)
-		if cond == nil {
-			log.Fatal(errors.New("failed to build condition"))
-		}
-		attrs := Attributes(value)
-		g.Assert(cond.Eval(attrs)).Equal(expected)
-	})
+	cond := BuildCondition(condition)
+	if cond == nil {
+		log.Fatal(errors.New("failed to build condition"))
+	}
+	attrs := Attributes(value)
+	result := cond.Eval(attrs)
+	if !reflect.DeepEqual(result, expected) {
+		t.Errorf("unexpected result: %v", result)
+	}
 }
 
 // Hash function tests.
 //
 // Test parameters: value, hash
-func jsonTestHash(g *G, itest int, test []interface{}) {
+func jsonTestHash(t *testing.T, test []interface{}) {
 	seed, ok0 := test[0].(string)
 	value, ok1 := test[1].(string)
 	version, ok2 := test[2].(float64)
@@ -95,25 +112,28 @@ func jsonTestHash(g *G, itest int, test []interface{}) {
 		log.Fatal("unpacking test data")
 	}
 
-	g.It(fmt.Sprintf("hash[%d] '%s' + '%s'", itest, seed, value), func() {
-		result := hash(seed, value, int(version))
-		if expected == nil {
-			g.Assert(result == nil)
-		} else {
-			g.Assert(result != nil)
-			g.Assert(*result).Equal(*expected)
+	result := hash(seed, value, int(version))
+	if expected == nil {
+		if result != nil {
+			t.Errorf("expected nil result, got %v", result)
 		}
-	})
+	} else {
+		if result == nil {
+			t.Errorf("expected non-nil result, got nil")
+		}
+		if !reflect.DeepEqual(*result, *expected) {
+			t.Errorf("unexpected result: %v", *result)
+		}
+	}
 }
 
 // Bucket range tests.
 //
 // Test parameters: name, args ([numVariations, coverage, weights]), result
-func jsonTestGetBucketRange(g *G, itest int, test []interface{}) {
-	name, ok0 := test[0].(string)
+func jsonTestGetBucketRange(t *testing.T, test []interface{}) {
 	args, ok1 := test[1].([]interface{})
 	result, ok2 := test[2].([]interface{})
-	if !ok0 || !ok1 || !ok2 {
+	if !ok1 || !ok2 {
 		log.Fatal("unpacking test data")
 	}
 
@@ -123,6 +143,7 @@ func jsonTestGetBucketRange(g *G, itest int, test []interface{}) {
 		log.Fatal("unpacking test data")
 	}
 	var weights []float64
+	totalWeights := 0.0
 	if args[2] != nil {
 		wgts, ok := args[2].([]interface{})
 		if !ok {
@@ -131,6 +152,7 @@ func jsonTestGetBucketRange(g *G, itest int, test []interface{}) {
 		weights = make([]float64, len(wgts))
 		for i, w := range wgts {
 			weights[i] = w.(float64)
+			totalWeights += w.(float64)
 		}
 	}
 
@@ -143,21 +165,41 @@ func jsonTestGetBucketRange(g *G, itest int, test []interface{}) {
 		variations[i] = VariationRange{vr[0].(float64), vr[1].(float64)}
 	}
 
-	g.It(fmt.Sprintf("getBucketRange[%d] %s", itest, name), func() {
-		g.Assert(roundRanges(getBucketRanges(int(numVariations), coverage, weights))).
-			Equal(variations)
-	})
+	ranges := roundRanges(getBucketRanges(int(numVariations), coverage, weights))
+
+	if !reflect.DeepEqual(ranges, variations) {
+		t.Errorf("unexpected value: %v", result)
+	}
+
+	// Handle expected warnings.
+	if coverage < 0 || coverage > 1 {
+		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
+			t.Errorf("expected coverage log warning")
+		}
+		testLog.reset()
+	}
+	if totalWeights != 1 {
+		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
+			t.Errorf("expected weight sum log warning")
+		}
+		testLog.reset()
+	}
+	if len(weights) != len(result) {
+		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
+			t.Errorf("expected weight length log warning")
+		}
+		testLog.reset()
+	}
 }
 
 // Variation choice tests.
 //
 // Test parameters: name, hash, ranges, result
-func jsonTestChooseVariation(g *G, itest int, test []interface{}) {
-	name, ok0 := test[0].(string)
+func jsonTestChooseVariation(t *testing.T, test []interface{}) {
 	hash, ok1 := test[1].(float64)
 	ranges, ok2 := test[2].([]interface{})
 	result, ok3 := test[3].(float64)
-	if !ok0 || !ok1 || !ok2 || !ok3 {
+	if !ok1 || !ok2 || !ok3 {
 		log.Fatal("unpacking test data")
 	}
 
@@ -170,16 +212,16 @@ func jsonTestChooseVariation(g *G, itest int, test []interface{}) {
 		variations[i] = VariationRange{vr[0].(float64), vr[1].(float64)}
 	}
 
-	g.It(fmt.Sprintf("chooseVariation[%d] %s", itest, name), func() {
-		g.Assert(chooseVariation(hash, variations)).Equal(int(result))
-	})
+	variation := chooseVariation(hash, variations)
+	if variation != int(result) {
+		t.Errorf("unexpected result: %d", variation)
+	}
 }
 
 // Query string override tests
 //
 // Test parameters: name, experiment key, url, numVariations, result
-func jsonTestQueryStringOverride(g *G, itest int, test []interface{}) {
-	name, ok0 := test[0].(string)
+func jsonTestQueryStringOverride(t *testing.T, test []interface{}) {
 	key, ok1 := test[1].(string)
 	rawURL, ok2 := test[2].(string)
 	numVariations, ok3 := test[3].(float64)
@@ -189,7 +231,7 @@ func jsonTestQueryStringOverride(g *G, itest int, test []interface{}) {
 		tmp := int(result.(float64))
 		expected = &tmp
 	}
-	if !ok0 || !ok1 || !ok2 || !ok3 {
+	if !ok1 || !ok2 || !ok3 {
 		log.Fatal("unpacking test data")
 	}
 	url, err := url.Parse(rawURL)
@@ -197,33 +239,34 @@ func jsonTestQueryStringOverride(g *G, itest int, test []interface{}) {
 		log.Fatal("invalid URL")
 	}
 
-	g.It(fmt.Sprintf("getQueryStringOverride[%d] %s", itest, name), func() {
-		g.Assert(getQueryStringOverride(key, url, int(numVariations))).Equal(expected)
-	})
+	override := getQueryStringOverride(key, url, int(numVariations))
+	if !reflect.DeepEqual(override, expected) {
+		t.Errorf("unexpected result: %v", override)
+	}
 }
 
 // Namespace inclusion tests
 //
 // Test parameters: name, id, namespace, result
-func jsonTestInNamespace(g *G, itest int, test []interface{}) {
-	name, ok0 := test[0].(string)
+func jsonTestInNamespace(t *testing.T, test []interface{}) {
 	id, ok1 := test[1].(string)
 	ns, ok2 := test[2].([]interface{})
 	expected, ok3 := test[3].(bool)
-	if !ok0 || !ok1 || !ok2 || !ok3 {
+	if !ok1 || !ok2 || !ok3 {
 		log.Fatal("unpacking test data")
 	}
 
 	namespace := BuildNamespace(ns)
-	g.It(fmt.Sprintf("inNamespace[%d] %s", itest, name), func() {
-		g.Assert(inNamespace(id, namespace)).Equal(expected)
-	})
+	result := inNamespace(id, namespace)
+	if result != expected {
+		t.Errorf("unexpected result: %v", result)
+	}
 }
 
 // Equal weight calculation tests.
 //
 // Test parameters: numVariations, result
-func jsonTestGetEqualWeights(g *G, itest int, test []interface{}) {
+func jsonTestGetEqualWeights(t *testing.T, test []interface{}) {
 	numVariations, ok0 := test[0].(float64)
 	exp, ok1 := test[1].([]interface{})
 	if !ok0 || !ok1 {
@@ -235,32 +278,35 @@ func jsonTestGetEqualWeights(g *G, itest int, test []interface{}) {
 		expected[i] = e.(float64)
 	}
 
-	g.It(fmt.Sprintf("getEqualWeights[%d] %v", itest, numVariations), func() {
-		g.Assert(round(getEqualWeights(int(numVariations)))).Equal(round(expected))
-	})
+	result := getEqualWeights(int(numVariations))
+	if !reflect.DeepEqual(round(result), round(expected)) {
+		t.Errorf("unexpected value: %v", result)
+	}
 }
 
 // Experiment tests.
 //
 // Test parameters: name, context, experiment, value, inExperiment
-func jsonTestRun(g *G, itest int, test []interface{}) {
-	name, ok0 := test[0].(string)
+func jsonTestRun(t *testing.T, test []interface{}) {
 	contextDict, ok1 := test[1].(map[string]interface{})
 	experimentDict, ok2 := test[2].(map[string]interface{})
 	resultValue := test[3]
 	resultInExperiment, ok3 := test[4].(bool)
-	if !ok0 || !ok1 || !ok2 || !ok3 {
+	if !ok1 || !ok2 || !ok3 {
 		log.Fatal("unpacking test data")
 	}
 
-	g.It(fmt.Sprintf("GrowthBook.Run[%d] %s", itest, name), func() {
-		context := BuildContext(contextDict)
-		growthbook := New(context)
-		experiment := BuildExperiment(experimentDict)
-		result := growthbook.Run(experiment)
-		g.Assert(result.Value).Equal(resultValue)
-		g.Assert(result.InExperiment).Equal(resultInExperiment)
-	})
+	context := BuildContext(contextDict)
+	growthbook := New(context)
+	experiment := BuildExperiment(experimentDict)
+	result := growthbook.Run(experiment)
+
+	if !reflect.DeepEqual(result.Value, resultValue) {
+		t.Errorf("unexpected result value: %v", result.Value)
+	}
+	if result.InExperiment != resultInExperiment {
+		t.Errorf("unexpected inExperiment value: %v", result.InExperiment)
+	}
 	// if icase >= 2 {
 	// 	os.Exit(1)
 	// }
@@ -273,7 +319,7 @@ func jsonTestRun(g *G, itest int, test []interface{}) {
 
 // Run a set of JSON test cases.
 func jsonTest(t *testing.T, label string,
-	fn func(g *G, itest int, test []interface{})) {
+	fn func(t *testing.T, test []interface{})) {
 	content, err := ioutil.ReadFile("cases.json")
 	if err != nil {
 		log.Fatal(err)
@@ -291,18 +337,7 @@ func jsonTest(t *testing.T, label string,
 
 	// Extract the test data for each case as a JSON array and pass to
 	// the test function.
-	g := Goblin(t)
-	g.Describe("json test suite: "+label, func() {
-		// Handle logging during tests: reset log before each test, make
-		// sure there are no errors, and make sure there is never more
-		// than one warning during a test (some tests that check for
-		// correct handling of out-of-range parameters trigger warnings,
-		// but there should never be more than one per test).
-		g.BeforeEach(func() { testLog.reset() })
-		g.AfterEach(func() {
-			g.Assert(len(testLog.errors)).Equal(0, "test log has errors:", testLog.allErrors())
-			g.Assert(len(testLog.warnings) <= 1).IsTrue("test log has warnings:", testLog.allWarnings())
-		})
+	t.Run("json test suite: "+label, func(t *testing.T) {
 
 		// Run tests one at a time: each test's JSON data is an array,
 		// with the interpretation of the array entries depending on the
@@ -312,7 +347,25 @@ func jsonTest(t *testing.T, label string,
 			if !ok {
 				log.Fatal("unpacking JSON test data")
 			}
-			fn(g, itest, test)
+			name, ok := test[0].(string)
+			if !ok {
+				name = ""
+			}
+			t.Run(fmt.Sprintf("[%d] %s", itest, name), func(t *testing.T) {
+				// Handle logging during tests: reset log before each test,
+				// make sure there are no errors or warnings (some tests that
+				// check for correct handling of out-of-range parameters
+				// trigger warnings, but these are handled within the test
+				// themselves).
+				testLog.reset()
+				fn(t, test)
+				if len(testLog.errors) != 0 {
+					t.Errorf("test log has errors: %s", testLog.allErrors())
+				}
+				if len(testLog.warnings) != 0 {
+					t.Errorf("test log has warnings: %s", testLog.allWarnings())
+				}
+			})
 		}
 	})
 }

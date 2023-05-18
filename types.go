@@ -36,7 +36,7 @@ const (
 // its string representation.
 func ParseFeatureResultSource(source string) FeatureResultSource {
 	switch source {
-	case "defaultValue":
+	case "", "defaultValue":
 		return DefaultValueResultSource
 	case "force":
 		return ForceResultSource
@@ -50,23 +50,61 @@ func ParseFeatureResultSource(source string) FeatureResultSource {
 // FeatureResult is the result of evaluating a feature.
 type FeatureResult struct {
 	Value            FeatureValue
+	Source           FeatureResultSource
 	On               bool
 	Off              bool
-	Source           FeatureResultSource
+	RuleID           string
 	Experiment       *Experiment
-	ExperimentResult *ExperimentResult
+	ExperimentResult *Result
 }
 
-// ExperimentResult records the result of running an Experiment given
-// a specific Context.
-type ExperimentResult struct {
-	Value         FeatureValue
-	VariationID   int
+// Result records the result of running an Experiment given a specific
+// Context.
+type Result struct {
+	Value       FeatureValue
+	VariationID int
+	Key         string
+	Name        string
+	Bucket      *float64
+	// Passthrough
 	InExperiment  bool
 	HashUsed      bool
 	HashAttribute string
 	HashValue     string
-	FeatureID     *string
+	FeatureID     string
+}
+
+// Experiment defines a single experiment.
+type Experiment struct {
+	Key        string
+	Variations []FeatureValue
+	Ranges     []Range
+	Meta       []VariationMeta
+	// Filters
+	Seed  string
+	Name  string
+	Phase string
+	// URLPatterns
+	Weights   []float64
+	Condition Condition
+	Coverage  *float64
+	// Include?
+	Namespace     *Namespace
+	Force         *int
+	Active        bool
+	HashAttribute string
+	HashVersion   int
+	// Status
+	// URL
+	// Groups
+}
+
+// VariationMeta represents meta-information that can be passed
+// through to tracking callbacks.
+type VariationMeta struct {
+	Passthrough bool
+	Key         string
+	Name        string
 }
 
 // Range is used to express the traffic split ranges.
@@ -81,24 +119,24 @@ func (r *Range) InRange(n float64) bool {
 
 // FeatureRule overrides the default value of a Feature.
 type FeatureRule struct {
-	ID            *string
+	ID            string
 	Condition     Condition
 	Force         FeatureValue
 	Variations    []FeatureValue
 	Weights       []float64
-	Key           *string
-	HashAttribute *string
-	HashVersion   *int
+	Key           string
+	HashAttribute string
+	HashVersion   int
 	Range         *Range
 	Coverage      *float64
 	Namespace     *Namespace
 	Ranges        []Range
-	Seed          *string
-	Name          *string
-	Phase         *string
+	Meta          []VariationMeta
+	Seed          string
+	Name          string
+	Phase         string
 
 	// TBD:
-	// Meta
 	// Filters
 	// Tracks
 }

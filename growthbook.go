@@ -3,6 +3,7 @@
 package growthbook
 
 import (
+	"fmt"
 	"net/url"
 	"strconv"
 )
@@ -16,7 +17,7 @@ type GrowthBook struct {
 	trackedExperiments map[string]bool
 	nextSubscriptionID subscriptionID
 	subscriptions      map[subscriptionID]ExperimentCallback
-	latestResults      map[string]*ExperimentResult
+	latestResults      map[string]*Result
 }
 
 // New created a new GrowthBook instance.
@@ -29,7 +30,7 @@ func New(context *Context) *GrowthBook {
 		Attributes{},
 		map[string]bool{},
 		1, map[subscriptionID]ExperimentCallback{},
-		map[string]*ExperimentResult{},
+		map[string]*Result{},
 	}
 }
 
@@ -110,10 +111,10 @@ func (fr *FeatureResult) GetValueWithDefault(def FeatureValue) FeatureValue {
 	return fr.Value
 }
 
-func (gb *GrowthBook) getHashAttribute(attr *string) (string, string) {
+func (gb *GrowthBook) getHashAttribute(attr string) (string, string) {
 	hashAttribute := "id"
-	if attr != nil {
-		hashAttribute = *attr
+	if attr != "" {
+		hashAttribute = attr
 	}
 
 	hashValue, ok := gb.AttributeOverrides()[hashAttribute]
@@ -133,10 +134,10 @@ func (gb *GrowthBook) getHashAttribute(attr *string) (string, string) {
 
 func (gb *GrowthBook) isIncludedInRollout(
 	seed string,
-	hashAttribute *string,
+	hashAttribute string,
 	rng *Range,
 	coverage *float64,
-	hashVersion *int,
+	hashVersion int,
 ) bool {
 	if rng == nil && coverage == nil {
 		return true
@@ -148,8 +149,8 @@ func (gb *GrowthBook) isIncludedInRollout(
 	}
 
 	hv := 1
-	if hashVersion != nil {
-		hv = *hashVersion
+	if hashVersion != 0 {
+		hv = hashVersion
 	}
 	n := hash(seed, hashValue, hv)
 	if n == nil {
@@ -168,10 +169,12 @@ func (gb *GrowthBook) isIncludedInRollout(
 // Feature returns the result for a feature identified by a string
 // feature key.
 func (gb *GrowthBook) Feature(key string) *FeatureResult {
+	// TODO: HANDLE GLOBAL OVERRIDES
+
 	// Handle unknown features.
 	feature, ok := gb.context.Features[key]
 	if !ok {
-		return getFeatureResult(nil, UnknownFeatureResultSource, nil, nil)
+		return getFeatureResult(key, nil, UnknownFeatureResultSource, "", nil, nil)
 	}
 
 	// Loop through the feature rules (if any).
@@ -184,11 +187,13 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 			continue
 		}
 
+		// TODO: HANDLE FILTERING OUT
+
 		// If rule.Force has been set:
 		if rule.Force != nil {
 			seed := key
-			if rule.Seed != nil {
-				seed = *rule.Seed
+			if rule.Seed != "" {
+				seed = rule.Seed
 			}
 			if !gb.isIncludedInRollout(
 				seed,
@@ -197,7 +202,6 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 				rule.Coverage,
 				rule.HashVersion,
 			) {
-				// TODO: FIX THIS MESSAGE
 				logInfo(InfoRuleSkipUserNotInRollout, key, rule)
 				continue
 			}
@@ -205,7 +209,7 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 			// TODO: MORE LOGGING
 
 			// Return forced feature result.
-			return getFeatureResult(rule.Force, ForceResultSource, nil, nil)
+			return getFeatureResult(key, rule.Force, ForceResultSource, rule.ID, nil, nil)
 		}
 
 		// Otherwise, convert the rule to an Experiment object, copying
@@ -215,76 +219,87 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 			Variations: rule.Variations,
 			Active:     true,
 		}
-		if rule.Key != nil {
-			experiment.Key = *rule.Key
+		if rule.Key != "" {
+			experiment.Key = rule.Key
 		}
 		if rule.Coverage != nil {
-			var tmp *float64
-			if rule.Coverage != nil {
-				val := *rule.Coverage
-				tmp = &val
-			}
-			experiment.Coverage = tmp
+			val := *rule.Coverage
+			experiment.Coverage = &val
 		}
 		if rule.Weights != nil {
-			var tmp []float64
-			if rule.Weights != nil {
-				tmp = make([]float64, len(rule.Weights))
-				copy(tmp, rule.Weights)
-			}
+			tmp := make([]float64, len(rule.Weights))
+			copy(tmp, rule.Weights)
 			experiment.Weights = tmp
 		}
-		if rule.HashAttribute != nil {
-			var tmp *string
-			if rule.HashAttribute != nil {
-				val := *rule.HashAttribute
-				tmp = &val
-			}
-			experiment.HashAttribute = tmp
+		if rule.HashAttribute != "" {
+			experiment.HashAttribute = rule.HashAttribute
 		}
 		if rule.Namespace != nil {
-			var tmp *Namespace
-			if rule.Namespace != nil {
-				val := Namespace{rule.Namespace.ID, rule.Namespace.Start, rule.Namespace.End}
-				tmp = &val
-			}
-			experiment.Namespace = tmp
+			val := Namespace{rule.Namespace.ID, rule.Namespace.Start, rule.Namespace.End}
+			experiment.Namespace = &val
 		}
+		if rule.Meta != nil {
+			experiment.Meta = rule.Meta
+		}
+		if rule.Ranges != nil {
+			experiment.Ranges = rule.Ranges
+		}
+		if rule.Name != "" {
+			experiment.Name = rule.Name
+		}
+		if rule.Phase != "" {
+			experiment.Phase = rule.Phase
+		}
+		if rule.Seed != "" {
+			experiment.Seed = rule.Seed
+		}
+		if rule.HashVersion != 0 {
+			experiment.HashVersion = rule.HashVersion
+		}
+		// if rule.Filters != nil {
+		// 	experiment.Filters = rule.Filters
+		// }
 
 		// Run the experiment.
-		result := gb.doRun(&experiment, &key)
+		result := gb.doRun(&experiment, key)
 
-		// If result.inExperiment is false, skip this rule and continue.
-		if !result.InExperiment {
-			logInfo(InfoRuleSkipUserNotInExp, key, rule)
-			continue
+		// Only return a value if the user is part of the experiment.
+		if result.InExperiment /* && !res.Passthrough */ {
+			return getFeatureResult(key, result.Value, ExperimentResultSource, rule.ID, &experiment, result)
 		}
-
-		// Otherwise, return experiment result.
-		return getFeatureResult(result.Value, ExperimentResultSource, &experiment, result)
 	}
 
 	// Fall back to using the default value
-	return getFeatureResult(feature.DefaultValue, DefaultValueResultSource, nil, nil)
+	return getFeatureResult(key, feature.DefaultValue, DefaultValueResultSource, "", nil, nil)
 }
 
-func getFeatureResult(value FeatureValue, source FeatureResultSource,
-	experiment *Experiment, experimentResult *ExperimentResult) *FeatureResult {
+func getFeatureResult(
+	key string,
+	value FeatureValue,
+	source FeatureResultSource,
+	ruleID string,
+	experiment *Experiment,
+	result *Result) *FeatureResult {
 	on := truthy(value)
 	off := !on
-	return &FeatureResult{
+	retval := FeatureResult{
 		Value:            value,
 		On:               on,
 		Off:              off,
 		Source:           source,
+		RuleID:           ruleID,
 		Experiment:       experiment,
-		ExperimentResult: experimentResult,
+		ExperimentResult: result,
 	}
+
+	// TODO: TRACK FEATURE USAGE
+
+	return &retval
 }
 
-func (gb *GrowthBook) getExperimentResult(
+func (gb *GrowthBook) getResult(
 	exp *Experiment, variationIndex int,
-	hashUsed bool, featureID *string) *ExperimentResult {
+	hashUsed bool, featureID string, bucket *float64) *Result {
 	inExperiment := true
 
 	// If assigned variation is not valid, use the baseline and mark the
@@ -296,8 +311,8 @@ func (gb *GrowthBook) getExperimentResult(
 
 	// Get the hashAttribute and hashValue
 	hashAttribute := "id"
-	if exp.HashAttribute != nil {
-		hashAttribute = *exp.HashAttribute
+	if exp.HashAttribute != "" {
+		hashAttribute = exp.HashAttribute
 	}
 	hashString := ""
 	hashValue, ok := gb.context.Attributes[hashAttribute]
@@ -305,27 +320,39 @@ func (gb *GrowthBook) getExperimentResult(
 		hashString, _ = convertHashValue(hashValue)
 	}
 
+	// TODO: COPY META INFO FROM EXPERIMENT HERE
+	var metaKey *string
+
 	// Return
 	var value FeatureValue
 	if variationIndex < len(exp.Variations) {
 		value = exp.Variations[variationIndex]
 	}
-	return &ExperimentResult{
-		InExperiment:  inExperiment,
+	key := fmt.Sprint(variationIndex)
+	if metaKey != nil {
+		key = *metaKey
+	}
+	return &Result{
+		Key:           key,
 		FeatureID:     featureID,
+		InExperiment:  inExperiment,
+		HashUsed:      hashUsed,
 		VariationID:   variationIndex,
 		Value:         value,
-		HashUsed:      hashUsed,
 		HashAttribute: hashAttribute,
 		HashValue:     hashString,
+		Bucket:        bucket,
 	}
+
+	// if (meta.name) res.name = meta.name;
+	// if (meta.passthrough) res.passthrough = meta.passthrough;
 }
 
 // Run an experiment. (Uses doRun to make wrapping for subscriptions
 // simple.)
-func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
+func (gb *GrowthBook) Run(exp *Experiment) *Result {
 	// Actually run the experiment.
-	result := gb.doRun(exp, nil)
+	result := gb.doRun(exp, "")
 
 	// Determine whether the result changed from the last stored result
 	// for the experiment.
@@ -352,16 +379,16 @@ func (gb *GrowthBook) Run(exp *Experiment) *ExperimentResult {
 }
 
 // Worker function to run an experiment.
-func (gb *GrowthBook) doRun(exp *Experiment, featureID *string) *ExperimentResult {
+func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 	// 1. If exp.Variations has fewer than 2 variations, return default
 	//    result.
 	if len(exp.Variations) < 2 {
-		return gb.getExperimentResult(exp, -1, false, featureID)
+		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
 	// 2. If context.Enabled is false, return default result.
 	if !gb.context.Enabled {
-		return gb.getExperimentResult(exp, -1, false, featureID)
+		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
 	// 3. If context.URL exists, check for query string override and use
@@ -369,25 +396,25 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID *string) *ExperimentResul
 	if gb.context.URL != nil {
 		qsOverride := getQueryStringOverride(exp.Key, gb.context.URL, len(exp.Variations))
 		if qsOverride != nil {
-			return gb.getExperimentResult(exp, *qsOverride, false, featureID)
+			return gb.getResult(exp, *qsOverride, false, featureID, nil)
 		}
 	}
 
 	// 4. Return forced result if forced via context.
 	force, forced := gb.context.ForcedVariations[exp.Key]
 	if forced {
-		return gb.getExperimentResult(exp, force, false, featureID)
+		return gb.getResult(exp, force, false, featureID, nil)
 	}
 
 	// 5. If exp.Active is set to false, return default result.
 	if !exp.Active {
-		return gb.getExperimentResult(exp, -1, false, featureID)
+		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
 	// 6. Get the user hash value and return if empty.
 	hashAttribute := "id"
-	if exp.HashAttribute != nil {
-		hashAttribute = *exp.HashAttribute
+	if exp.HashAttribute != "" {
+		hashAttribute = exp.HashAttribute
 	}
 	hashString := ""
 	hashValue, ok := gb.context.Attributes[hashAttribute]
@@ -395,20 +422,20 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID *string) *ExperimentResul
 		hashString, _ = convertHashValue(hashValue)
 	}
 	if hashString == "" {
-		return gb.getExperimentResult(exp, -1, false, featureID)
+		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
 	// 7. If exp.Namespace is set, return if not in range.
 	if exp.Namespace != nil {
 		if !inNamespace(hashString, exp.Namespace) {
-			return gb.getExperimentResult(exp, -1, false, featureID)
+			return gb.getResult(exp, -1, false, featureID, nil)
 		}
 	}
 
 	// 8. If exp.Condition is set, return if it evaluates to false.
 	if exp.Condition != nil {
 		if !exp.Condition.Eval(gb.context.Attributes) {
-			return gb.getExperimentResult(exp, -1, false, featureID)
+			return gb.getResult(exp, -1, false, featureID, nil)
 		}
 	}
 
@@ -423,21 +450,21 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID *string) *ExperimentResul
 
 	// 10. If assigned == -1, return default result.
 	if assigned == -1 {
-		return gb.getExperimentResult(exp, -1, false, featureID)
+		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
 	// 11. If experiment has a forced variation, return it.
 	if exp.Force != nil {
-		return gb.getExperimentResult(exp, *exp.Force, false, featureID)
+		return gb.getResult(exp, *exp.Force, false, featureID, nil)
 	}
 
 	// 12. If in QA mode, return default result.
 	if gb.context.QAMode {
-		return gb.getExperimentResult(exp, -1, false, featureID)
+		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
 	// 13. Build the result object.
-	result := gb.getExperimentResult(exp, assigned, true, featureID)
+	result := gb.getResult(exp, assigned, true, featureID, n)
 
 	// 14. Fire tracking callback if required.
 	gb.track(exp, result)
@@ -448,7 +475,7 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID *string) *ExperimentResul
 // Fire Context.TrackingCallback if it's set and the combination of
 // hashAttribute, hashValue, experiment key, and variation ID has not
 // been tracked before.
-func (gb *GrowthBook) track(exp *Experiment, result *ExperimentResult) {
+func (gb *GrowthBook) track(exp *Experiment, result *Result) {
 	if gb.context.TrackingCallback == nil {
 		return
 	}
@@ -479,7 +506,7 @@ func (gb *GrowthBook) Subscribe(callback ExperimentCallback) func() {
 
 // GetAllResults returns a map containing all the latest results from
 // all experiments that have been run, indexed by the experiment key.
-func (gb *GrowthBook) GetAllResults() map[string]*ExperimentResult {
+func (gb *GrowthBook) GetAllResults() map[string]*Result {
 	return gb.latestResults
 }
 
@@ -487,7 +514,7 @@ func (gb *GrowthBook) GetAllResults() map[string]*ExperimentResult {
 // GrowthBook instance (used for deciding whether to send data to
 // subscriptions).
 func (gb *GrowthBook) ClearSavedResults() {
-	gb.latestResults = map[string]*ExperimentResult{}
+	gb.latestResults = map[string]*Result{}
 }
 
 // ClearTrackingData clears out records of calls to the experiment
