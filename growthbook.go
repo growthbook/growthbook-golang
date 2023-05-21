@@ -37,8 +37,8 @@ func New(context *Context) *GrowthBook {
 	}
 	return &GrowthBook{
 		context,
-		Attributes{},
-		map[string]interface{}{},
+		nil,
+		nil,
 		map[string]interface{}{},
 		map[string]bool{},
 		1, map[subscriptionID]ExperimentCallback{},
@@ -46,8 +46,8 @@ func New(context *Context) *GrowthBook {
 	}
 }
 
-// WithForcedFeatureValues updates the current forced feature values.
-func (gb *GrowthBook) WithForcedFeatureValues(values map[string]interface{}) *GrowthBook {
+// WithForcedFeatures updates the current forced feature values.
+func (gb *GrowthBook) WithForcedFeatures(values map[string]interface{}) *GrowthBook {
 	gb.ForcedFeatureValues = values
 	return gb
 }
@@ -70,9 +70,19 @@ func (gb *GrowthBook) WithAttributes(attrs Attributes) *GrowthBook {
 	return gb
 }
 
-// Attributes returns the attributes in a GrowthBook's context.
+// Attributes returns the attributes in a GrowthBook's context,
+// possibly modified by overrides.
 func (gb *GrowthBook) Attributes() Attributes {
-	return gb.Context.Attributes
+	attrs := Attributes{}
+	for id, v := range gb.Context.Attributes {
+		attrs[id] = v
+	}
+	if gb.AttributeOverrides != nil {
+		for id, v := range gb.AttributeOverrides {
+			attrs[id] = v
+		}
+	}
+	return attrs
 }
 
 // WithURL sets the URL in a GrowthBook's context.
@@ -174,12 +184,11 @@ func (gb *GrowthBook) IsOff(key string) bool {
 // GetFeatureValue returns the result for a feature identified by a
 // string feature key, with an explicit default.
 func (gb *GrowthBook) GetFeatureValue(key string, defaultValue interface{}) interface{} {
-	featureValue := gb.EvalFeature(key)
-	value := defaultValue
+	featureValue := gb.EvalFeature(key).Value
 	if featureValue != nil {
-		value = featureValue.Value
+		return featureValue
 	}
-	return value
+	return defaultValue
 }
 
 // Feature returns the result for a feature identified by a string
@@ -192,9 +201,11 @@ func (gb *GrowthBook) Feature(key string) *FeatureResult {
 // feature key.
 func (gb *GrowthBook) EvalFeature(id string) *FeatureResult {
 	// Global override.
-	if override, ok := gb.ForcedFeatureValues[id]; ok {
-		logInfo("Global override", id, override)
-		return gb.getFeatureResult(id, override, OverrideResultSource, "", nil, nil)
+	if gb.ForcedFeatureValues != nil {
+		if override, ok := gb.ForcedFeatureValues[id]; ok {
+			logInfo("Global override", id, override)
+			return gb.getFeatureResult(id, override, OverrideResultSource, "", nil, nil)
+		}
 	}
 
 	// Handle unknown features.
@@ -208,7 +219,7 @@ func (gb *GrowthBook) EvalFeature(id string) *FeatureResult {
 	for _, rule := range feature.Rules {
 		// If the rule has a condition and the condition does not pass,
 		// skip this rule.
-		if rule.Condition != nil && !rule.Condition.Eval(gb.Context.Attributes) {
+		if rule.Condition != nil && !rule.Condition.Eval(gb.Attributes()) {
 			logInfo("Skip rule because of condition", id, rule)
 			continue
 		}
@@ -239,7 +250,6 @@ func (gb *GrowthBook) EvalFeature(id string) *FeatureResult {
 
 			// Return forced feature result.
 			logInfo("Force value from rule", id, rule)
-			// TODO: FIRE TRACKING CALLBACKS?
 			return gb.getFeatureResult(id, rule.Force, ForceResultSource, rule.ID, nil, nil)
 		}
 
@@ -362,15 +372,7 @@ func (gb *GrowthBook) getResult(
 	}
 
 	// Get the hashAttribute and hashValue
-	hashAttribute := "id"
-	if exp.HashAttribute != "" {
-		hashAttribute = exp.HashAttribute
-	}
-	hashString := ""
-	hashValue, ok := gb.Context.Attributes[hashAttribute]
-	if ok {
-		hashString, _ = convertHashValue(hashValue)
-	}
+	hashAttribute, hashString := gb.getHashAttribute(exp.HashAttribute)
 
 	var meta *VariationMeta
 	if exp.Meta != nil {
@@ -475,15 +477,7 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 	}
 
 	// 6. Get the user hash value and return if empty.
-	hashAttribute := "id"
-	if exp.HashAttribute != "" {
-		hashAttribute = exp.HashAttribute
-	}
-	hashString := ""
-	hashValue, ok := gb.Context.Attributes[hashAttribute]
-	if ok {
-		hashString, _ = convertHashValue(hashValue)
-	}
+	_, hashString := gb.getHashAttribute(exp.HashAttribute)
 	if hashString == "" {
 		logInfo("Skip because of missing hash attribute", exp.Key)
 		return gb.getResult(exp, -1, false, featureID, nil)
@@ -617,7 +611,11 @@ func (gb *GrowthBook) getHashAttribute(attr string) (string, string) {
 		hashAttribute = attr
 	}
 
-	hashValue, ok := gb.AttributeOverrides[hashAttribute]
+	var hashValue interface{}
+	ok := false
+	if gb.AttributeOverrides != nil {
+		hashValue, ok = gb.AttributeOverrides[hashAttribute]
+	}
 	if !ok {
 		hashValue, ok = gb.Context.Attributes[hashAttribute]
 		if !ok {
