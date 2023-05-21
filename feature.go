@@ -14,7 +14,7 @@ func ParseFeature(data []byte) *Feature {
 	dict := map[string]interface{}{}
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
-		logError(ErrJSONFailedToParse, "Feature")
+		logError("Failed parsing JSON input", "Feature")
 		return nil
 	}
 	return BuildFeature(dict)
@@ -25,7 +25,7 @@ func BuildFeature(val interface{}) *Feature {
 	feature := Feature{}
 	dict, ok := val.(map[string]interface{})
 	if !ok {
-		logError(ErrJSONInvalidType, "Feature")
+		logError("Invalid JSON data type", "Feature")
 		return &feature
 	}
 	defaultValue, ok := dict["defaultValue"]
@@ -36,7 +36,7 @@ func BuildFeature(val interface{}) *Feature {
 	if ok {
 		rulesArray, ok := rules.([]interface{})
 		if !ok {
-			logError(ErrJSONInvalidType, "Feature")
+			logError("Invalid JSON data type", "Feature")
 			return &feature
 		}
 		feature.Rules = make([]*FeatureRule, len(rulesArray))

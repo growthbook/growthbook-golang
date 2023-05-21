@@ -5,6 +5,35 @@ import (
 	"testing"
 )
 
+// tracking
+// handles weird experiment values
+// logs debug message
+// uses window.location.href by default
+// forces variation from overrides
+// coverrage from overrides
+// coverrage from overrides
+// does not track when forced with overrides
+// url from overrides
+// filters user groups
+// sets attributes
+// runs custom include callback
+// tracking skipped when context disabled
+// querystring force disabled tracking
+// url targeting
+// invalid url regex
+// ignores draft experiments
+// ignores stopped experiments unless forced
+// destroy removes subscriptions
+// does even weighting
+// forces multiple variations at once
+// forces all variations to -1 in qa mode
+// fires subscriptions correctly
+// stores assigned variations in the user
+// renders when a variation is forced
+// stores growthbook instance in window when enableDevMode is true
+// does not store growthbook in window by default
+// does not have bias when using namespaces
+
 func TestSubscriptionsSubscribe(t *testing.T) {
 	context := NewContext().WithAttributes(Attributes{"id": "1"})
 	gb := New(context)

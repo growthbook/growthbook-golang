@@ -28,19 +28,19 @@ func BuildFeatureResult(dict map[string]interface{}) *FeatureResult {
 		case "experiment":
 			tmp, ok := v.(map[string]interface{})
 			if !ok {
-				logError(ErrJSONInvalidType, "FeatureResult", "experiment")
+				logError("Invalid JSON data type", "FeatureResult", "experiment")
 				continue
 			}
 			result.Experiment = BuildExperiment(tmp)
 		case "experimentResult":
 			tmp, ok := v.(map[string]interface{})
 			if !ok {
-				logError(ErrJSONInvalidType, "FeatureResult", "experimentResult")
+				logError("Invalid JSON data type", "FeatureResult", "experimentResult")
 				continue
 			}
 			result.ExperimentResult = BuildResult(tmp)
 		default:
-			logWarn(WarnJSONUnknownKey, "FeatureResult", k)
+			logWarn("Unknown key in JSON data", "FeatureResult", k)
 		}
 	}
 	return &result

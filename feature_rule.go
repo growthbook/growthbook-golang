@@ -29,7 +29,7 @@ func BuildFeatureRule(val interface{}) *FeatureRule {
 	rule := FeatureRule{}
 	dict, ok := val.(map[string]interface{})
 	if !ok {
-		logError(ErrJSONInvalidType, "FeatureRule")
+		logError("Invalid JSON data type", "FeatureRule")
 		return &rule
 	}
 	for k, v := range dict {
@@ -39,7 +39,7 @@ func BuildFeatureRule(val interface{}) *FeatureRule {
 		case "condition":
 			condmap, ok := v.(map[string]interface{})
 			if !ok {
-				logError(ErrJSONInvalidType, "FeatureRule", "condition")
+				logError("Invalid JSON data type", "FeatureRule", "condition")
 				continue
 			}
 			rule.Condition = BuildCondition(condmap)
@@ -74,7 +74,7 @@ func BuildFeatureRule(val interface{}) *FeatureRule {
 		case "phase":
 			rule.Phase = jsonString(v, "FeatureRule", "phase")
 		default:
-			logWarn(WarnJSONUnknownKey, "FeatureRule", k)
+			logWarn("Unknown key in JSON data", "FeatureRule", k)
 		}
 	}
 	return &rule

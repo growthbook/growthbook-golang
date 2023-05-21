@@ -15,11 +15,11 @@ func (r *Range) InRange(n float64) bool {
 func getBucketRanges(numVariations int, coverage float64, weights []float64) []Range {
 	// Make sure coverage is within bounds.
 	if coverage < 0 {
-		logWarn(WarnExpCoverageMustBePositive)
+		logWarn("Experiment coverage must be greater than or equal to 0")
 		coverage = 0
 	}
 	if coverage > 1 {
-		logWarn(WarnExpCoverageMustBeFraction)
+		logWarn("Experiment coverage must be less than or equal to 1")
 		coverage = 1
 	}
 
@@ -28,7 +28,7 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []R
 		weights = getEqualWeights(numVariations)
 	}
 	if len(weights) != numVariations {
-		logWarn(WarnExpWeightsWrongLength)
+		logWarn("Experiment weights and variations arrays must be the same length")
 		weights = getEqualWeights(numVariations)
 	}
 
@@ -38,7 +38,7 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []R
 		totalWeight += weights[i]
 	}
 	if totalWeight < 0.99 || totalWeight > 1.01 {
-		logWarn(WarnExpWeightsWrongTotal)
+		logWarn("Experiment weights must add up to 1")
 		weights = getEqualWeights(numVariations)
 	}
 
@@ -66,7 +66,7 @@ func chooseVariation(n float64, ranges []Range) int {
 func jsonRange(v interface{}, typeName string, fieldName string) *Range {
 	vals := jsonFloatArray(v, typeName, fieldName)
 	if vals == nil || len(vals) != 2 {
-		logError(ErrJSONInvalidType, typeName, fieldName)
+		logError("Invalid JSON data type", typeName, fieldName)
 		return nil
 	}
 	return &Range{vals[0], vals[1]}
@@ -75,7 +75,7 @@ func jsonRange(v interface{}, typeName string, fieldName string) *Range {
 func jsonRangeArray(v interface{}, typeName string, fieldName string) []Range {
 	vals, ok := v.([]interface{})
 	if !ok {
-		logError(ErrJSONInvalidType, typeName, fieldName)
+		logError("Invalid JSON data type", typeName, fieldName)
 		return nil
 	}
 	ranges := make([]Range, len(vals))

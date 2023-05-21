@@ -15,7 +15,11 @@ type Context struct {
 	ForcedVariations ForcedVariationsMap
 	QAMode           bool
 	TrackingCallback ExperimentCallback
+	OnFeatureUsage   FeatureUsageCallback
 	Groups           map[string]bool
+	APIHost          string
+	ClientKey        string
+	DecryptionKey    string
 }
 
 // ExperimentCallback is a callback function that is executed every
@@ -25,6 +29,10 @@ type Context struct {
 // independent of whether a user is inncluded in the experiment or
 // not.
 type ExperimentCallback func(experiment *Experiment, result *Result)
+
+// FeatureUsageCallback is a callback function that is executed every
+// time a feature is evaluated.
+type FeatureUsageCallback func(key string, result *FeatureResult)
 
 // NewContext creates a context with default settings: enabled, but
 // all other fields empty.
@@ -69,10 +77,32 @@ func (ctx *Context) WithForcedVariations(forcedVariations ForcedVariationsMap) *
 	return ctx
 }
 
+func (ctx *Context) ForceVariation(key string, variation int) {
+	ctx.ForcedVariations[key] = variation
+}
+
+func (ctx *Context) UnforceVariation(key string) {
+	delete(ctx.ForcedVariations, key)
+}
+
 // WithQAMode can be used to enable or disable the QA mode for a
 // context.
 func (ctx *Context) WithQAMode(qaMode bool) *Context {
 	ctx.QAMode = qaMode
+	return ctx
+}
+
+// WithTrackingCallback is used to set a tracking callback for a
+// context.
+func (ctx *Context) WithTrackingCallback(callback ExperimentCallback) *Context {
+	ctx.TrackingCallback = callback
+	return ctx
+}
+
+// WithFeatureUsageCallback is used to set a feature usage callback
+// for a context.
+func (ctx *Context) WithFeatureUsageCallback(callback FeatureUsageCallback) *Context {
+	ctx.OnFeatureUsage = callback
 	return ctx
 }
 
@@ -82,10 +112,21 @@ func (ctx *Context) WithGroups(groups map[string]bool) *Context {
 	return ctx
 }
 
-// WithTrackingCallback is used to set a tracking callback for a
-// context.
-func (ctx *Context) WithTrackingCallback(trackingCallback ExperimentCallback) *Context {
-	ctx.TrackingCallback = trackingCallback
+// WithAPIHost sets the API host of a context.
+func (ctx *Context) WithAPIHost(host string) *Context {
+	ctx.APIHost = host
+	return ctx
+}
+
+// WithClientKey sets the API client key of a context.
+func (ctx *Context) WithClientKey(key string) *Context {
+	ctx.ClientKey = key
+	return ctx
+}
+
+// WithDecryptionKey sets the decryption key of a context.
+func (ctx *Context) WithDecryptionKey(key string) *Context {
+	ctx.DecryptionKey = key
 	return ctx
 }
 
@@ -94,7 +135,7 @@ func ParseContext(data []byte) *Context {
 	dict := map[string]interface{}{}
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
-		logError(ErrJSONFailedToParse, "Context")
+		logError("Failed parsing JSON input", "Context")
 		return NewContext()
 	}
 	return BuildContext(dict)
@@ -113,7 +154,7 @@ func BuildContext(dict map[string]interface{}) *Context {
 		case "url":
 			url, err := url.Parse(v.(string))
 			if err != nil {
-				logError(ErrCtxJSONInvalidURL, v.(string))
+				logError("Invalid URL in JSON context data", v.(string))
 			} else {
 				context = context.WithURL(url)
 			}
@@ -127,8 +168,16 @@ func BuildContext(dict map[string]interface{}) *Context {
 			context = context.WithForcedVariations(vars)
 		case "qaMode":
 			context = context.WithQAMode(v.(bool))
+		case "groups":
+			context = context.WithGroups(v.(map[string]bool))
+		case "apiHost":
+			context = context.WithAPIHost(v.(string))
+		case "clientKey":
+			context = context.WithClientKey(v.(string))
+		case "decryptionKey":
+			context = context.WithDecryptionKey(v.(string))
 		default:
-			logWarn(WarnJSONUnknownKey, "Context", k)
+			logWarn("Unknown key in JSON data", "Context", k)
 		}
 	}
 	return context

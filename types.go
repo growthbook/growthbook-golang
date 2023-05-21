@@ -19,3 +19,18 @@ type FeatureMap map[string]*Feature
 // Keys are the experiment key, values are the array index of the
 // variation.
 type ForcedVariationsMap map[string]int
+
+// URL matching supports regular expressions or simple string matches.
+type URLTargetType uint
+
+const (
+	RegexURLTarget  URLTargetType = iota
+	SimpleURLTarget               = iota
+)
+
+// URL match target.
+type URLTarget struct {
+	Type    URLTargetType
+	Include bool
+	Pattern string
+}

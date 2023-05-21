@@ -48,9 +48,25 @@ func jsonTestFeature(t *testing.T, test []interface{}) {
 	expected := BuildFeatureResult(expectedDict)
 	retval := growthbook.Feature(featureKey)
 
+	// fmt.Println("== RESULT ======================================================================")
+	// fmt.Println(retval)
+	// fmt.Println(retval.Experiment)
+	// fmt.Println(retval.ExperimentResult)
+	// fmt.Println("--------------------------------------------------------------------------------")
+	// fmt.Println(expected)
+	// fmt.Println(expected.Experiment)
+	// fmt.Println(expected.ExperimentResult)
+	// fmt.Println("== EXPECTED ====================================================================")
+
 	if !reflect.DeepEqual(retval, expected) {
 		t.Errorf("unexpected value: %v", retval)
 	}
+
+	expectedWarnings := map[string]int{
+		"unknown feature key": 1,
+		"ignores empty rules": 1,
+	}
+	handleExpectedWarnings(t, test, expectedWarnings)
 }
 
 // Condition evaluation tests.
@@ -288,9 +304,11 @@ func jsonTestRun(t *testing.T, test []interface{}) {
 	if result.InExperiment != resultInExperiment {
 		t.Errorf("unexpected inExperiment value: %v", result.InExperiment)
 	}
-	// if icase >= 2 {
-	// 	os.Exit(1)
-	// }
+
+	expectedWarnings := map[string]int{
+		"single variation": 1,
+	}
+	handleExpectedWarnings(t, test, expectedWarnings)
 }
 
 //------------------------------------------------------------------------------
@@ -349,6 +367,25 @@ func jsonTest(t *testing.T, label string,
 			})
 		}
 	})
+}
+
+// Some test functions generate warnings in the log. We need to check
+// the expected ones, and not miss any unexpected ones.
+
+func handleExpectedWarnings(
+	t *testing.T, test []interface{}, expectedWarnings map[string]int) {
+	name, ok := test[0].(string)
+	if !ok {
+		t.Errorf("can't extract test name!")
+	}
+	warnings, ok := expectedWarnings[name]
+	if ok {
+		if len(testLog.errors) == 0 && len(testLog.warnings) == warnings {
+			testLog.reset()
+		} else {
+			t.Errorf("expected log warning")
+		}
+	}
 }
 
 // Helper to round variation ranges for comparison with fixed test
@@ -426,10 +463,13 @@ func (log *testLogger) Error(msg string, args ...interface{}) {
 		s += ": " + formatArgs(args...)
 	}
 	log.errors = append(log.errors, s)
+	// fmt.Println("ERROR: ", s)
 }
 
 func (log *testLogger) Errorf(format string, args ...interface{}) {
-	log.errors = append(log.errors, fmt.Sprintf(format, args...))
+	s := fmt.Sprintf(format, args...)
+	log.errors = append(log.errors, s)
+	// fmt.Println("ERROR: ", s)
 }
 
 func (log *testLogger) Warn(msg string, args ...interface{}) {
@@ -438,10 +478,13 @@ func (log *testLogger) Warn(msg string, args ...interface{}) {
 		s += ": " + formatArgs(args...)
 	}
 	log.warnings = append(log.warnings, s)
+	// fmt.Println("WARN: ", s)
 }
 
 func (log *testLogger) Warnf(format string, args ...interface{}) {
-	log.warnings = append(log.warnings, fmt.Sprintf(format, args...))
+	s := fmt.Sprintf(format, args...)
+	log.warnings = append(log.warnings, s)
+	// fmt.Println("WARN: ", s)
 }
 
 func (log *testLogger) Info(msg string, args ...interface{}) {
@@ -450,8 +493,11 @@ func (log *testLogger) Info(msg string, args ...interface{}) {
 		s += ": " + fmt.Sprint(args...)
 	}
 	log.info = append(log.info, s)
+	// fmt.Println("INFO: ", s)
 }
 
 func (log *testLogger) Infof(format string, args ...interface{}) {
-	log.info = append(log.info, fmt.Sprintf(format, args...))
+	s := fmt.Sprintf(format, args...)
+	log.info = append(log.info, s)
+	// fmt.Println("INFO: ", s)
 }

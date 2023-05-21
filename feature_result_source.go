@@ -6,10 +6,11 @@ type FeatureResultSource uint
 
 // FeatureResultSource values.
 const (
-	UnknownFeatureResultSource FeatureResultSource = iota + 1
+	UnknownResultSource FeatureResultSource = iota + 1
 	DefaultValueResultSource
 	ForceResultSource
 	ExperimentResultSource
+	OverrideResultSource
 )
 
 // ParseFeatureResultSource creates a FeatureResultSource value from
@@ -22,7 +23,9 @@ func ParseFeatureResultSource(source string) FeatureResultSource {
 		return ForceResultSource
 	case "experiment":
 		return ExperimentResultSource
+	case "override":
+		return OverrideResultSource
 	default:
-		return UnknownFeatureResultSource
+		return UnknownResultSource
 	}
 }

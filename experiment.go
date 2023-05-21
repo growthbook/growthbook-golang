@@ -7,27 +7,27 @@ import (
 
 // Experiment defines a single experiment.
 type Experiment struct {
-	Key        string
-	Variations []FeatureValue
-	Ranges     []Range
-	Meta       []VariationMeta
-	Filters    []Filter
-	Seed       string
-	Name       string
-	Phase      string
-	// URLPatterns
+	Key           string
+	Variations    []FeatureValue
+	Ranges        []Range
+	Meta          []VariationMeta
+	Filters       []Filter
+	Seed          string
+	Name          string
+	Phase         string
+	URLPatterns   []URLTarget
 	Weights       []float64
 	Condition     Condition
 	Coverage      *float64
 	Include       func() bool
 	Namespace     *Namespace
 	Force         *int
-	Active        bool
 	HashAttribute string
 	HashVersion   int
-	Groups        []string
-	URL           *regexp.Regexp
+	Active        bool
 	// Status
+	URL    *regexp.Regexp
+	Groups []string
 }
 
 // NewExperiment creates an experiment with default settings: active,
@@ -63,12 +63,6 @@ func (exp *Experiment) WithFilters(filters ...Filter) *Experiment {
 	return exp
 }
 
-// WithWeights set the weights for an experiment.
-func (exp *Experiment) WithWeights(weights ...float64) *Experiment {
-	exp.Weights = weights
-	return exp
-}
-
 // WithSeed sets the hash seed for an experiment.
 func (exp *Experiment) WithSeed(seed string) *Experiment {
 	exp.Seed = seed
@@ -87,9 +81,15 @@ func (exp *Experiment) WithPhase(phase string) *Experiment {
 	return exp
 }
 
-// WithActive sets the enabled flag for an experiment.
-func (exp *Experiment) WithActive(active bool) *Experiment {
-	exp.Active = active
+// WithWeights set the weights for an experiment.
+func (exp *Experiment) WithWeights(weights ...float64) *Experiment {
+	exp.Weights = weights
+	return exp
+}
+
+// WithCondition sets the condition for an experiment.
+func (exp *Experiment) WithCondition(condition Condition) *Experiment {
+	exp.Condition = condition
 	return exp
 }
 
@@ -99,9 +99,9 @@ func (exp *Experiment) WithCoverage(coverage float64) *Experiment {
 	return exp
 }
 
-// WithCondition sets the condition for an experiment.
-func (exp *Experiment) WithCondition(condition Condition) *Experiment {
-	exp.Condition = condition
+// WithInclude sets the inclusion function for an experiment.
+func (exp *Experiment) WithIncludeFunction(include func() bool) *Experiment {
+	exp.Include = include
 	return exp
 }
 
@@ -123,12 +123,36 @@ func (exp *Experiment) WithHashAttribute(hashAttribute string) *Experiment {
 	return exp
 }
 
+// WithHashVersion sets the hash version for an experiment.
+func (exp *Experiment) WithHashVersion(hashVersion int) *Experiment {
+	exp.HashVersion = hashVersion
+	return exp
+}
+
+// WithActive sets the enabled flag for an experiment.
+func (exp *Experiment) WithActive(active bool) *Experiment {
+	exp.Active = active
+	return exp
+}
+
+// WithGroups sets the groups for an experiment.
+func (exp *Experiment) WithGroups(groups ...string) *Experiment {
+	exp.Groups = groups
+	return exp
+}
+
+// WithURL sets the URL for an experiment.
+func (exp *Experiment) WithURL(url *regexp.Regexp) *Experiment {
+	exp.URL = url
+	return exp
+}
+
 // ParseExperiment creates an Experiment value from raw JSON input.
 func ParseExperiment(data []byte) *Experiment {
 	dict := map[string]interface{}{}
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
-		logError(ErrJSONFailedToParse, "Experiment")
+		logError("Failed parsing JSON input", "Experiment")
 		return NewExperiment("")
 	}
 	return BuildExperiment(dict)
@@ -167,12 +191,12 @@ func BuildExperiment(dict map[string]interface{}) *Experiment {
 		case "condition":
 			tmp, ok := v.(map[string]interface{})
 			if !ok {
-				logError(ErrJSONInvalidType, "Experiment", "condition")
+				logError("Invalid JSON data type", "Experiment", "condition")
 				continue
 			}
 			cond := BuildCondition(tmp)
 			if cond == nil {
-				logError(ErrExpJSONInvalidCondition)
+				logError("Invalid condition in JSON experiment data")
 			} else {
 				exp = exp.WithCondition(cond)
 			}
@@ -185,11 +209,55 @@ func BuildExperiment(dict map[string]interface{}) *Experiment {
 		case "hashVersion":
 			exp.HashVersion = jsonInt(v, "Experiment", "hashVersion")
 		default:
-			logWarn(WarnJSONUnknownKey, "Experiment", k)
+			logWarn("Unknown key in JSON data", "Experiment", k)
 		}
 	}
 	if !gotKey {
-		logWarn(WarnExpJSONKeyNotSet)
+		logWarn("Key not set in JSON experiment data")
+	}
+	return exp
+}
+
+func experimentFromFeatureRule(id string, rule *FeatureRule) *Experiment {
+	exp := NewExperiment(id).WithVariations(rule.Variations...)
+	if rule.Key != "" {
+		exp.Key = rule.Key
+	}
+	if rule.Coverage != nil {
+		exp = exp.WithCoverage(*rule.Coverage)
+	}
+	if rule.Weights != nil {
+		tmp := make([]float64, len(rule.Weights))
+		copy(tmp, rule.Weights)
+		exp = exp.WithWeights(tmp...)
+	}
+	if rule.HashAttribute != "" {
+		exp = exp.WithHashAttribute(rule.HashAttribute)
+	}
+	if rule.Namespace != nil {
+		val := Namespace{rule.Namespace.ID, rule.Namespace.Start, rule.Namespace.End}
+		exp = exp.WithNamespace(&val)
+	}
+	if rule.Meta != nil {
+		exp = exp.WithMeta(rule.Meta...)
+	}
+	if rule.Ranges != nil {
+		exp = exp.WithRanges(rule.Ranges...)
+	}
+	if rule.Name != "" {
+		exp = exp.WithName(rule.Name)
+	}
+	if rule.Phase != "" {
+		exp = exp.WithPhase(rule.Phase)
+	}
+	if rule.Seed != "" {
+		exp = exp.WithSeed(rule.Seed)
+	}
+	if rule.HashVersion != 0 {
+		exp = exp.WithHashVersion(rule.HashVersion)
+	}
+	if rule.Filters != nil {
+		exp = exp.WithFilters(rule.Filters...)
 	}
 	return exp
 }

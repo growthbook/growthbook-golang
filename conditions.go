@@ -96,7 +96,7 @@ func ParseCondition(data []byte) Condition {
 	topLevel := map[string]interface{}{}
 	err := json.Unmarshal(data, &topLevel)
 	if err != nil {
-		logError(ErrJSONFailedToParse, "Condition")
+		logError("Failed parsing JSON input", "Condition")
 		return nil
 	}
 
@@ -133,7 +133,7 @@ func BuildCondition(cond map[string]interface{}) Condition {
 	if not, ok := cond["$not"]; ok {
 		subcond, ok := not.(map[string]interface{})
 		if !ok {
-			logError(ErrCondJSONNot)
+			logError("Invalid $not in JSON condition data")
 			return nil
 		}
 		cond := BuildCondition(subcond)
@@ -172,7 +172,7 @@ func buildSeq(seq interface{}) []Condition {
 	// The input should be a JSON array.
 	conds, ok := seq.([]interface{})
 	if !ok {
-		logError(ErrCondJSONSequence)
+		logError("Something wrong in condition sequence")
 		return nil
 	}
 
@@ -181,7 +181,7 @@ func buildSeq(seq interface{}) []Condition {
 		// Each condition in the sequence should be a JSON object.
 		condmap, ok := conds[i].(map[string]interface{})
 		if !ok {
-			logError(ErrCondJSONSequenceElement)
+			logError("Something wrong in condition sequence element")
 		}
 		cond := BuildCondition(condmap)
 		if cond == nil {
@@ -308,7 +308,7 @@ func compare(comp string, x interface{}, y interface{}) bool {
 		xn := x.(float64)
 		yn, ok := y.(float64)
 		if !ok {
-			logWarn(WarnCondCompareTypeMismatch)
+			logWarn("Types don't match in condition comparison operation")
 			return false
 		}
 		switch comp {
@@ -326,7 +326,7 @@ func compare(comp string, x interface{}, y interface{}) bool {
 		xs := x.(string)
 		ys, ok := y.(string)
 		if !ok {
-			logWarn(WarnCondCompareTypeMismatch)
+			logWarn("Types don't match in condition comparison operation")
 			return false
 		}
 		switch comp {

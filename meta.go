@@ -11,7 +11,7 @@ type VariationMeta struct {
 func jsonVariationMeta(v interface{}, typeName string, fieldName string) *VariationMeta {
 	obj, ok := v.(map[string]interface{})
 	if !ok {
-		logError(ErrJSONInvalidType, typeName, fieldName)
+		logError("Invalid JSON data type", typeName, fieldName)
 		return nil
 	}
 
@@ -22,7 +22,7 @@ func jsonVariationMeta(v interface{}, typeName string, fieldName string) *Variat
 	if ptOk {
 		tmp, ok := vPassthrough.(bool)
 		if !ok {
-			logError(ErrJSONInvalidType, typeName, fieldName)
+			logError("Invalid JSON data type", typeName, fieldName)
 			return nil
 		}
 		passthrough = tmp
@@ -31,7 +31,7 @@ func jsonVariationMeta(v interface{}, typeName string, fieldName string) *Variat
 	if keyOk {
 		tmp, ok := vKey.(string)
 		if !ok {
-			logError(ErrJSONInvalidType, typeName, fieldName)
+			logError("Invalid JSON data type", typeName, fieldName)
 			return nil
 		}
 		key = tmp
@@ -40,7 +40,7 @@ func jsonVariationMeta(v interface{}, typeName string, fieldName string) *Variat
 	if nameOk {
 		tmp, ok := vName.(string)
 		if !ok {
-			logError(ErrJSONInvalidType, typeName, fieldName)
+			logError("Invalid JSON data type", typeName, fieldName)
 			return nil
 		}
 		name = tmp
@@ -52,7 +52,7 @@ func jsonVariationMeta(v interface{}, typeName string, fieldName string) *Variat
 func jsonVariationMetaArray(v interface{}, typeName string, fieldName string) []VariationMeta {
 	vals, ok := v.([]interface{})
 	if !ok {
-		logError(ErrJSONInvalidType, typeName, fieldName)
+		logError("Invalid JSON data type", typeName, fieldName)
 		return nil
 	}
 	metas := make([]VariationMeta, len(vals))

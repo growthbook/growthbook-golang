@@ -35,7 +35,7 @@ func BuildResult(dict map[string]interface{}) *Result {
 		case "hashValue":
 			tmp, ok := convertHashValue(v)
 			if !ok {
-				logError(ErrJSONInvalidType, "Result", "hashValue")
+				logError("Invalid JSON data type", "Result", "hashValue")
 				continue
 			}
 			res.HashValue = tmp
@@ -50,7 +50,7 @@ func BuildResult(dict map[string]interface{}) *Result {
 		case "passthrough":
 			res.Passthrough = jsonBool(v, "Result", "passthrough")
 		default:
-			logWarn(WarnJSONUnknownKey, "Result", k)
+			logWarn("Unknown key in JSON data", "Result", k)
 		}
 	}
 	return &res

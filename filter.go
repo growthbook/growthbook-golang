@@ -12,7 +12,7 @@ type Filter struct {
 func jsonFilter(v interface{}, typeName string, fieldName string) *Filter {
 	obj, ok := v.(map[string]interface{})
 	if !ok {
-		logError(ErrJSONInvalidType, typeName, fieldName)
+		logError("Invalid JSON data type", typeName, fieldName)
 		return nil
 	}
 
@@ -24,7 +24,7 @@ func jsonFilter(v interface{}, typeName string, fieldName string) *Filter {
 	if atOk {
 		tmp, ok := vAttribute.(string)
 		if !ok {
-			logError(ErrJSONInvalidType, typeName, fieldName)
+			logError("Invalid JSON data type", typeName, fieldName)
 			return nil
 		}
 		attribute = tmp
@@ -33,7 +33,7 @@ func jsonFilter(v interface{}, typeName string, fieldName string) *Filter {
 	if seedOk {
 		tmp, ok := vSeed.(string)
 		if !ok {
-			logError(ErrJSONInvalidType, typeName, fieldName)
+			logError("Invalid JSON data type", typeName, fieldName)
 			return nil
 		}
 		seed = tmp
@@ -42,7 +42,7 @@ func jsonFilter(v interface{}, typeName string, fieldName string) *Filter {
 	if hvOk {
 		tmp, ok := vHashVersion.(float64)
 		if !ok {
-			logError(ErrJSONInvalidType, typeName, fieldName)
+			logError("Invalid JSON data type", typeName, fieldName)
 			return nil
 		}
 		vHashVersion = int(tmp)
@@ -51,7 +51,7 @@ func jsonFilter(v interface{}, typeName string, fieldName string) *Filter {
 	if rngOk {
 		tmp, ok := vRanges.([]interface{})
 		if !ok {
-			logError(ErrJSONInvalidType, typeName, fieldName)
+			logError("Invalid JSON data type", typeName, fieldName)
 			return nil
 		}
 		ranges = jsonRangeArray(tmp, typeName, fieldName)
@@ -63,7 +63,7 @@ func jsonFilter(v interface{}, typeName string, fieldName string) *Filter {
 func jsonFilterArray(v interface{}, typeName string, fieldName string) []Filter {
 	vals, ok := v.([]interface{})
 	if !ok {
-		logError(ErrJSONInvalidType, typeName, fieldName)
+		logError("Invalid JSON data type", typeName, fieldName)
 		return nil
 	}
 	filters := make([]Filter, len(vals))

@@ -167,7 +167,7 @@ func TestNilContext(t *testing.T) {
 	var nilContext *Context
 	gbTest := New(nilContext)
 
-	if !gbTest.Enabled() {
+	if !gbTest.Context.Enabled {
 		t.Errorf("expected gbTest.enabled to be true")
 	}
 }

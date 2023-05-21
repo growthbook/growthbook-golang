@@ -22,7 +22,7 @@ func ParseNamespace(data []byte) *Namespace {
 	array := []interface{}{}
 	err := json.Unmarshal(data, &array)
 	if err != nil {
-		logError(ErrJSONFailedToParse, "Namespace")
+		logError("Failed parsing JSON input", "Namespace")
 		return nil
 	}
 	return BuildNamespace(array)

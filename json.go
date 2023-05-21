@@ -9,14 +9,14 @@ import (
 func BuildFeatureValues(val interface{}) []FeatureValue {
 	vals, ok := val.([]interface{})
 	if !ok {
-		logError(ErrJSONInvalidType, "FeatureValue")
+		logError("Invalid JSON data type", "FeatureValue")
 		return nil
 	}
 	result := make([]FeatureValue, len(vals))
 	for i, v := range vals {
 		tmp, ok := v.(FeatureValue)
 		if !ok {
-			logError(ErrJSONInvalidType, "FeatureValue")
+			logError("Invalid JSON data type", "FeatureValue")
 			return nil
 		}
 		result[i] = tmp
@@ -29,7 +29,7 @@ func ParseFeatureMap(data []byte) FeatureMap {
 	dict := map[string]interface{}{}
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
-		logError(ErrJSONFailedToParse, "FeatureMap")
+		logError("Failed parsing JSON input", "FeatureMap")
 		return nil
 	}
 	return BuildFeatureMap(dict)
