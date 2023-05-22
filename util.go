@@ -114,13 +114,13 @@ func isURLTargeted(url *url.URL, targets []URLTarget) bool {
 
 func evalURLTarget(url *url.URL, typ URLTargetType, pattern string) bool {
 	if typ == RegexURLTarget {
-		regex := getUrlRegExp(pattern)
+		regex := getURLRegexp(pattern)
 		if regex == nil {
 			return false
 		}
 		return regex.MatchString(url.String()) || regex.MatchString(url.Path)
 	} else if typ == SimpleURLTarget {
-		return evalSimpleUrlTarget(url, pattern)
+		return evalSimpleURLTarget(url, pattern)
 	}
 	return false
 }
@@ -131,7 +131,7 @@ type comp struct {
 	isPath   bool
 }
 
-func evalSimpleUrlTarget(actual *url.URL, pattern string) bool {
+func evalSimpleURLTarget(actual *url.URL, pattern string) bool {
 	// If a protocol is missing, but a host is specified, add `https://`
 	// to the front. Use "_____" as the wildcard since `*` is not a valid
 	// hostname in some browsers
@@ -178,14 +178,14 @@ func evalSimpleUrlTarget(actual *url.URL, pattern string) bool {
 
 	// If any comparisons fail, the whole thing fails
 	for _, comp := range comps {
-		if !evalSimpleUrlPart(comp.actual, comp.expected, comp.isPath) {
+		if !evalSimpleURLPart(comp.actual, comp.expected, comp.isPath) {
 			return false
 		}
 	}
 	return true
 }
 
-func evalSimpleUrlPart(actual string, pattern string, isPath bool) bool {
+func evalSimpleURLPart(actual string, pattern string, isPath bool) bool {
 	// Escape special regex characters.
 	specialRe := regexp.MustCompile(`([*.+?^${}()|[\]\\])`)
 	escaped := specialRe.ReplaceAllString(pattern, "\\$1")
@@ -207,11 +207,74 @@ func evalSimpleUrlPart(actual string, pattern string, isPath bool) bool {
 	return regex.MatchString(actual)
 }
 
-func getUrlRegExp(regexString string) *regexp.Regexp {
+func getURLRegexp(regexString string) *regexp.Regexp {
 	retval, err := regexp.Compile(regexString)
 	if err == nil {
 		return retval
 	}
 	logError("Failed to compile URL regexp:", err)
 	return nil
+}
+
+func jsonString(v interface{}, typeName string, fieldName string) string {
+	tmp, ok := v.(string)
+	if ok {
+		return tmp
+	}
+	logError("Invalid JSON data type", typeName, fieldName)
+	return ""
+}
+
+func jsonBool(v interface{}, typeName string, fieldName string) bool {
+	tmp, ok := v.(bool)
+	if ok {
+		return tmp
+	}
+	logError("Invalid JSON data type", typeName, fieldName)
+	return false
+}
+
+func jsonInt(v interface{}, typeName string, fieldName string) int {
+	tmp, ok := v.(float64)
+	if ok {
+		return int(tmp)
+	}
+	logError("Invalid JSON data type", typeName, fieldName)
+	return 0
+}
+
+func jsonFloat(v interface{}, typeName string, fieldName string) float64 {
+	tmp, ok := v.(float64)
+	if ok {
+		return tmp
+	}
+	logError("Invalid JSON data type", typeName, fieldName)
+	return 0.0
+}
+
+func jsonMaybeFloat(v interface{}, typeName string, fieldName string) *float64 {
+	tmp, ok := v.(float64)
+	if ok {
+		return &tmp
+	}
+	logError("Invalid JSON data type", typeName, fieldName)
+	return nil
+}
+
+func jsonFloatArray(v interface{}, typeName string, fieldName string) []float64 {
+	vals, ok := v.([]interface{})
+	if !ok {
+		logError("Invalid JSON data type", typeName, fieldName)
+		return nil
+	}
+	fvals := make([]float64, len(vals))
+	for i := range vals {
+		tmp, ok := vals[i].(float64)
+		if !ok {
+			logError("Invalid JSON data type", typeName, fieldName)
+			return nil
+		}
+		fvals[i] = tmp
+	}
+	return fvals
 }

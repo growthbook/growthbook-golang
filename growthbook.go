@@ -317,6 +317,8 @@ func (gb *GrowthBook) ClearTrackingData() {
 	gb.trackedExperiments = map[string]bool{}
 }
 
+//-- PRIVATE FUNCTIONS START HERE ----------------------------------------------
+
 func (gb *GrowthBook) trackFeatureUsage(key string, res *FeatureResult) {
 	// Don't track feature usage that was forced via an override.
 	if res.Source == OverrideResultSource {
@@ -593,7 +595,7 @@ func (gb *GrowthBook) mergeOverrides(exp *Experiment) *Experiment {
 		return exp
 	}
 	if override, ok := gb.Context.Overrides[exp.Key]; ok {
-		exp = exp.ApplyOverride(override)
+		exp = exp.applyOverride(override)
 	}
 	return exp
 }

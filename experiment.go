@@ -161,38 +161,6 @@ func (exp *Experiment) WithURL(url *regexp.Regexp) *Experiment {
 	return exp
 }
 
-func (exp *Experiment) ApplyOverride(override *ExperimentOverride) *Experiment {
-	newExp := *exp
-	if override.Condition != nil {
-		newExp.Condition = override.Condition
-	}
-	if override.Weights != nil {
-		newExp.Weights = override.Weights
-	}
-	if override.Active != nil {
-		newExp.Active = *override.Active
-	}
-	if override.Status != nil {
-		newExp.Status = *override.Status
-	}
-	if override.Force != nil {
-		newExp.Force = override.Force
-	}
-	if override.Coverage != nil {
-		newExp.Coverage = override.Coverage
-	}
-	if override.Groups != nil {
-		newExp.Groups = override.Groups
-	}
-	if override.Namespace != nil {
-		newExp.Namespace = override.Namespace
-	}
-	if override.URL != nil {
-		newExp.URL = override.URL
-	}
-	return &newExp
-}
-
 // ParseExperiment creates an Experiment value from raw JSON input.
 func ParseExperiment(data []byte) *Experiment {
 	dict := map[string]interface{}{}
@@ -262,6 +230,38 @@ func BuildExperiment(dict map[string]interface{}) *Experiment {
 		logWarn("Key not set in JSON experiment data")
 	}
 	return exp
+}
+
+func (exp *Experiment) applyOverride(override *ExperimentOverride) *Experiment {
+	newExp := *exp
+	if override.Condition != nil {
+		newExp.Condition = override.Condition
+	}
+	if override.Weights != nil {
+		newExp.Weights = override.Weights
+	}
+	if override.Active != nil {
+		newExp.Active = *override.Active
+	}
+	if override.Status != nil {
+		newExp.Status = *override.Status
+	}
+	if override.Force != nil {
+		newExp.Force = override.Force
+	}
+	if override.Coverage != nil {
+		newExp.Coverage = override.Coverage
+	}
+	if override.Groups != nil {
+		newExp.Groups = override.Groups
+	}
+	if override.Namespace != nil {
+		newExp.Namespace = override.Namespace
+	}
+	if override.URL != nil {
+		newExp.URL = override.URL
+	}
+	return &newExp
 }
 
 func experimentFromFeatureRule(id string, rule *FeatureRule) *Experiment {

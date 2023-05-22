@@ -19,8 +19,6 @@ type FeatureRule struct {
 	Seed          string
 	Name          string
 	Phase         string
-	// TBD:
-	// Tracks?
 }
 
 // BuildFeatureRule creates an FeatureRule value from a generic JSON

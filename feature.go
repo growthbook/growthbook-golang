@@ -2,6 +2,11 @@ package growthbook
 
 import "encoding/json"
 
+// FeatureValue is a wrapper around an arbitrary type representing the
+// value of a feature. Features can return any kinds of values, so
+// this is an alias for interface{}.
+type FeatureValue interface{}
+
 // Feature has a default value plus rules than can override the
 // default.
 type Feature struct {
@@ -45,4 +50,24 @@ func BuildFeature(val interface{}) *Feature {
 		}
 	}
 	return &feature
+}
+
+// BuildFeatureValues creates a FeatureValue array from a generic JSON
+// value.
+func BuildFeatureValues(val interface{}) []FeatureValue {
+	vals, ok := val.([]interface{})
+	if !ok {
+		logError("Invalid JSON data type", "FeatureValue")
+		return nil
+	}
+	result := make([]FeatureValue, len(vals))
+	for i, v := range vals {
+		tmp, ok := v.(FeatureValue)
+		if !ok {
+			logError("Invalid JSON data type", "FeatureValue")
+			return nil
+		}
+		result[i] = tmp
+	}
+	return result
 }
