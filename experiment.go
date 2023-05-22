@@ -5,6 +5,14 @@ import (
 	"regexp"
 )
 
+type ExperimentStatus string
+
+const (
+	DraftStatus   ExperimentStatus = "draft"
+	RunningStatus ExperimentStatus = "running"
+	StoppedStatus ExperimentStatus = "stopped"
+)
+
 // Experiment defines a single experiment.
 type Experiment struct {
 	Key           string
@@ -25,9 +33,9 @@ type Experiment struct {
 	HashAttribute string
 	HashVersion   int
 	Active        bool
-	// Status
-	URL    *regexp.Regexp
-	Groups []string
+	Status        ExperimentStatus
+	URL           *regexp.Regexp
+	Groups        []string
 }
 
 // NewExperiment creates an experiment with default settings: active,
@@ -135,6 +143,12 @@ func (exp *Experiment) WithActive(active bool) *Experiment {
 	return exp
 }
 
+// WithStatus sets the status for an experiment.
+func (exp *Experiment) WithStatus(status ExperimentStatus) *Experiment {
+	exp.Status = status
+	return exp
+}
+
 // WithGroups sets the groups for an experiment.
 func (exp *Experiment) WithGroups(groups ...string) *Experiment {
 	exp.Groups = groups
@@ -145,6 +159,38 @@ func (exp *Experiment) WithGroups(groups ...string) *Experiment {
 func (exp *Experiment) WithURL(url *regexp.Regexp) *Experiment {
 	exp.URL = url
 	return exp
+}
+
+func (exp *Experiment) ApplyOverride(override *ExperimentOverride) *Experiment {
+	newExp := *exp
+	if override.Condition != nil {
+		newExp.Condition = override.Condition
+	}
+	if override.Weights != nil {
+		newExp.Weights = override.Weights
+	}
+	if override.Active != nil {
+		newExp.Active = *override.Active
+	}
+	if override.Status != nil {
+		newExp.Status = *override.Status
+	}
+	if override.Force != nil {
+		newExp.Force = override.Force
+	}
+	if override.Coverage != nil {
+		newExp.Coverage = override.Coverage
+	}
+	if override.Groups != nil {
+		newExp.Groups = override.Groups
+	}
+	if override.Namespace != nil {
+		newExp.Namespace = override.Namespace
+	}
+	if override.URL != nil {
+		newExp.URL = override.URL
+	}
+	return &newExp
 }
 
 // ParseExperiment creates an Experiment value from raw JSON input.

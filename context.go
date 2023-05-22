@@ -3,7 +3,24 @@ package growthbook
 import (
 	"encoding/json"
 	"net/url"
+	"regexp"
 )
+
+// ExperimentOverride provides the possibility to temporarily override
+// some experiment settings.
+type ExperimentOverride struct {
+	Condition Condition
+	Weights   []float64
+	Active    *bool
+	Status    *ExperimentStatus
+	Force     *int
+	Coverage  *float64
+	Groups    []string
+	Namespace *Namespace
+	URL       *regexp.Regexp
+}
+
+type ExperimentOverrides map[string]*ExperimentOverride
 
 // Context contains the options for creating a new GrowthBook
 // instance.
@@ -16,10 +33,12 @@ type Context struct {
 	QAMode           bool
 	TrackingCallback ExperimentCallback
 	OnFeatureUsage   FeatureUsageCallback
+	UserAttributes   Attributes
 	Groups           map[string]bool
 	APIHost          string
 	ClientKey        string
 	DecryptionKey    string
+	Overrides        ExperimentOverrides
 }
 
 // ExperimentCallback is a callback function that is executed every
@@ -56,6 +75,16 @@ func (ctx *Context) WithAttributes(attributes Attributes) *Context {
 	return ctx
 }
 
+// WithUserAttributes sets the user attributes for a context.
+func (ctx *Context) WithUserAttributes(attributes Attributes) *Context {
+	savedAttributes := Attributes{}
+	for k, v := range attributes {
+		savedAttributes[k] = fixSliceTypes(v)
+	}
+	ctx.UserAttributes = savedAttributes
+	return ctx
+}
+
 // WithURL sets the URL for a context.
 func (ctx *Context) WithURL(url *url.URL) *Context {
 	ctx.URL = url
@@ -78,6 +107,9 @@ func (ctx *Context) WithForcedVariations(forcedVariations ForcedVariationsMap) *
 }
 
 func (ctx *Context) ForceVariation(key string, variation int) {
+	if ctx.ForcedVariations == nil {
+		ctx.ForcedVariations = ForcedVariationsMap{}
+	}
 	ctx.ForcedVariations[key] = variation
 }
 
@@ -127,6 +159,12 @@ func (ctx *Context) WithClientKey(key string) *Context {
 // WithDecryptionKey sets the decryption key of a context.
 func (ctx *Context) WithDecryptionKey(key string) *Context {
 	ctx.DecryptionKey = key
+	return ctx
+}
+
+// WithOverrides sets the experiment overrides of a context.
+func (ctx *Context) WithOverrides(overrides ExperimentOverrides) *Context {
+	ctx.Overrides = overrides
 	return ctx
 }
 

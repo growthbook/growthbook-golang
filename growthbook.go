@@ -451,6 +451,9 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 		return gb.getResult(exp, -1, false, featureID, nil)
 	}
 
+	// 2.5. Merge in experiment overrides from the context
+	exp = gb.mergeOverrides(exp)
+
 	// 3. If a variation is forced from a querystring, return the forced
 	//    variation.
 	if gb.Context.URL != nil {
@@ -463,15 +466,16 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 
 	// 4. If a variation is forced in the context, return the forced
 	//    variation.
-	force, forced := gb.Context.ForcedVariations[exp.Key]
-	if forced {
-		logInfo("Forced variation", exp.Key, force)
-		return gb.getResult(exp, force, false, featureID, nil)
+	if gb.Context.ForcedVariations != nil {
+		force, forced := gb.Context.ForcedVariations[exp.Key]
+		if forced {
+			logInfo("Forced variation", exp.Key, force)
+			return gb.getResult(exp, force, false, featureID, nil)
+		}
 	}
 
 	// 5. Exclude inactive experiments and return default result.
-	// TODO: DRAFT STATUS?
-	if !exp.Active {
+	if exp.Status == DraftStatus || !exp.Active {
 		logInfo("Skip because inactive", exp.Key)
 		return gb.getResult(exp, -1, false, featureID, nil)
 	}
@@ -569,11 +573,10 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 	}
 
 	// 12.5. Exclude if experiment is stopped.
-	// TODO: FILL THIS IN
-	// if exp.Status == "stopped" {
-	// 	logInfo("Skip because stopped", exp.Key)
-	// 	return gb.getResult(exp, -1, false, featureID, nil)
-	// }
+	if exp.Status == StoppedStatus {
+		logInfo("Skip because stopped", exp.Key)
+		return gb.getResult(exp, -1, false, featureID, nil)
+	}
 
 	// 13. Build the result object.
 	result := gb.getResult(exp, assigned, true, featureID, n)
@@ -583,6 +586,16 @@ func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
 
 	logInfo("In experiment", fmt.Sprintf("%s[%d]", exp.Key, result.VariationID))
 	return result
+}
+
+func (gb *GrowthBook) mergeOverrides(exp *Experiment) *Experiment {
+	if gb.Context.Overrides == nil {
+		return exp
+	}
+	if override, ok := gb.Context.Overrides[exp.Key]; ok {
+		exp = exp.ApplyOverride(override)
+	}
+	return exp
 }
 
 // Fire Context.TrackingCallback if it's set and the combination of
@@ -617,7 +630,11 @@ func (gb *GrowthBook) getHashAttribute(attr string) (string, string) {
 		hashValue, ok = gb.AttributeOverrides[hashAttribute]
 	}
 	if !ok {
-		hashValue, ok = gb.Context.Attributes[hashAttribute]
+		if gb.Context.Attributes != nil {
+			hashValue, ok = gb.Context.Attributes[hashAttribute]
+		} else if gb.Context.UserAttributes != nil {
+			hashValue, ok = gb.Context.UserAttributes[hashAttribute]
+		}
 		if !ok {
 			return "", ""
 		}
@@ -696,7 +713,7 @@ func (gb *GrowthBook) isFilteredOut(filters []Filter) bool {
 
 func (gb *GrowthBook) hasGroupOverlap(groups []string) bool {
 	for _, g := range groups {
-		if _, ok := gb.Context.Groups[g]; ok {
+		if val, ok := gb.Context.Groups[g]; ok && val {
 			return true
 		}
 	}
