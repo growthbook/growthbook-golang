@@ -93,7 +93,7 @@ func (cond baseCondition) Eval(attrs Attributes) bool {
 
 // ParseCondition creates a Condition value from raw JSON input.
 func ParseCondition(data []byte) Condition {
-	topLevel := map[string]interface{}{}
+	topLevel := make(map[string]interface{})
 	err := json.Unmarshal(data, &topLevel)
 	if err != nil {
 		logError("Failed parsing JSON input", "Condition")

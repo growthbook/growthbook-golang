@@ -31,6 +31,7 @@ type Context struct {
 	Features         FeatureMap
 	ForcedVariations ForcedVariationsMap
 	QAMode           bool
+	DevMode          bool
 	TrackingCallback ExperimentCallback
 	OnFeatureUsage   FeatureUsageCallback
 	UserAttributes   Attributes
@@ -124,6 +125,13 @@ func (ctx *Context) WithQAMode(qaMode bool) *Context {
 	return ctx
 }
 
+// WithDevMode can be used to enable or disable the development mode
+// for a context.
+func (ctx *Context) WithDevMode(devMode bool) *Context {
+	ctx.DevMode = devMode
+	return ctx
+}
+
 // WithTrackingCallback is used to set a tracking callback for a
 // context.
 func (ctx *Context) WithTrackingCallback(callback ExperimentCallback) *Context {
@@ -170,7 +178,7 @@ func (ctx *Context) WithOverrides(overrides ExperimentOverrides) *Context {
 
 // ParseContext creates a Context value from raw JSON input.
 func ParseContext(data []byte) *Context {
-	dict := map[string]interface{}{}
+	dict := make(map[string]interface{})
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
 		logError("Failed parsing JSON input", "Context")
@@ -199,7 +207,7 @@ func BuildContext(dict map[string]interface{}) *Context {
 		case "features":
 			context.Features = BuildFeatureMap(v.(map[string]interface{}))
 		case "forcedVariations":
-			vars := map[string]int{}
+			vars := make(map[string]int)
 			for k, vr := range v.(map[string]interface{}) {
 				vars[k] = int(vr.(float64))
 			}

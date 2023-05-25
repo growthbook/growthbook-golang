@@ -8,6 +8,9 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
+	"sync"
+	"time"
 )
 
 type subscriptionID uint
@@ -20,6 +23,7 @@ type Assignment struct {
 
 // GrowthBook is the main export of the SDK.
 type GrowthBook struct {
+	sync.RWMutex
 	Context             *Context
 	ForcedFeatureValues map[string]interface{}
 	AttributeOverrides  Attributes
@@ -28,6 +32,7 @@ type GrowthBook struct {
 	nextSubscriptionID  subscriptionID
 	subscriptions       map[subscriptionID]ExperimentCallback
 	assigned            map[string]*Assignment
+	Ready               bool
 }
 
 // New creates a new GrowthBook instance.
@@ -35,37 +40,54 @@ func New(context *Context) *GrowthBook {
 	if context == nil {
 		context = NewContext()
 	}
-	return &GrowthBook{
-		context,
-		nil,
-		nil,
-		map[string]interface{}{},
-		map[string]bool{},
-		1, map[subscriptionID]ExperimentCallback{},
-		map[string]*Assignment{},
+	gb := &GrowthBook{
+		Context:             context,
+		ForcedFeatureValues: nil,
+		AttributeOverrides:  nil,
+		trackedFeatures:     make(map[string]interface{}),
+		trackedExperiments:  make(map[string]bool),
+		nextSubscriptionID:  1,
+		subscriptions:       make(map[subscriptionID]ExperimentCallback),
+		assigned:            make(map[string]*Assignment),
 	}
+	if context.ClientKey != "" {
+		gb.refresh(nil, true, false)
+	}
+	return gb
 }
 
 // WithForcedFeatures updates the current forced feature values.
 func (gb *GrowthBook) WithForcedFeatures(values map[string]interface{}) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.ForcedFeatureValues = values
 	return gb
 }
 
 // WithAttributeOverrides updates the current attribute overrides.
 func (gb *GrowthBook) WithAttributeOverrides(overrides Attributes) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.AttributeOverrides = overrides
 	return gb
 }
 
 // WithEnabled sets the enabled flag in a GrowthBook's context.
 func (gb *GrowthBook) WithEnabled(enabled bool) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.Enabled = enabled
 	return gb
 }
 
 // WithAttributes updates the attributes in a GrowthBook's context.
 func (gb *GrowthBook) WithAttributes(attrs Attributes) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.Attributes = attrs
 	return gb
 }
@@ -73,6 +95,9 @@ func (gb *GrowthBook) WithAttributes(attrs Attributes) *GrowthBook {
 // Attributes returns the attributes in a GrowthBook's context,
 // possibly modified by overrides.
 func (gb *GrowthBook) Attributes() Attributes {
+	gb.RLock()
+	defer gb.RUnlock()
+
 	attrs := Attributes{}
 	for id, v := range gb.Context.Attributes {
 		attrs[id] = v
@@ -87,39 +112,75 @@ func (gb *GrowthBook) Attributes() Attributes {
 
 // WithURL sets the URL in a GrowthBook's context.
 func (gb *GrowthBook) WithURL(url *url.URL) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.URL = url
 	return gb
 }
 
 // WithFeatures updates the features in a GrowthBook's context.
 func (gb *GrowthBook) WithFeatures(features FeatureMap) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.Features = features
+	gb.Ready = true
 	return gb
 }
 
 // Features returns the features in a GrowthBook's context.
 func (gb *GrowthBook) Features() FeatureMap {
+	gb.RLock()
+	defer gb.RUnlock()
+
 	return gb.Context.Features
+}
+
+// WithEncryptedFeatures updates the features in a GrowthBook's
+// context from encrypted data.
+func (gb *GrowthBook) WithEncryptedFeatures(encrypted string, key string) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
+	if key == "" {
+		key = gb.Context.DecryptionKey
+	}
+	// TODO: IMPLEMENT DECRYPTION
+	// featuresJson := decrypt(encrypted, key)
+	featuresJson := `{"foo": {}}`
+	gb.Context.Features = ParseFeatureMap([]byte(featuresJson))
+	return gb
 }
 
 // WithForcedVariations sets the forced variations in a GrowthBook's
 // context.
 func (gb *GrowthBook) WithForcedVariations(forcedVariations ForcedVariationsMap) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.ForcedVariations = forcedVariations
 	return gb
 }
 
 func (gb *GrowthBook) ForceVariation(key string, variation int) {
+	gb.RLock()
+	defer gb.RUnlock()
 	gb.Context.ForceVariation(key, variation)
 }
 
 func (gb *GrowthBook) UnforceVariation(key string) {
+	gb.RLock()
+	defer gb.RUnlock()
 	gb.Context.UnforceVariation(key)
 }
 
 // WithQAMode can be used to enable or disable the QA mode for a
 // context.
 func (gb *GrowthBook) WithQAMode(qaMode bool) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.QAMode = qaMode
 	return gb
 }
@@ -127,6 +188,9 @@ func (gb *GrowthBook) WithQAMode(qaMode bool) *GrowthBook {
 // WithTrackingCallback is used to set a tracking callback for a
 // context.
 func (gb *GrowthBook) WithTrackingCallback(callback ExperimentCallback) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.TrackingCallback = callback
 	return gb
 }
@@ -134,30 +198,45 @@ func (gb *GrowthBook) WithTrackingCallback(callback ExperimentCallback) *GrowthB
 // WithFeatureUsageCallback is used to set a feature usage callback
 // for a context.
 func (gb *GrowthBook) WithFeatureUsageCallback(callback FeatureUsageCallback) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.OnFeatureUsage = callback
 	return gb
 }
 
 // WithGroups sets the groups map of a context.
 func (gb *GrowthBook) WithGroups(groups map[string]bool) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.Groups = groups
 	return gb
 }
 
 // WithAPIHost sets the API host of a context.
 func (gb *GrowthBook) WithAPIHost(host string) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.APIHost = host
 	return gb
 }
 
 // WithClientKey sets the API client key of a context.
 func (gb *GrowthBook) WithClientKey(key string) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.ClientKey = key
 	return gb
 }
 
 // WithDecryptionKey sets the decryption key of a context.
 func (gb *GrowthBook) WithDecryptionKey(key string) *GrowthBook {
+	gb.Lock()
+	defer gb.Unlock()
+
 	gb.Context.DecryptionKey = key
 	return gb
 }
@@ -173,17 +252,23 @@ func (fr *FeatureResult) GetValueWithDefault(def FeatureValue) FeatureValue {
 
 // IsOn determines whether a feature is on.
 func (gb *GrowthBook) IsOn(key string) bool {
+	gb.RLock()
+	defer gb.RUnlock()
 	return gb.EvalFeature(key).On
 }
 
 // IsOff determines whether a feature is off.
 func (gb *GrowthBook) IsOff(key string) bool {
+	gb.RLock()
+	defer gb.RUnlock()
 	return gb.EvalFeature(key).Off
 }
 
 // GetFeatureValue returns the result for a feature identified by a
 // string feature key, with an explicit default.
 func (gb *GrowthBook) GetFeatureValue(key string, defaultValue interface{}) interface{} {
+	gb.RLock()
+	defer gb.RUnlock()
 	featureValue := gb.EvalFeature(key).Value
 	if featureValue != nil {
 		return featureValue
@@ -194,12 +279,17 @@ func (gb *GrowthBook) GetFeatureValue(key string, defaultValue interface{}) inte
 // Feature returns the result for a feature identified by a string
 // feature key. (DEPRECATED: Use EvalFeature instead.)
 func (gb *GrowthBook) Feature(key string) *FeatureResult {
+	gb.RLock()
+	defer gb.RUnlock()
 	return gb.EvalFeature(key)
 }
 
 // EvalFeature returns the result for a feature identified by a string
 // feature key.
 func (gb *GrowthBook) EvalFeature(id string) *FeatureResult {
+	gb.RLock()
+	defer gb.RUnlock()
+
 	// Global override.
 	if gb.ForcedFeatureValues != nil {
 		if override, ok := gb.ForcedFeatureValues[id]; ok {
@@ -281,6 +371,9 @@ func (gb *GrowthBook) EvalFeature(id string) *FeatureResult {
 // Run an experiment. (Uses doRun to make wrapping for subscriptions
 // simple.)
 func (gb *GrowthBook) Run(exp *Experiment) *Result {
+	gb.RLock()
+	defer gb.RUnlock()
+
 	result := gb.doRun(exp, "")
 	gb.fireSubscriptions(exp, result)
 	return result
@@ -290,6 +383,9 @@ func (gb *GrowthBook) Run(exp *Experiment) *Result {
 // is called. This is different from the tracking callback since it
 // also fires when a user is not included in an experiment.
 func (gb *GrowthBook) Subscribe(callback ExperimentCallback) func() {
+	gb.Lock()
+	defer gb.Unlock()
+
 	id := gb.nextSubscriptionID
 	gb.subscriptions[id] = callback
 	gb.nextSubscriptionID++
@@ -301,6 +397,8 @@ func (gb *GrowthBook) Subscribe(callback ExperimentCallback) func() {
 // GetAllResults returns a map containing all the latest results from
 // all experiments that have been run, indexed by the experiment key.
 func (gb *GrowthBook) GetAllResults() map[string]*Assignment {
+	gb.RLock()
+	defer gb.RUnlock()
 	return gb.assigned
 }
 
@@ -308,13 +406,64 @@ func (gb *GrowthBook) GetAllResults() map[string]*Assignment {
 // GrowthBook instance (used for deciding whether to send data to
 // subscriptions).
 func (gb *GrowthBook) ClearSavedResults() {
-	gb.assigned = map[string]*Assignment{}
+	gb.Lock()
+	defer gb.Unlock()
+	gb.assigned = make(map[string]*Assignment)
 }
 
 // ClearTrackingData clears out records of calls to the experiment
 // tracking callback.
 func (gb *GrowthBook) ClearTrackingData() {
-	gb.trackedExperiments = map[string]bool{}
+	gb.Lock()
+	defer gb.Unlock()
+	gb.trackedExperiments = make(map[string]bool)
+}
+
+// GetAPIInfo gets the hostname and client key for GrowthBook API
+// access.
+func (gb *GrowthBook) GetAPIInfo() (string, string) {
+	gb.RLock()
+	defer gb.RUnlock()
+
+	apiHost := gb.Context.APIHost
+	if apiHost == "" {
+		apiHost = "https://cdn.growthbook.io"
+	}
+
+	return strings.TrimRight(apiHost, "/"), gb.Context.ClientKey
+}
+
+type FeatureRepoOptions struct {
+	AutoRefresh bool
+	Timeout     time.Duration
+	SkipCache   bool
+}
+
+func (gb *GrowthBook) LoadFeatures(options *FeatureRepoOptions) {
+	gb.refresh(options, true, true)
+	if options != nil && options.AutoRefresh {
+		SubscribeToFeatures(gb)
+	}
+}
+
+func (gb *GrowthBook) RefreshFeatures(options *FeatureRepoOptions) {
+	gb.refresh(options, false, true)
+}
+
+func (gb *GrowthBook) refresh(
+	options *FeatureRepoOptions, allowStale bool, updateInstance bool) {
+
+	if gb.Context.ClientKey == "" {
+		logError("Missing clientKey")
+		return
+	}
+	var timeout time.Duration
+	skipCache := gb.Context.DevMode
+	if options != nil {
+		timeout = options.Timeout
+		skipCache = skipCache || options.SkipCache
+	}
+	RefreshFeatures(gb, timeout, skipCache, allowStale, updateInstance)
 }
 
 //-- PRIVATE FUNCTIONS START HERE ----------------------------------------------

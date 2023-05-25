@@ -163,7 +163,7 @@ func (exp *Experiment) WithURL(url *regexp.Regexp) *Experiment {
 
 // ParseExperiment creates an Experiment value from raw JSON input.
 func ParseExperiment(data []byte) *Experiment {
-	dict := map[string]interface{}{}
+	dict := make(map[string]interface{})
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
 		logError("Failed parsing JSON input", "Experiment")

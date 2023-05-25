@@ -16,7 +16,7 @@ type Feature struct {
 
 // ParseFeature creates a single Feature value from raw JSON input.
 func ParseFeature(data []byte) *Feature {
-	dict := map[string]interface{}{}
+	dict := make(map[string]interface{})
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
 		logError("Failed parsing JSON input", "Feature")
@@ -68,6 +68,20 @@ func BuildFeatureValues(val interface{}) []FeatureValue {
 			return nil
 		}
 		result[i] = tmp
+	}
+	return result
+}
+
+// BuildFeatures creates a Feature array from a generic JSON value.
+func BuildFeatures(v interface{}) map[string]*Feature {
+	dict, ok := v.(map[string]interface{})
+	if !ok {
+		logError("Invalid JSON data type", "Features")
+		return nil
+	}
+	result := make(map[string]*Feature, len(dict))
+	for k, v := range dict {
+		result[k] = BuildFeature(v)
 	}
 	return result
 }
