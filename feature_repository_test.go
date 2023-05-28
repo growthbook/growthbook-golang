@@ -263,7 +263,36 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	env.checkCalls(t, 2)
 }
 
-func TestRepoUpdatesFeaturesBasedOnSSE(t *testing.T) {
+func TestRepoUpdatesFeaturesBasedOnSSE1(t *testing.T) {
+	env := setup(true)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.close()
+
+	cache.clear()
+
+	gb := makeGB(env.server.URL, "qwerty1234")
+
+	// Load features and check API calls.
+	gb.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+	env.checkCalls(t, 1)
+
+	// Check feature before SSE message.
+	checkFeature(t, gb, "foo", "initial")
+
+	// Trigger mock SSE send.
+	featuresJson := `{"features": {"foo": {"defaultValue": "changed"}}}`
+	env.sseServer.Publish("features", &sse.Event{Data: []byte(featuresJson)})
+
+	// Wait a little...
+	time.Sleep(20 * time.Millisecond)
+
+	// Check feature after SSE message.
+	checkFeature(t, gb, "foo", "changed")
+	env.checkCalls(t, 1)
+}
+
+func TestRepoUpdatesFeaturesBasedOnSSE2(t *testing.T) {
 	env := setup(true)
 	defer cache.clear()
 	defer checkLogs(t)
@@ -386,9 +415,34 @@ func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
 	checkFeature(t, gb, "foo", "api")
 }
 
-// func TestRepoHandlesSSEErrors(t *testing.T) {
+func TestRepoHandlesSSEErrors(t *testing.T) {
+	env := setup(true)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.close()
 
-// }
+	cache.clear()
+
+	gb := makeGB(env.server.URL, "qwerty1234")
+
+	gb.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+	env.checkCalls(t, 1)
+	checkFeature(t, gb, "foo", "initial")
+
+	// Simulate SSE data.
+	env.sseServer.Publish("features", &sse.Event{Data: []byte("broken(response")})
+
+	// After SSE fired, should log an error and feature value should
+	// remain the same.
+	time.Sleep(20 * time.Millisecond)
+	env.checkCalls(t, 1)
+	checkFeature(t, gb, "foo", "initial")
+	knownErrors(t, "SSE error")
+
+	cache.clear()
+}
+
+// TODO: BIGGER TEST FOR SSE ERROR HANDLING
 
 // func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
 

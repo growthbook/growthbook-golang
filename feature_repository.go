@@ -3,6 +3,8 @@ package growthbook
 import (
 	"encoding/json"
 	"io/ioutil"
+	"math"
+	"math/rand"
 	"net/http"
 	"sync"
 	"time"
@@ -35,19 +37,23 @@ func fetchFeaturesWithCache(gb *GrowthBook, timeout time.Duration,
 	cache.initialize()
 	existing := cache.get(key)
 
+	// fmt.Println("fFWC 1")
 	if existing != nil && !skipCache && (allowStale || existing.staleAt.After(now)) {
 		if existing.staleAt.Before(now) {
 			// Reload features in the backgroud if stale
+			// fmt.Println("fFWC 2")
 			go fetchFeatures(gb)
 		} else {
 			// Otherwise, if we don't need to refresh now, start a
 			// background sync.
+			// fmt.Println("fFWC 3")
 			if cacheBackgroundSync {
 				refresh.runBackgroundRefresh(gb)
 			}
 		}
 		return existing.data
 	} else {
+		// fmt.Println("fFWC 4")
 		return fetchFeaturesWithTimeout(gb, timeout)
 	}
 }
@@ -98,6 +104,9 @@ func doFetchRequest(gb *GrowthBook) *FeatureAPIResponse {
 
 	// Record whether this endpoint supports SSE updates.
 	sse, ok := resp.Header["X-Sse-Support"]
+	// if ok && sse[0] == "enabled" {
+	// 	fmt.Println("== SSE SUPPORTED ==")
+	// }
 	refresh.sseSupported(key, ok && sse[0] == "enabled")
 
 	return apiResponse
@@ -162,6 +171,7 @@ func fetchFeatures(gb *GrowthBook) *FeatureAPIResponse {
 		// goroutine).
 		if apiResponse != nil {
 			onNewFeatureData(key, apiResponse)
+			refresh.runBackgroundRefresh(gb)
 		}
 	} else {
 		// We were a later request, so just wait for the result from the
@@ -323,6 +333,7 @@ func (r *refreshData) sseSupported(key repositoryKey, supported bool) {
 }
 
 func (r *refreshData) runBackgroundRefresh(gb *GrowthBook) {
+	// fmt.Println("runBackgroundRefresh")
 	r.Lock()
 	defer r.Unlock()
 
@@ -345,53 +356,58 @@ func (r *refreshData) runBackgroundRefresh(gb *GrowthBook) {
 func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 	apiHost, clientKey := gb.GetAPIInfo()
 	key := makeKey(apiHost, clientKey)
-	client := sse.NewClient(apiHost + "/sub/" + clientKey)
-	ch := make(chan *sse.Event)
-	client.SubscribeChan("features", ch)
 
-	done := false
-	for !done {
+	var client *sse.Client
+	ch := make(chan *sse.Event)
+	reconnect := make(chan struct{}, 1)
+	reconnect <- struct{}{}
+	var errors int
+
+	for {
 		select {
 		case <-shutdown:
-			done = true
+			return
+
+		case <-reconnect:
+			logInfof("Connecting to SSE stream: %s", key)
+			errors = 0
+			client := sse.NewClient(apiHost + "/sub/" + clientKey)
+			client.OnDisconnect(func(c *sse.Client) {
+				logErrorf("SSE event stream disconnected: %s", key)
+				reconnect <- struct{}{}
+			})
+			client.SubscribeChan("features", ch)
 
 		case msg := <-ch:
-			// TODO: BETTER ERROR HANDLING!
 			var data FeatureAPIResponse
 			err := json.Unmarshal(msg.Data, &data)
+
 			if err != nil {
-				logError("Couldn't decode SSE message")
+				logErrorf("SSE error: %s", key)
+				errors++
+				if errors > 3 {
+					logErrorf("Multiple SSE errors: disconnecting stream: %s", key)
+					client.Unsubscribe(ch)
+					client = nil
+
+					// Exponential backoff after 4 errors, with jitter.
+					msDelay := math.Pow(3, float64(errors-3)) * (1000 + rand.Float64()*1000)
+					delay := time.Duration(msDelay) * time.Millisecond
+
+					// 5 minutes max.
+					if delay > 5*time.Minute {
+						delay = 5 * time.Minute
+					}
+					logWarnf("Waiting to reconnect SSE stream: %s (delaying %s)", key, delay)
+					time.Sleep(delay)
+					reconnect <- struct{}{}
+				}
 				continue
 			}
 			onNewFeatureData(key, &data)
 		}
 	}
 }
-
-//     channel := ScopedChannel = {
-//       src: null,
-//       cb: (event: MessageEvent<string>) => {
-//         try {
-//           const json: FeatureApiResponse = JSON.parse(event.data);
-//           onNewFeatureData(key, json);
-//           // Reset error count on success
-//           channel.errors = 0;
-//         } catch (e) {
-//           process.env.NODE_ENV !== "production" &&
-//             instance.log("SSE Error", {
-//               apiHost,
-//               clientKey,
-//               error: e ? (e as Error).message : null,
-//             });
-//           onSSEError(channel, apiHost, clientKey);
-//         }
-//       },
-//       errors: 0,
-//     };
-//     streams.set(key, channel);
-//     enableChannel(channel, apiHost, clientKey);
-//   }
-// }
 
 // -----------------------------------------------------------------------------
 //
