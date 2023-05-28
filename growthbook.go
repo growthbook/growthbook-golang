@@ -104,9 +104,17 @@ func New(context *Context) *GrowthBook {
 	gb := &GrowthBook{inner}
 	runtime.SetFinalizer(gb, func(gb *GrowthBook) { RepoUnsubscribe(gb) })
 	if context.ClientKey != "" {
-		gb.refresh(nil, true, false)
+		go gb.refresh(nil, true, false)
 	}
 	return gb
+}
+
+// Ready returns the ready flag, which indicates that features have
+// been loaded.
+func (gb *GrowthBook) Ready() bool {
+	gb.inner.RLock()
+	defer gb.inner.RUnlock()
+	return gb.inner.ready
 }
 
 // WithForcedFeatures updates the current forced feature values.
@@ -246,6 +254,16 @@ func (gb *GrowthBook) WithQAMode(qaMode bool) *GrowthBook {
 	defer gb.inner.Unlock()
 
 	gb.inner.context.QAMode = qaMode
+	return gb
+}
+
+// WithDevMode can be used to enable or disable the development mode
+// for a context.
+func (gb *GrowthBook) WithDevMode(devMode bool) *GrowthBook {
+	gb.inner.Lock()
+	defer gb.inner.Unlock()
+
+	gb.inner.context.DevMode = devMode
 	return gb
 }
 

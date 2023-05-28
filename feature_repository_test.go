@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -11,20 +13,35 @@ import (
 )
 
 type env struct {
+	sync.RWMutex
 	server       *httptest.Server
 	sseServer    *sse.Server
+	nullFeatures bool
 	featureValue *string
 	callCount    *int
 	urls         map[string]int
 }
 
 func (e *env) checkCalls(t *testing.T, expected int) {
+	e.RLock()
+	defer e.RUnlock()
 	if *e.callCount != expected {
 		t.Errorf("Expected %d calls to API, got %d", expected, *e.callCount)
 	}
 }
 
+func (e *env) close() {
+	if e.sseServer != nil {
+		e.sseServer.Close()
+	}
+	e.server.Close()
+}
+
 func setup(provideSSE bool) *env {
+	return setupWithDelay(provideSSE, 50*time.Millisecond)
+}
+
+func setupWithDelay(provideSSE bool, delay time.Duration) *env {
 	SetLogger(&testLog)
 	testLog.reset()
 
@@ -33,25 +50,33 @@ func setup(provideSSE bool) *env {
 	urls := map[string]int{}
 	env := env{featureValue: &initialValue, callCount: &callCount, urls: urls}
 
-	ConfigureCacheStaleTTL(100 * time.Millisecond)
-
+	// We need to set up a mock server to handle normal API requests and
+	// SSE updates.
 	mux := http.NewServeMux()
 
 	// Normal GET.
 	mux.HandleFunc("/api/features/", func(w http.ResponseWriter, r *http.Request) {
+		env.Lock()
+		defer env.Unlock()
 		callCount++
 		env.urls[r.URL.Path]++
+
+		time.Sleep(delay)
 
 		if provideSSE {
 			w.Header().Set("X-SSE-Support", "enabled")
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(&FeatureAPIResponse{
+		response := &FeatureAPIResponse{
 			Features: map[string]*Feature{
 				"foo": {DefaultValue: *env.featureValue},
 			},
-		})
+		}
+		if env.nullFeatures {
+			response = nil
+		}
+		json.NewEncoder(w).Encode(response)
 	})
 
 	// SSE server handler.
@@ -103,11 +128,39 @@ func knownWarnings(t *testing.T, count int) {
 		len(testLog.warnings), testLog.allWarnings())
 }
 
+func knownErrors(t *testing.T, messages ...string) {
+	if len(testLog.errors) != len(messages) {
+		t.Errorf("expected %d log errors, got %d: %s", len(messages),
+			len(testLog.errors), testLog.allErrors())
+		return
+	}
+
+	for i, msg := range messages {
+		if !strings.HasPrefix(testLog.errors[i], msg) {
+			t.Errorf("expected error message %d '%s...', got '%s'", i+1, msg, testLog.errors[i])
+		}
+	}
+
+	testLog.reset()
+}
+
+func checkReady(t *testing.T, gb *GrowthBook, expected bool) {
+	if gb.Ready() != expected {
+		t.Errorf("expected ready flag to be %v", expected)
+	}
+}
+
+func checkEmptyFeatures(t *testing.T, gb *GrowthBook) {
+	if len(gb.Features()) != 0 {
+		t.Error("expected feature map to be empty")
+	}
+}
+
 func TestRepoDebounceFetchRequests(t *testing.T) {
 	env := setup(false)
 	defer cache.clear()
 	defer checkLogs(t)
-	defer env.server.Close()
+	defer env.close()
 
 	cache.clear()
 
@@ -134,7 +187,14 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	env := setup(false)
 	defer cache.clear()
 	defer checkLogs(t)
-	defer env.server.Close()
+	defer env.close()
+
+	// Set cache TTL short so we can test expiry.
+	savedCacheStaleTTL := cacheStaleTTL
+	ConfigureCacheStaleTTL(100 * time.Millisecond)
+	defer func() {
+		ConfigureCacheStaleTTL(savedCacheStaleTTL)
+	}()
 
 	cache.clear()
 
@@ -207,8 +267,7 @@ func TestRepoUpdatesFeaturesBasedOnSSE(t *testing.T) {
 	env := setup(true)
 	defer cache.clear()
 	defer checkLogs(t)
-	defer env.server.Close()
-	defer env.sseServer.Close()
+	defer env.close()
 
 	cache.clear()
 
@@ -237,21 +296,95 @@ func TestRepoUpdatesFeaturesBasedOnSSE(t *testing.T) {
 	env.checkCalls(t, 1)
 }
 
-// func TestRepoDoesntCacheWhenDevModeOn(t *testing.T) {
+func TestRepoExposesAReadyFlag(t *testing.T) {
+	env := setup(false)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.close()
 
-// }
+	cache.clear()
+	*env.featureValue = "api"
 
-// func TestRepoExposesAReadyFlag(t *testing.T) {
+	gb := makeGB(env.server.URL, "qwerty1234")
 
-// }
+	if gb.Ready() {
+		t.Error("expected ready flag to be false")
+	}
+	gb.LoadFeatures(nil)
+	env.checkCalls(t, 1)
+	if !gb.Ready() {
+		t.Error("expected ready flag to be true")
+	}
 
-// func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
+	gb2 := makeGB(env.server.URL, "qwerty1234")
+	if gb2.Ready() {
+		t.Error("expected ready flag to be false")
+	}
+	gb2.WithFeatures(FeatureMap{"foo": &Feature{DefaultValue: "manual"}})
+	if !gb2.Ready() {
+		t.Error("expected ready flag to be false")
+	}
+}
 
-// }
+func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
+	env := setup(false)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.close()
 
-// func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
+	cache.clear()
+	env.nullFeatures = true
 
-// }
+	gb := makeGB(env.server.URL, "qwerty1234")
+	checkReady(t, gb, false)
+	gb.LoadFeatures(nil)
+
+	// Attempts network request, logs the error.
+	env.checkCalls(t, 1)
+	knownErrors(t, "Error fetching features")
+
+	// Ready state changes to true
+	checkReady(t, gb, true)
+	checkEmptyFeatures(t, gb)
+
+	// Logs the error, doesn't cache result.
+	gb.RefreshFeatures(nil)
+	checkEmptyFeatures(t, gb)
+	env.checkCalls(t, 2)
+	knownErrors(t, "Error fetching features")
+
+	checkLogs(t)
+}
+
+func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
+	env := setupWithDelay(false, 100*time.Millisecond)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.close()
+
+	cache.clear()
+	*env.featureValue = "api"
+
+	gb := makeGB(env.server.URL, "qwerty1234")
+	checkReady(t, gb, false)
+
+	// Doesn't throw errors.
+	gb.LoadFeatures(&FeatureRepoOptions{Timeout: 20 * time.Millisecond})
+	env.checkCalls(t, 1)
+	checkLogs(t)
+
+	// Ready state remains false.
+	checkReady(t, gb, false)
+	checkEmptyFeatures(t, gb)
+
+	// After fetch finished in the background, refreshing should
+	// actually finish in time.
+	time.Sleep(100 * time.Millisecond)
+	gb.RefreshFeatures(&FeatureRepoOptions{Timeout: 20 * time.Millisecond})
+	env.checkCalls(t, 1)
+	checkReady(t, gb, true)
+	checkFeature(t, gb, "foo", "api")
+}
 
 // func TestRepoHandlesSSEErrors(t *testing.T) {
 
