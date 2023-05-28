@@ -1,90 +1,74 @@
 package growthbook
 
 import (
-	"strings"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
-	"github.com/jarcoal/httpmock"
+	"github.com/r3labs/sse/v2"
 )
 
-func mockAPI(data *FeatureAPIResponse, sse bool) {
-	mockAPIWithDelay(data, sse, 50)
+type env struct {
+	server       *httptest.Server
+	sseServer    *sse.Server
+	featureValue *string
+	callCount    *int
+	urls         map[string]int
 }
 
-func mockAPIWithDelay(data *FeatureAPIResponse, sse bool, delay time.Duration) {
-	responder, err := httpmock.NewJsonResponder(200, data)
-	if err != nil {
-		logError("INTERNAL ERROR: couldn't create mock responder")
+func (e *env) checkCalls(t *testing.T, expected int) {
+	if *e.callCount != expected {
+		t.Errorf("Expected %d calls to API, got %d", expected, *e.callCount)
 	}
-	if delay != 0 {
-		responder = responder.Delay(delay)
-	}
-	httpmock.RegisterResponder(
-		"GET",
-		"=~https://fakeapi.sample.io/api/features/.*",
-		responder,
-	)
 }
 
-func realURLs() map[string]int {
-	result := make(map[string]int)
-	for k, count := range httpmock.GetCallCountInfo() {
-		ksplit := strings.Split(k, " ")
-		url := ksplit[1]
-		if strings.HasPrefix(url, "=~") {
-			continue
-		}
-		result[url] = count
-	}
-	return result
-}
+func setup(provideSSE bool) *env {
+	SetLogger(&testLog)
+	testLog.reset()
 
-// func TestRepoBasicRetrievalViaMock(t *testing.T) {
-// 	httpmock.Activate()
-// 	defer httpmock.DeactivateAndReset()
+	initialValue := "initial"
+	callCount := 0
+	urls := map[string]int{}
+	env := env{featureValue: &initialValue, callCount: &callCount, urls: urls}
 
-// 	response := FeatureAPIResponse{
-// 		Features: map[string]*Feature{
-// 			"foo": {DefaultValue: "initial"},
-// 		},
-// 	}
-// 	mockAPI(&response, false)
-//	httpmock.ZeroCallCounters()
-
-// 	context := NewContext().
-// 		WithAPIHost("https://fakeapi.sample.io").
-// 		WithClientKey("sdk-TESTCLIENT")
-// 	gb := New(context)
-
-// 	apiResponse := gb.fetchFeatures()
-// 	for k, v := range apiResponse.Features {
-// 		fmt.Printf("%s: %#v\n", k, v)
-// 	}
-// 	fmt.Println(testLog.allErrors())
-// 	fmt.Println(testLog.allWarnings())
-
-// 	fmt.Println("httpmock.GetTotalCallCount() = ", httpmock.GetTotalCallCount())
-// 	fmt.Println("httpmock.GetCallCountInfo() = ", httpmock.GetCallCountInfo())
-// 	fmt.Println("realURLs() = ", realURLs())
-// }
-
-func setup() {
-	httpmock.Activate()
-
-	response := FeatureAPIResponse{
-		Features: map[string]*Feature{
-			"foo": {DefaultValue: "initial"},
-		},
-	}
-	mockAPI(&response, false)
-	httpmock.ZeroCallCounters()
 	ConfigureCacheStaleTTL(100 * time.Millisecond)
+
+	mux := http.NewServeMux()
+
+	// Normal GET.
+	mux.HandleFunc("/api/features/", func(w http.ResponseWriter, r *http.Request) {
+		callCount++
+		env.urls[r.URL.Path]++
+
+		if provideSSE {
+			w.Header().Set("X-SSE-Support", "enabled")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(&FeatureAPIResponse{
+			Features: map[string]*Feature{
+				"foo": {DefaultValue: *env.featureValue},
+			},
+		})
+	})
+
+	// SSE server handler.
+	if provideSSE {
+		env.sseServer = sse.New()
+		env.sseServer.CreateStream("features")
+		mux.HandleFunc("/sub/", env.sseServer.ServeHTTP)
+	}
+
+	env.server = httptest.NewServer(mux)
+
+	return &env
 }
 
-func makeGB(clientKey string) *GrowthBook {
+func makeGB(apiHost string, clientKey string) *GrowthBook {
 	context := NewContext().
-		WithAPIHost("https://fakeapi.sample.io").
+		WithAPIHost(apiHost).
 		WithClientKey(clientKey)
 	return New(context)
 }
@@ -96,80 +80,95 @@ func checkFeature(t *testing.T, gb *GrowthBook, feature string, expected interfa
 	}
 }
 
-func checkCalls(t *testing.T, expected int) {
-	value := httpmock.GetTotalCallCount()
-	if value != expected {
-		t.Errorf("Expected %d calls to API, got %d", expected, value)
+func checkLogs(t *testing.T) {
+	if len(testLog.errors) != 0 {
+		t.Errorf("test log has errors: %s", testLog.allErrors())
+	}
+	if len(testLog.warnings) != 0 {
+		t.Errorf("test log has warnings: %s", testLog.allWarnings())
 	}
 }
 
+func knownWarnings(t *testing.T, count int) {
+	if len(testLog.errors) != 0 {
+		t.Error("found errors when looking for known warnings: ", testLog.allErrors())
+		return
+	}
+	if len(testLog.warnings) == count {
+		testLog.reset()
+		return
+	}
+
+	t.Errorf("expected %d log warnings, got %d: %s", count,
+		len(testLog.warnings), testLog.allWarnings())
+}
+
 func TestRepoDebounceFetchRequests(t *testing.T) {
-	setup()
-	defer httpmock.DeactivateAndReset()
+	env := setup(false)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.server.Close()
 
 	cache.clear()
 
-	gb1 := makeGB("qwerty1234")
-	gb2 := makeGB("other")
-	gb3 := makeGB("qwerty1234")
+	gb1 := makeGB(env.server.URL, "qwerty1234")
+	gb2 := makeGB(env.server.URL, "other")
+	gb3 := makeGB(env.server.URL, "qwerty1234")
 
 	gb1.LoadFeatures(nil)
 	gb2.LoadFeatures(nil)
 	gb3.LoadFeatures(nil)
 
-	checkCalls(t, 2)
-	urls := realURLs()
-	if urls["https://fakeapi.sample.io/api/features/other"] != 1 ||
-		urls["https://fakeapi.sample.io/api/features/qwerty1234"] != 1 {
-		t.Errorf("unexpected URL calls: %v", urls)
+	env.checkCalls(t, 2)
+	if env.urls["/api/features/other"] != 1 ||
+		env.urls["/api/features/qwerty1234"] != 1 {
+		t.Errorf("unexpected URL calls: %v", env.urls)
 	}
 
 	checkFeature(t, gb1, "foo", "initial")
 	checkFeature(t, gb2, "foo", "initial")
 	checkFeature(t, gb3, "foo", "initial")
-
-	cache.clear()
 }
 
 func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
-	setup()
-	defer httpmock.DeactivateAndReset()
+	env := setup(false)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.server.Close()
 
 	cache.clear()
 
-	gb := makeGB("qwerty1234")
+	gb := makeGB(env.server.URL, "qwerty1234")
 	time.Sleep(20 * time.Millisecond)
 
 	// Initial value of feature should be null.
 	checkFeature(t, gb, "foo", nil)
-	checkCalls(t, 1)
+	env.checkCalls(t, 1)
+	knownWarnings(t, 1)
 
 	// Once features are loaded, value should be from the fetch request.
 	gb.LoadFeatures(nil)
 	checkFeature(t, gb, "foo", "initial")
-	checkCalls(t, 1)
+	env.checkCalls(t, 1)
 
 	// Value changes in API
-	response := FeatureAPIResponse{
-		Features: map[string]*Feature{
-			"foo": {DefaultValue: "changed"},
-		},
-	}
-	mockAPI(&response, false)
+	*env.featureValue = "changed"
 
 	// New instances should get cached value
-	gb2 := makeGB("qwerty1234")
+	gb2 := makeGB(env.server.URL, "qwerty1234")
 	checkFeature(t, gb2, "foo", nil)
+	knownWarnings(t, 1)
 	gb2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 	checkFeature(t, gb2, "foo", "initial")
 
 	// Instance without autoRefresh.
-	gb3 := makeGB("qwerty1234")
+	gb3 := makeGB(env.server.URL, "qwerty1234")
 	checkFeature(t, gb3, "foo", nil)
+	knownWarnings(t, 1)
 	gb3.LoadFeatures(nil)
 	checkFeature(t, gb3, "foo", "initial")
 
-	checkCalls(t, 1)
+	env.checkCalls(t, 1)
 
 	// Old instances should also get cached value.
 	checkFeature(t, gb, "foo", "initial")
@@ -177,18 +176,17 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	// Refreshing while cache is fresh should not cause a new network
 	// request.
 	gb.RefreshFeatures(nil)
-	checkCalls(t, 1)
+	env.checkCalls(t, 1)
 
 	// Wait a bit for cache to become stale and refresh again.
 	time.Sleep(100 * time.Millisecond)
 	gb.RefreshFeatures(nil)
-	checkCalls(t, 2)
+	env.checkCalls(t, 2)
 
 	// The instance being updated should get the new value.
 	checkFeature(t, gb, "foo", "changed")
 
 	// The instance with auto-refresh should now have the new value.
-	// TODO: AUTO-REFRESH!
 	checkFeature(t, gb2, "foo", "changed")
 
 	// The instance without auto-refresh should continue to have the old
@@ -196,52 +194,73 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	checkFeature(t, gb3, "foo", "initial")
 
 	// New instances should get the new value
-	gb4 := makeGB("qwerty1234")
+	gb4 := makeGB(env.server.URL, "qwerty1234")
 	checkFeature(t, gb4, "foo", nil)
+	knownWarnings(t, 1)
 	gb4.LoadFeatures(nil)
 	checkFeature(t, gb4, "foo", "changed")
 
-	checkCalls(t, 2)
-
-	cache.clear()
-}
-
-func TestRepoUsesLocalStorageCache(t *testing.T) {
-
+	env.checkCalls(t, 2)
 }
 
 func TestRepoUpdatesFeaturesBasedOnSSE(t *testing.T) {
+	env := setup(true)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.server.Close()
+	defer env.sseServer.Close()
 
+	cache.clear()
+
+	gb := makeGB(env.server.URL, "qwerty1234")
+	gb2 := makeGB(env.server.URL, "qwerty1234")
+
+	// Load features and check API calls.
+	gb.LoadFeatures(nil)
+	gb2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+	env.checkCalls(t, 1)
+
+	// Check feature before SSE message.
+	checkFeature(t, gb, "foo", "initial")
+	checkFeature(t, gb2, "foo", "initial")
+
+	// Trigger mock SSE send.
+	featuresJson := `{"features": {"foo": {"defaultValue": "changed"}}}`
+	env.sseServer.Publish("features", &sse.Event{Data: []byte(featuresJson)})
+
+	// Wait a little...
+	time.Sleep(20 * time.Millisecond)
+
+	// Check feature after SSE message.
+	checkFeature(t, gb, "foo", "initial")
+	checkFeature(t, gb2, "foo", "changed")
+	env.checkCalls(t, 1)
 }
 
-func TestRepoDoesntCacheWhenDevModeOn(t *testing.T) {
+// func TestRepoDoesntCacheWhenDevModeOn(t *testing.T) {
 
-}
+// }
 
-func TestRepoExposesAReadyFlag(t *testing.T) {
+// func TestRepoExposesAReadyFlag(t *testing.T) {
 
-}
+// }
 
-func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
+// func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
 
-}
+// }
 
-func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
+// func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
 
-}
+// }
 
-func TestRepoHandlesSSEErrors(t *testing.T) {
+// func TestRepoHandlesSSEErrors(t *testing.T) {
 
-}
+// }
 
-func TestRepoHandlesLocalStorageerrors(t *testing.T) {
+// func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
 
-}
+// }
 
-func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
+// func TestRepoDecryptsFeatures(t *testing.T) {
 
-}
-
-func TestRepoDecryptsFeatures(t *testing.T) {
-
-}
+// }
