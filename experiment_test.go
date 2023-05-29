@@ -462,30 +462,18 @@ func TestExperimentStoresAssignedVariations(t *testing.T) {
 	gb.Run(NewExperiment("my-test").WithVariations(0, 1))
 	gb.Run(NewExperiment("my-test-3").WithVariations(0, 1))
 
-	type varAssignment struct {
-		e string
-		v int
-	}
-	assignedVars := []varAssignment{}
-	for k, a := range gb.GetAllResults() {
-		assignedVars = append(assignedVars, varAssignment{k, a.Result.VariationID})
-	}
+	assignedVars := gb.GetAllResults()
 
 	if len(assignedVars) != 2 {
 		t.Errorf("expected len(assignedVars) to be 2, got %d", len(assignedVars))
 	}
-	if assignedVars[0].e != "my-test" {
-		t.Errorf("expected assignedVars[0].e to be \"my-test\", got %s", assignedVars[0].e)
+	if assignedVars["my-test"].Result.VariationID != 1 {
+		t.Errorf("expected assignedVars[\"my-test\"] to be 1, got %d",
+			assignedVars["my-test"].Result.VariationID)
 	}
-	if assignedVars[0].v != 1 {
-		t.Errorf("expected assignedVars[0].v to be 1, got %d", assignedVars[0].v)
-	}
-
-	if assignedVars[1].e != "my-test-3" {
-		t.Errorf("expected assignedVars[1].e to be \"my-test-3\", got %s", assignedVars[1].e)
-	}
-	if assignedVars[1].v != 0 {
-		t.Errorf("expected assignedVars[1].v to be 0, got %d", assignedVars[1].v)
+	if assignedVars["my-test-3"].Result.VariationID != 0 {
+		t.Errorf("expected assignedVars[\"my-test-3\"] to be 0, got %d",
+			assignedVars["my-test-3"].Result.VariationID)
 	}
 }
 
