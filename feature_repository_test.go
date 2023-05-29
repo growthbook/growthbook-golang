@@ -2,8 +2,11 @@ package growthbook
 
 import (
 	"encoding/json"
+	"fmt"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -442,12 +445,168 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 	cache.clear()
 }
 
-// TODO: BIGGER TEST FOR SSE ERROR HANDLING
+// This is a more complex test scenario for checking that parallel
+// handling of auto-refresh, SSE updates and SSE errors works
+// correctly together.
 
-// func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
+func TestRepoComplexSSEScenario(t *testing.T) {
+	env := setup(true)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.close()
 
-// }
+	cache.clear()
+
+	// Data recording for test goroutines.
+	type record struct {
+		result string
+		t      time.Time
+	}
+
+	var wg sync.WaitGroup
+
+	// Test function to run in a goroutine: evaluates features at
+	// randomly spaced intervals, storing the results and the sample
+	// times, until told to stop.
+	tester := func(gb *GrowthBook, doneCh chan struct{}, vals *[]*record) {
+		defer wg.Done()
+		tick := time.NewTicker(time.Duration(100+rand.Intn(100)) * time.Millisecond)
+		gb.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+		for {
+			select {
+			case <-doneCh:
+				return
+
+			case <-tick.C:
+				f, _ := gb.EvalFeature("foo").Value.(string)
+				*vals = append(*vals, &record{f, time.Now()})
+			}
+		}
+	}
+
+	// Set up test goroutines, each with an independent GrowthBook
+	// instance, cancellation channel and result storage.
+	gbs := make([]*GrowthBook, 10)
+	doneChs := make([]chan struct{}, 10)
+	vals := make([][]*record, 10)
+	wg.Add(10)
+	for i := 0; i < 10; i++ {
+		gbs[i] = makeGB(env.server.URL, "qwerty1234")
+		doneChs[i] = make(chan struct{})
+		vals[i] = []*record{}
+		go tester(gbs[i], doneChs[i], &vals[i])
+	}
+
+	// Command storage.
+	type command struct {
+		cmd int
+		t   time.Time
+	}
+	commands := make([]command, 100)
+
+	// Command loop: send SSE events at random intervals, with
+	// approximately 10% failure rate (and always at least three
+	// failures in a row, to trigger SSE client reconnection).
+	bad := 0
+	for i := 0; i < 100; i++ {
+		ok := rand.Intn(100) < 90
+		if ok && bad == 0 {
+			featuresJson := fmt.Sprintf(`{"features": {"foo": {"defaultValue": "val%d"}}}`, i+1)
+			commands[i] = command{i + 1, time.Now()}
+			env.sseServer.Publish("features", &sse.Event{Data: []byte(featuresJson)})
+		} else {
+			if bad == 0 {
+				bad = 3
+			} else {
+				bad--
+			}
+			commands[i] = command{-(i + 1), time.Now()}
+			env.sseServer.Publish("features", &sse.Event{Data: []byte("broken(bad")})
+		}
+		time.Sleep(time.Duration(50+rand.Intn(50)) * time.Millisecond)
+	}
+
+	// Stop the test goroutines and zero their GrowthBook instances so
+	// that finalizers will run and background SSE refresh will stop
+	// too.
+	for i := 0; i < 10; i++ {
+		doneChs[i] <- struct{}{}
+		gbs[i] = nil
+	}
+	wg.Wait()
+
+	// Check the results from the test goroutines by finding the
+	// relevant times in the command history. Allow some slack for small
+	// time differences.
+	errors := 0
+	for i := 0; i < 10; i++ {
+		for _, v := range vals[i] {
+			if v.result == "initial" {
+				continue
+			}
+			cmdidx, _ := sort.Find(len(commands), func(i int) int {
+				return v.t.Compare(commands[i].t)
+			})
+
+			cmdidx--
+			expected := fmt.Sprintf("val%d", commands[cmdidx].cmd)
+
+			beforeidx := cmdidx - 1
+			for beforeidx > 0 && commands[beforeidx].cmd < 0 {
+				beforeidx--
+			}
+			before := fmt.Sprintf("val%d", commands[beforeidx].cmd)
+
+			afteridx := cmdidx + 1
+			for afteridx < len(commands)-1 && commands[afteridx].cmd < 0 {
+				afteridx++
+			}
+			after := ""
+			if afteridx < len(commands) {
+				after = fmt.Sprintf("val%d", commands[afteridx].cmd)
+			}
+
+			if v.result != expected && v.result != before && v.result != after {
+				errors++
+				t.Error("unexpected feature value")
+				fmt.Println(v.result, v.t, cmdidx, cmdidx, beforeidx, afteridx)
+			}
+		}
+	}
+}
+
+func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
+	env := setup(true)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.close()
+
+	cache.clear()
+	ConfigureCacheBackgroundSync(false)
+	defer ConfigureCacheBackgroundSync(true)
+
+	gb := makeGB(env.server.URL, "qwerty1234")
+	gb2 := makeGB(env.server.URL, "qwerty1234")
+
+	gb.LoadFeatures(nil)
+	gb2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+
+	// Initial value from API.
+	env.checkCalls(t, 1)
+	checkFeature(t, gb, "foo", "initial")
+	checkFeature(t, gb2, "foo", "initial")
+
+	// Trigger mock SSE send.
+	featuresJson := `{"features": {"foo": {"defaultValue": "changed"}}}`
+	env.sseServer.Publish("features", &sse.Event{Data: []byte(featuresJson)})
+
+	// SSE update is ignored.
+	time.Sleep(100 * time.Millisecond)
+	checkFeature(t, gb, "foo", "initial")
+	checkFeature(t, gb2, "foo", "initial")
+	env.checkCalls(t, 1)
+}
 
 // func TestRepoDecryptsFeatures(t *testing.T) {
-
+// TODO: FILL THIS IN
 // }

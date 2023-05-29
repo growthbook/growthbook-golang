@@ -37,23 +37,17 @@ func fetchFeaturesWithCache(gb *GrowthBook, timeout time.Duration,
 	cache.initialize()
 	existing := cache.get(key)
 
-	// fmt.Println("fFWC 1")
 	if existing != nil && !skipCache && (allowStale || existing.staleAt.After(now)) {
 		if existing.staleAt.Before(now) {
 			// Reload features in the backgroud if stale
-			// fmt.Println("fFWC 2")
 			go fetchFeatures(gb)
 		} else {
 			// Otherwise, if we don't need to refresh now, start a
 			// background sync.
-			// fmt.Println("fFWC 3")
-			if cacheBackgroundSync {
-				refresh.runBackgroundRefresh(gb)
-			}
+			refresh.runBackgroundRefresh(gb)
 		}
 		return existing.data
 	} else {
-		// fmt.Println("fFWC 4")
 		return fetchFeaturesWithTimeout(gb, timeout)
 	}
 }
@@ -104,9 +98,6 @@ func doFetchRequest(gb *GrowthBook) *FeatureAPIResponse {
 
 	// Record whether this endpoint supports SSE updates.
 	sse, ok := resp.Header["X-Sse-Support"]
-	// if ok && sse[0] == "enabled" {
-	// 	fmt.Println("== SSE SUPPORTED ==")
-	// }
 	refresh.sseSupported(key, ok && sse[0] == "enabled")
 
 	return apiResponse
@@ -118,6 +109,15 @@ func doFetchRequest(gb *GrowthBook) *FeatureAPIResponse {
 
 var outstandingRequestMutex sync.Mutex
 var outstandingRequest map[repositoryKey][]chan *FeatureAPIResponse
+
+// We need to be able to clear the outstanding requests when the cache
+// is cleared.
+
+func clearOutstandingRequests() {
+	outstandingRequestMutex.Lock()
+	defer outstandingRequestMutex.Unlock()
+	outstandingRequest = make(map[repositoryKey][]chan *FeatureAPIResponse)
+}
 
 // Retrieve features from the API, ensuring that only one request for
 // any given repository key is in flight at any time.
@@ -136,18 +136,18 @@ func fetchFeatures(gb *GrowthBook) *FeatureAPIResponse {
 		outstandingRequest = make(map[repositoryKey][]chan *FeatureAPIResponse)
 	}
 	chans := outstandingRequest[key]
-	var myChan chan *FeatureAPIResponse
+	myChan := make(chan *FeatureAPIResponse)
+	first := false
 	if chans == nil {
-		outstandingRequest[key] = []chan *FeatureAPIResponse{nil}
-	} else {
-		myChan = make(chan *FeatureAPIResponse)
-		outstandingRequest[key] = append(outstandingRequest[key], myChan)
+		first = true
+		outstandingRequest[key] = []chan *FeatureAPIResponse{}
 	}
+	outstandingRequest[key] = append(outstandingRequest[key], myChan)
 	outstandingRequestMutex.Unlock()
 
 	// Either:
 	var apiResponse *FeatureAPIResponse
-	if myChan == nil {
+	if first {
 		// We were the first request to come in, so perform the API
 		// request, and...
 		apiResponse = doFetchRequest(gb)
@@ -160,16 +160,25 @@ func fetchFeatures(gb *GrowthBook) *FeatureAPIResponse {
 		delete(outstandingRequest, key)
 		outstandingRequestMutex.Unlock()
 
-		// ...then send the API response to all the waiting goroutines.
+		// ...then send the API response to all the waiting goroutines. We
+		// check that our channel is still in the list, in case the cache
+		// and the outstanding requests information has been cleared while
+		// we were making the request.
+		selfFound := false
 		for _, ch := range chans {
-			if ch != nil {
+			if ch != myChan {
 				ch <- apiResponse
+			} else {
+				// Don't send to ourselves, but record that our channel is
+				// still in the list.
+				selfFound = true
 			}
 		}
 
 		// Finally call the new feature data callback (from a single
-		// goroutine).
-		if apiResponse != nil {
+		// goroutine), assuming that the outstanding requests list hasn't
+		// been cleared in the meantime.
+		if apiResponse != nil && selfFound {
 			onNewFeatureData(key, apiResponse)
 			refresh.runBackgroundRefresh(gb)
 		}
@@ -258,6 +267,11 @@ func makeRefreshData() *refreshData {
 
 var refresh *refreshData = makeRefreshData()
 
+func clearAutoRefresh() {
+	refresh.stop()
+	refresh = makeRefreshData()
+}
+
 func (r *refreshData) instances(key repositoryKey) []*growthBookData {
 	r.RLock()
 	defer r.RUnlock()
@@ -333,18 +347,16 @@ func (r *refreshData) sseSupported(key repositoryKey, supported bool) {
 }
 
 func (r *refreshData) runBackgroundRefresh(gb *GrowthBook) {
-	// fmt.Println("runBackgroundRefresh")
 	r.Lock()
 	defer r.Unlock()
 
 	key := getKey(gb)
 
-	if !r.sse[key] {
-		// Doesn't support SSE.
-		return
-	}
-	if r.shutdown[key] != nil {
-		// Already set up.
+	// Conditions required to proceed here:
+	//  - Background sync must be enabled.
+	//  - The repository must support SSE.
+	//  - Background sync must not already be running for the repository.
+	if !cacheBackgroundSync || !r.sse[key] || r.shutdown[key] != nil {
 		return
 	}
 
@@ -382,7 +394,7 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 			var data FeatureAPIResponse
 			err := json.Unmarshal(msg.Data, &data)
 
-			if err != nil {
+			if err != nil && client != nil {
 				logErrorf("SSE error: %s", key)
 				errors++
 				if errors > 3 {
@@ -419,6 +431,9 @@ var cacheStaleTTL time.Duration = 60 * time.Second
 
 func ConfigureCacheBackgroundSync(bgSync bool) {
 	cacheBackgroundSync = bgSync
+	if !bgSync {
+		clearAutoRefresh()
+	}
 }
 
 func ConfigureCacheStaleTTL(ttl time.Duration) {
@@ -445,12 +460,10 @@ func (c *repoCache) clear() {
 	c.Lock()
 	defer c.Unlock()
 
-	// Clear cache.
+	// Clear cache, auto-refresh info and outstanding requests.
 	c.data = make(map[repositoryKey]*cacheEntry)
-
-	// Clear auto-refresh info.
-	refresh.stop()
-	refresh = makeRefreshData()
+	clearAutoRefresh()
+	clearOutstandingRequests()
 }
 
 func (c *repoCache) get(key repositoryKey) *cacheEntry {
