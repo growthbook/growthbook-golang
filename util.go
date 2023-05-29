@@ -1,6 +1,10 @@
 package growthbook
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
+	"encoding/base64"
+	"errors"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -42,6 +46,74 @@ func getQueryStringOverride(id string, url *url.URL, numVariations int) *int {
 	}
 
 	return &vi
+}
+
+func decrypt(encrypted string, encKey string) (string, error) {
+	key, err := base64.StdEncoding.DecodeString(encKey)
+	if err != nil {
+		return "", err
+	}
+
+	splits := strings.Split(encrypted, ".")
+	if len(splits) != 2 {
+		return "", errors.New("invalid format for key")
+	}
+
+	iv, err := base64.StdEncoding.DecodeString(splits[0])
+	if err != nil {
+		return "", err
+	}
+
+	cipherText, err := base64.StdEncoding.DecodeString(splits[1])
+	if err != nil {
+		return "", err
+	}
+
+	block, err := aes.NewCipher(key)
+	if err != nil {
+		return "", err
+	}
+
+	if len(iv) != block.BlockSize() {
+		return "", errors.New("invalid IV length")
+	}
+
+	mode := cipher.NewCBCDecrypter(block, iv)
+	mode.CryptBlocks(cipherText, cipherText)
+
+	cipherText, err = unpad(cipherText)
+	if err != nil {
+		return "", err
+	}
+
+	return string(cipherText), nil
+}
+
+// Remove PKCS #7 padding.
+
+func unpad(buf []byte) ([]byte, error) {
+	bufLen := len(buf)
+	if bufLen == 0 {
+		return nil, errors.New("crypto/padding: invalid padding size")
+	}
+
+	pad := buf[bufLen-1]
+	if pad == 0 {
+		return nil, errors.New("crypto/padding: invalid last byte of padding")
+	}
+
+	padLen := int(pad)
+	if padLen > bufLen || padLen > 16 {
+		return nil, errors.New("crypto/padding: invalid padding size")
+	}
+
+	for _, v := range buf[bufLen-padLen : bufLen-1] {
+		if v != pad {
+			return nil, errors.New("crypto/padding: invalid padding")
+		}
+	}
+
+	return buf[:bufLen-padLen], nil
 }
 
 // This function imitates Javascript's "truthiness" evaluation for Go

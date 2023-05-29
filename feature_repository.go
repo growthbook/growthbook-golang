@@ -57,7 +57,10 @@ func refreshInstance(inner *growthBookData, data *FeatureAPIResponse) {
 	// of GrowthBook instances. See the comment on the New function in
 	// growthbook.go for an explanation.
 	if data.EncryptedFeatures != "" {
-		inner.withEncryptedFeatures(data.EncryptedFeatures, "")
+		err := inner.withEncryptedFeatures(data.EncryptedFeatures, "")
+		if err != nil {
+			logError("failed to decrypt encrypted features")
+		}
 	} else {
 		features := data.Features
 		if features == nil {
@@ -394,8 +397,10 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 			var data FeatureAPIResponse
 			err := json.Unmarshal(msg.Data, &data)
 
-			if err != nil && client != nil {
+			if err != nil {
 				logErrorf("SSE error: %s", key)
+			}
+			if err != nil && client != nil {
 				errors++
 				if errors > 3 {
 					logErrorf("Multiple SSE errors: disconnecting stream: %s", key)

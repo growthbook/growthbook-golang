@@ -3,6 +3,7 @@
 package growthbook
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"reflect"
@@ -207,22 +208,31 @@ func (inner *growthBookData) features() FeatureMap {
 
 // WithEncryptedFeatures updates the features in a GrowthBook's
 // context from encrypted data.
-func (gb *GrowthBook) WithEncryptedFeatures(encrypted string, key string) *GrowthBook {
-	gb.inner.withEncryptedFeatures(encrypted, key)
-	return gb
+func (gb *GrowthBook) WithEncryptedFeatures(encrypted string, key string) (*GrowthBook, error) {
+	err := gb.inner.withEncryptedFeatures(encrypted, key)
+	return gb, err
 }
 
-func (inner *growthBookData) withEncryptedFeatures(encrypted string, key string) {
+func (inner *growthBookData) withEncryptedFeatures(encrypted string, key string) error {
 	inner.Lock()
 	defer inner.Unlock()
 
 	if key == "" {
 		key = inner.context.DecryptionKey
 	}
-	// TODO: IMPLEMENT DECRYPTION
-	// featuresJson := decrypt(encrypted, key)
-	featuresJson := `{"foo": {}}`
-	inner.context.Features = ParseFeatureMap([]byte(featuresJson))
+	featuresJson, err := decrypt(encrypted, key)
+
+	var features FeatureMap
+	if err == nil {
+		features = ParseFeatureMap([]byte(featuresJson))
+		if features != nil {
+			inner.context.Features = ParseFeatureMap([]byte(featuresJson))
+		}
+	}
+	if err != nil || features == nil {
+		err = errors.New("failed to decode encrypted features")
+	}
+	return err
 }
 
 // WithForcedVariations sets the forced variations in a GrowthBook's

@@ -6,6 +6,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -40,11 +41,15 @@ func (e *env) close() {
 	e.server.Close()
 }
 
-func setup(provideSSE bool) *env {
-	return setupWithDelay(provideSSE, 50*time.Millisecond)
+func setupEncrypted(features string, provideSSE bool) *env {
+	return setupWithDelay(provideSSE, 50*time.Millisecond, features)
 }
 
-func setupWithDelay(provideSSE bool, delay time.Duration) *env {
+func setup(provideSSE bool) *env {
+	return setupWithDelay(provideSSE, 50*time.Millisecond, "")
+}
+
+func setupWithDelay(provideSSE bool, delay time.Duration, encryptedFeatures string) *env {
 	SetLogger(&testLog)
 	testLog.reset()
 
@@ -71,10 +76,14 @@ func setupWithDelay(provideSSE bool, delay time.Duration) *env {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
+
+		features := FeatureMap{}
+		if encryptedFeatures == "" {
+			features = FeatureMap{"foo": {DefaultValue: *env.featureValue}}
+		}
 		response := &FeatureAPIResponse{
-			Features: map[string]*Feature{
-				"foo": {DefaultValue: *env.featureValue},
-			},
+			Features:          features,
+			EncryptedFeatures: encryptedFeatures,
 		}
 		if env.nullFeatures {
 			response = nil
@@ -145,6 +154,16 @@ func knownErrors(t *testing.T, messages ...string) {
 	}
 
 	testLog.reset()
+}
+
+func knownSSEErrors(t *testing.T) func() {
+	return func() {
+		for _, msg := range testLog.errors {
+			if !strings.HasPrefix(msg, "SSE error:") {
+				t.Errorf("unexpected error in log: '%s'", msg)
+			}
+		}
+	}
 }
 
 func checkReady(t *testing.T, gb *GrowthBook, expected bool) {
@@ -389,7 +408,7 @@ func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
 }
 
 func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
-	env := setupWithDelay(false, 100*time.Millisecond)
+	env := setupWithDelay(false, 100*time.Millisecond, "")
 	defer cache.clear()
 	defer checkLogs(t)
 	defer env.close()
@@ -452,7 +471,9 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 func TestRepoComplexSSEScenario(t *testing.T) {
 	env := setup(true)
 	defer cache.clear()
-	defer checkLogs(t)
+	// We're going to generate SSE errors here, but that's all we expect
+	// to see.
+	defer knownSSEErrors(t)
 	defer env.close()
 
 	cache.clear()
@@ -607,6 +628,36 @@ func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
 	env.checkCalls(t, 1)
 }
 
-// func TestRepoDecryptsFeatures(t *testing.T) {
-// TODO: FILL THIS IN
-// }
+func TestRepoDecryptsFeatures(t *testing.T) {
+	encryptedFeatures := "vMSg2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
+
+	env := setupEncrypted(encryptedFeatures, false)
+	defer cache.clear()
+	defer checkLogs(t)
+	defer env.close()
+
+	cache.clear()
+
+	context := NewContext().
+		WithAPIHost(env.server.URL).
+		WithClientKey("qwerty1234").
+		WithDecryptionKey("Ns04T5n9+59rl2x3SlNHtQ==")
+	gb := New(context)
+
+	gb.LoadFeatures(nil)
+
+	env.checkCalls(t, 1)
+
+	expectedJson := `{
+    "testfeature1": {
+      "defaultValue": true,
+      "rules": [{"condition": { "id": "1234" }, "force": false}]
+    }
+  }`
+	expected := ParseFeatureMap([]byte(expectedJson))
+	actual := gb.Features()
+
+	if !reflect.DeepEqual(actual, expected) {
+		t.Error("unexpected features value: ", actual)
+	}
+}

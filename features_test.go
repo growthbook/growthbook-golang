@@ -5,25 +5,6 @@ import (
 	"testing"
 )
 
-// decrypts features with custom SubtleCrypto implementation
-// decrypts features using the native SubtleCrypto implementation
-// throws when decrypting features with invalid key
-// throws when decrypting features with invalid encrypted value
-// throws when decrypting features and no SubtleCrypto implementation exists
-
-// from typed-features.test.ts:
-//
-// typed features
-//   getFeatureValue
-//     implements type-safe feature getting
-//     implements feature getting without types
-//   evalFeature
-//     evaluates a feature without using types
-//     evaluates a typed feature
-//   feature (alias for evalFeature(key))
-//     evaluates a feature without using types
-//     evaluates a typed feature
-
 func TestFeaturesCanSetFeatures(t *testing.T) {
 	context := NewContext().
 		WithAttributes(Attributes{"id": "123"})
@@ -40,6 +21,58 @@ func TestFeaturesCanSetFeatures(t *testing.T) {
 
 	if result == nil || !reflect.DeepEqual(*result, expected) {
 		t.Errorf("unexpected result: %v", result)
+	}
+}
+
+func TestFeaturesCanSetEncryptedFeatures(t *testing.T) {
+	gb := New(nil)
+
+	keyString := "Ns04T5n9+59rl2x3SlNHtQ=="
+	encrypedFeatures :=
+		"vMSg2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
+
+	_, err := gb.WithEncryptedFeatures(encrypedFeatures, keyString)
+	if err != nil {
+		t.Error("unexpected error: ", err)
+	}
+
+	expectedJson := `{
+    "testfeature1": {
+      "defaultValue": true,
+      "rules": [{"condition": { "id": "1234" }, "force": false}]
+    }
+  }`
+	expected := ParseFeatureMap([]byte(expectedJson))
+	actual := gb.Features()
+
+	if !reflect.DeepEqual(actual, expected) {
+		t.Error("unexpected features value: ", actual)
+	}
+}
+
+func TestFeaturesDecryptFeaturesWithInvalidKey(t *testing.T) {
+	gb := New(nil)
+
+	keyString := "fakeT5n9+59rl2x3SlNHtQ=="
+	encrypedFeatures :=
+		"vMSg2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
+
+	_, err := gb.WithEncryptedFeatures(encrypedFeatures, keyString)
+	if err == nil {
+		t.Error("unexpected lack of error")
+	}
+}
+
+func TestFeaturesDecryptFeaturesWithInvalidCiphertext(t *testing.T) {
+	gb := New(nil)
+
+	keyString := "Ns04T5n9+59rl2x3SlNHtQ=="
+	encrypedFeatures :=
+		"FAKE2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
+
+	_, err := gb.WithEncryptedFeatures(encrypedFeatures, keyString)
+	if err == nil {
+		t.Error("unexpected lack of error")
 	}
 }
 

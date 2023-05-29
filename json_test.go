@@ -16,15 +16,16 @@ import (
 
 func TestJSON(t *testing.T) {
 	SetLogger(&testLog)
+	jsonTest(t, "hash", jsonTestHash)
+	jsonTest(t, "run", jsonTestRun)
 	jsonTest(t, "feature", jsonTestFeature)
 	jsonTest(t, "evalCondition", jsonTestEvalCondition)
-	jsonTest(t, "hash", jsonTestHash)
 	jsonTest(t, "getBucketRange", jsonTestGetBucketRange)
 	jsonTest(t, "chooseVariation", jsonTestChooseVariation)
 	jsonTest(t, "getQueryStringOverride", jsonTestQueryStringOverride)
 	jsonTest(t, "inNamespace", jsonTestInNamespace)
 	jsonTest(t, "getEqualWeights", jsonTestGetEqualWeights)
-	jsonTest(t, "run", jsonTestRun)
+	jsonTest(t, "decrypt", jsonTestDecrypt)
 }
 
 // Test functions driven from JSON cases. Each of this has a similar
@@ -308,6 +309,42 @@ func jsonTestRun(t *testing.T, test []interface{}) {
 		"single variation": 1,
 	}
 	handleExpectedWarnings(t, test, expectedWarnings)
+}
+
+// Decryption function tests.
+//
+// Test parameters: name, encryptedString, key, expected
+func jsonTestDecrypt(t *testing.T, test []interface{}) {
+	encryptedString, ok1 := test[1].(string)
+	key, ok2 := test[2].(string)
+	if !ok1 || !ok2 {
+		log.Fatal("unpacking test data")
+	}
+	nilExpected := test[3] == nil
+	expected := ""
+	if !nilExpected {
+		expected, ok2 = test[3].(string)
+		if !ok2 {
+			log.Fatal("unpacking test data")
+		}
+	}
+
+	result, err := decrypt(encryptedString, key)
+	if nilExpected {
+		if err == nil {
+			t.Errorf("expected error return")
+		}
+	} else {
+		if err != nil {
+			t.Errorf("error in decrypt: %v", err)
+		} else if !reflect.DeepEqual(result, expected) {
+			t.Errorf("unexpected result: %v", result)
+			fmt.Printf("expected: '%s' (%d)\n", expected, len(expected))
+			fmt.Println([]byte(expected))
+			fmt.Printf("     got: '%s' (%d)\n", result, len(result))
+			fmt.Println([]byte(result))
+		}
+	}
 }
 
 //------------------------------------------------------------------------------
