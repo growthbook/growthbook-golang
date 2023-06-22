@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
-	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -565,8 +564,14 @@ func TestRepoComplexSSEScenario(t *testing.T) {
 			if v.result == "initial" {
 				continue
 			}
-			cmdidx, _ := sort.Find(len(commands), func(i int) int {
-				return v.t.Compare(commands[i].t)
+			cmdidx, _ := sortFind(len(commands), func(i int) int {
+				if v.t == commands[i].t {
+					return 0
+				}
+				if v.t.After(commands[i].t) {
+					return 1
+				}
+				return -1
 			})
 
 			cmdidx--
