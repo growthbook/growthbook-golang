@@ -3,6 +3,7 @@ package growthbook
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 )
 
@@ -56,36 +57,15 @@ type testLogger struct {
 var testLog = testLogger{}
 
 func (log *testLogger) allErrors() string {
-	s := ""
-	for i, e := range log.errors {
-		if i != 0 {
-			s += ", "
-		}
-		s += e
-	}
-	return s
+	return strings.Join(log.errors, ", ")
 }
 
 func (log *testLogger) allWarnings() string {
-	s := ""
-	for i, e := range log.warnings {
-		if i != 0 {
-			s += ", "
-		}
-		s += e
-	}
-	return s
+	return strings.Join(log.warnings, ", ")
 }
 
 func (log *testLogger) allInfo() string {
-	s := ""
-	for i, e := range log.info {
-		if i != 0 {
-			s += ", "
-		}
-		s += e
-	}
-	return s
+	return strings.Join(log.info, ", ")
 }
 
 func (log *testLogger) reset() {
@@ -111,13 +91,11 @@ func (log *testLogger) Error(msg string, args ...interface{}) {
 		s += ": " + formatArgs(args...)
 	}
 	log.errors = append(log.errors, s)
-	// fmt.Println("ERROR: ", s)
 }
 
 func (log *testLogger) Errorf(format string, args ...interface{}) {
 	s := fmt.Sprintf(format, args...)
 	log.errors = append(log.errors, s)
-	// fmt.Println("ERROR: ", s)
 }
 
 func (log *testLogger) Warn(msg string, args ...interface{}) {
@@ -126,13 +104,11 @@ func (log *testLogger) Warn(msg string, args ...interface{}) {
 		s += ": " + formatArgs(args...)
 	}
 	log.warnings = append(log.warnings, s)
-	// fmt.Println("WARN: ", s)
 }
 
 func (log *testLogger) Warnf(format string, args ...interface{}) {
 	s := fmt.Sprintf(format, args...)
 	log.warnings = append(log.warnings, s)
-	// fmt.Println("WARN: ", s)
 }
 
 func (log *testLogger) Info(msg string, args ...interface{}) {
@@ -141,13 +117,11 @@ func (log *testLogger) Info(msg string, args ...interface{}) {
 		s += ": " + fmt.Sprint(args...)
 	}
 	log.info = append(log.info, s)
-	// fmt.Println("INFO: ", s)
 }
 
 func (log *testLogger) Infof(format string, args ...interface{}) {
 	s := fmt.Sprintf(format, args...)
 	log.info = append(log.info, s)
-	// fmt.Println("INFO: ", s)
 }
 
 // Polyfill from Go v1.20 sort.
