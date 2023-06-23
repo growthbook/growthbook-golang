@@ -167,7 +167,7 @@ func ParseExperiment(data []byte) *Experiment {
 	err := json.Unmarshal(data, &dict)
 	if err != nil {
 		logError("Failed parsing JSON input", "Experiment")
-		return NewExperiment("")
+		return nil
 	}
 	return BuildExperiment(dict)
 }
@@ -180,28 +180,68 @@ func BuildExperiment(dict map[string]interface{}) *Experiment {
 	for k, v := range dict {
 		switch k {
 		case "key":
-			exp.Key = jsonString(v, "Experiment", "key")
+			key, ok := jsonString(v, "Experiment", "key")
+			if !ok {
+				return nil
+			}
+			exp.Key = key
 			gotKey = true
 		case "variations":
 			exp = exp.WithVariations(BuildFeatureValues(v)...)
 		case "ranges":
-			exp = exp.WithRanges(jsonRangeArray(v, "Experiment", "ranges")...)
+			ranges, ok := jsonRangeArray(v, "Experiment", "ranges")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithRanges(ranges...)
 		case "meta":
-			exp = exp.WithMeta(jsonVariationMetaArray(v, "Experiment", "meta")...)
+			meta, ok := jsonVariationMetaArray(v, "Experiment", "meta")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithMeta(meta...)
 		case "filters":
-			exp = exp.WithFilters(jsonFilterArray(v, "Experiment", "filters")...)
+			filters, ok := jsonFilterArray(v, "Experiment", "filters")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithFilters(filters...)
 		case "seed":
-			exp = exp.WithSeed(jsonString(v, "FeatureRule", "seed"))
+			seed, ok := jsonString(v, "FeatureRule", "seed")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithSeed(seed)
 		case "name":
-			exp = exp.WithName(jsonString(v, "FeatureRule", "name"))
+			name, ok := jsonString(v, "FeatureRule", "name")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithName(name)
 		case "phase":
-			exp = exp.WithPhase(jsonString(v, "FeatureRule", "phase"))
+			phase, ok := jsonString(v, "FeatureRule", "phase")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithPhase(phase)
 		case "weights":
-			exp = exp.WithWeights(jsonFloatArray(v, "Experiment", "weights")...)
+			weights, ok := jsonFloatArray(v, "Experiment", "weights")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithWeights(weights...)
 		case "active":
-			exp = exp.WithActive(jsonBool(v, "Experiment", "active"))
+			active, ok := jsonBool(v, "Experiment", "active")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithActive(active)
 		case "coverage":
-			exp = exp.WithCoverage(jsonFloat(v, "Experiment", "coverage"))
+			coverage, ok := jsonFloat(v, "Experiment", "coverage")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithCoverage(coverage)
 		case "condition":
 			tmp, ok := v.(map[string]interface{})
 			if !ok {
@@ -215,13 +255,29 @@ func BuildExperiment(dict map[string]interface{}) *Experiment {
 				exp = exp.WithCondition(cond)
 			}
 		case "namespace":
-			exp = exp.WithNamespace(BuildNamespace(v))
+			namespace := BuildNamespace(v)
+			if namespace == nil {
+				return nil
+			}
+			exp = exp.WithNamespace(namespace)
 		case "force":
-			exp = exp.WithForce(jsonInt(v, "Experiment", "force"))
+			force, ok := jsonInt(v, "Experiment", "force")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithForce(force)
 		case "hashAttribute":
-			exp = exp.WithHashAttribute(jsonString(v, "Experiment", "hashAttribute"))
+			hashAttribute, ok := jsonString(v, "Experiment", "hashAttribute")
+			if !ok {
+				return nil
+			}
+			exp = exp.WithHashAttribute(hashAttribute)
 		case "hashVersion":
-			exp.HashVersion = jsonInt(v, "Experiment", "hashVersion")
+			hashVersion, ok := jsonInt(v, "Experiment", "hashVersion")
+			if !ok {
+				return nil
+			}
+			exp.HashVersion = hashVersion
 		default:
 			logWarn("Unknown key in JSON data", "Experiment", k)
 		}

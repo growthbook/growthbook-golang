@@ -28,9 +28,17 @@ func BuildFeatureAPIResponse(dict map[string]interface{}) *FeatureAPIResponse {
 		case "features":
 			apiResponse.Features = BuildFeatures(v)
 		case "date_updated":
-			apiResponse.DateUpdated = jsonString(v, "FeatureAPIResponse", "date_updated")
+			dateUpdated, ok := jsonString(v, "FeatureAPIResponse", "date_updated")
+			if !ok {
+				return nil
+			}
+			apiResponse.DateUpdated = dateUpdated
 		case "encrypted_features":
-			apiResponse.EncryptedFeatures = jsonString(v, "FeatureAPIResponse", "encrypted_features")
+			encryptedFeatures, ok := jsonString(v, "FeatureAPIResponse", "encrypted_features")
+			if !ok {
+				return nil
+			}
+			apiResponse.EncryptedFeatures = encryptedFeatures
 		default:
 			logWarn("Unknown key in JSON data", "FeatureAPIResponse", k)
 		}

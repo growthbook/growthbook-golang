@@ -49,19 +49,19 @@ func jsonVariationMeta(v interface{}, typeName string, fieldName string) *Variat
 	return &VariationMeta{passthrough, key, name}
 }
 
-func jsonVariationMetaArray(v interface{}, typeName string, fieldName string) []VariationMeta {
+func jsonVariationMetaArray(v interface{}, typeName string, fieldName string) ([]VariationMeta, bool) {
 	vals, ok := v.([]interface{})
 	if !ok {
 		logError("Invalid JSON data type", typeName, fieldName)
-		return nil
+		return nil, false
 	}
 	metas := make([]VariationMeta, len(vals))
 	for i := range vals {
 		tmp := jsonVariationMeta(vals[i], typeName, fieldName)
 		if tmp == nil {
-			return nil
+			return nil, false
 		}
 		metas[i] = *tmp
 	}
-	return metas
+	return metas, true
 }

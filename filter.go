@@ -54,25 +54,28 @@ func jsonFilter(v interface{}, typeName string, fieldName string) *Filter {
 			logError("Invalid JSON data type", typeName, fieldName)
 			return nil
 		}
-		ranges = jsonRangeArray(tmp, typeName, fieldName)
+		ranges, ok = jsonRangeArray(tmp, typeName, fieldName)
+		if !ok {
+			return nil
+		}
 	}
 
 	return &Filter{attribute, seed, hashVersion, ranges}
 }
 
-func jsonFilterArray(v interface{}, typeName string, fieldName string) []Filter {
+func jsonFilterArray(v interface{}, typeName string, fieldName string) ([]Filter, bool) {
 	vals, ok := v.([]interface{})
 	if !ok {
 		logError("Invalid JSON data type", typeName, fieldName)
-		return nil
+		return nil, false
 	}
 	filters := make([]Filter, len(vals))
 	for i := range vals {
 		tmp := jsonFilter(vals[i], typeName, fieldName)
 		if tmp == nil {
-			return nil
+			return nil, false
 		}
 		filters[i] = *tmp
 	}
-	return filters
+	return filters, true
 }

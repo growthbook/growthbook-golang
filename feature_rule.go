@@ -28,49 +28,113 @@ func BuildFeatureRule(val interface{}) *FeatureRule {
 	dict, ok := val.(map[string]interface{})
 	if !ok {
 		logError("Invalid JSON data type", "FeatureRule")
-		return &rule
+		return nil
 	}
 	for k, v := range dict {
 		switch k {
 		case "id":
-			rule.ID = jsonString(v, "FeatureRule", "id")
+			id, ok := jsonString(v, "FeatureRule", "id")
+			if !ok {
+				return nil
+			}
+			rule.ID = id
 		case "condition":
 			condmap, ok := v.(map[string]interface{})
 			if !ok {
 				logError("Invalid JSON data type", "FeatureRule", "condition")
-				continue
+				return nil
 			}
-			rule.Condition = BuildCondition(condmap)
+			condition := BuildCondition(condmap)
+			if condition == nil {
+				return nil
+			}
+			rule.Condition = condition
 		case "force":
 			rule.Force = v
 		case "variations":
-			rule.Variations = BuildFeatureValues(v)
+			variations := BuildFeatureValues(v)
+			if variations == nil {
+				return nil
+			}
+			rule.Variations = variations
 		case "weights":
-			rule.Weights = jsonFloatArray(v, "FeatureRule", "weights")
+			weights, ok := jsonFloatArray(v, "FeatureRule", "weights")
+			if !ok {
+				return nil
+			}
+			rule.Weights = weights
 		case "key":
-			rule.Key = jsonString(v, "FeatureRule", "key")
+			key, ok := jsonString(v, "FeatureRule", "key")
+			if !ok {
+				return nil
+			}
+			rule.Key = key
 		case "hashAttribute":
-			rule.HashAttribute = jsonString(v, "FeatureRule", "hashAttribute")
+			hashAttribute, ok := jsonString(v, "FeatureRule", "hashAttribute")
+			if !ok {
+				return nil
+			}
+			rule.HashAttribute = hashAttribute
 		case "hashVersion":
-			rule.HashVersion = jsonInt(v, "FeatureRule", "hashVersion")
+			hashVersion, ok := jsonInt(v, "FeatureRule", "hashVersion")
+			if !ok {
+				return nil
+			}
+			rule.HashVersion = hashVersion
 		case "range":
-			rule.Range = jsonRange(v, "FeatureRule", "range")
+			rng, ok := jsonRange(v, "FeatureRule", "range")
+			if !ok {
+				return nil
+			}
+			rule.Range = rng
 		case "coverage":
-			rule.Coverage = jsonMaybeFloat(v, "FeatureRule", "coverage")
+			coverage, ok := jsonMaybeFloat(v, "FeatureRule", "coverage")
+			if !ok {
+				return nil
+			}
+			rule.Coverage = coverage
 		case "namespace":
-			rule.Namespace = BuildNamespace(v)
+			namespace := BuildNamespace(v)
+			if namespace == nil {
+				return nil
+			}
+			rule.Namespace = namespace
 		case "ranges":
-			rule.Ranges = jsonRangeArray(v, "FeatureRule", "ranges")
+			ranges, ok := jsonRangeArray(v, "FeatureRule", "ranges")
+			if !ok {
+				return nil
+			}
+			rule.Ranges = ranges
 		case "meta":
-			rule.Meta = jsonVariationMetaArray(v, "Experiment", "meta")
+			meta, ok := jsonVariationMetaArray(v, "Experiment", "meta")
+			if !ok {
+				return nil
+			}
+			rule.Meta = meta
 		case "filters":
-			rule.Filters = jsonFilterArray(v, "Experiment", "filters")
+			filters, ok := jsonFilterArray(v, "Experiment", "filters")
+			if !ok {
+				return nil
+			}
+			rule.Filters = filters
 		case "seed":
-			rule.Seed = jsonString(v, "FeatureRule", "seed")
+			seed, ok := jsonString(v, "FeatureRule", "seed")
+			if !ok {
+				return nil
+			}
+			rule.Seed = seed
 		case "name":
-			rule.Name = jsonString(v, "FeatureRule", "name")
+			name, ok := jsonString(v, "FeatureRule", "name")
+			if !ok {
+				return nil
+			}
+			rule.Name = name
 		case "phase":
-			rule.Phase = jsonString(v, "FeatureRule", "phase")
+			phase, ok := jsonString(v, "FeatureRule", "phase")
+			if !ok {
+				return nil
+			}
+			rule.Phase = phase
 		default:
 			logWarn("Unknown key in JSON data", "FeatureRule", k)
 		}

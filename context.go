@@ -194,34 +194,95 @@ func BuildContext(dict map[string]interface{}) *Context {
 	for k, v := range dict {
 		switch k {
 		case "enabled":
-			context = context.WithEnabled(v.(bool))
-		case "attributes":
-			context = context.WithAttributes(v.(map[string]interface{}))
-		case "url":
-			url, err := url.Parse(v.(string))
-			if err != nil {
-				logError("Invalid URL in JSON context data", v.(string))
+			enabled, ok := v.(bool)
+			if ok {
+				context = context.WithEnabled(enabled)
 			} else {
-				context = context.WithURL(url)
+				logWarn("Invalid 'enabled' field in JSON context data")
+			}
+		case "attributes":
+			attrs, ok := v.(map[string]interface{})
+			if ok {
+				context = context.WithAttributes(attrs)
+			} else {
+				logWarn("Invalid 'attributes' field in JSON context data")
+			}
+		case "url":
+			urlString, ok := v.(string)
+			if ok {
+				url, err := url.Parse(urlString)
+				if err != nil {
+					logError("Invalid URL in JSON context data", urlString)
+				} else {
+					context = context.WithURL(url)
+				}
+			} else {
+				logWarn("Invalid 'url' field in JSON context data")
 			}
 		case "features":
-			context.Features = BuildFeatureMap(v.(map[string]interface{}))
-		case "forcedVariations":
-			vars := make(map[string]int)
-			for k, vr := range v.(map[string]interface{}) {
-				vars[k] = int(vr.(float64))
+			features, ok := v.(map[string]interface{})
+			if ok {
+				context.Features = BuildFeatureMap(features)
+			} else {
+				logWarn("Invalid 'features' field in JSON context data")
 			}
-			context = context.WithForcedVariations(vars)
+		case "forcedVariations":
+			forcedVariations, ok := v.(map[string]interface{})
+			if ok {
+				vars := make(map[string]int)
+				allVOK := true
+				for k, vr := range forcedVariations {
+					v, vok := vr.(float64)
+					if !vok {
+						allVOK = false
+						break
+					}
+					vars[k] = int(v)
+				}
+				if allVOK {
+					context = context.WithForcedVariations(vars)
+				} else {
+					ok = false
+				}
+			}
+			if !ok {
+				logWarn("Invalid 'forcedVariations' field in JSON context data")
+			}
 		case "qaMode":
-			context = context.WithQAMode(v.(bool))
+			qaMode, ok := v.(bool)
+			if ok {
+				context = context.WithQAMode(qaMode)
+			} else {
+				logWarn("Invalid 'qaMode' field in JSON context data")
+			}
 		case "groups":
-			context = context.WithGroups(v.(map[string]bool))
+			groups, ok := v.(map[string]bool)
+			if ok {
+				context = context.WithGroups(groups)
+			} else {
+				logWarn("Invalid 'groups' field in JSON context data")
+			}
 		case "apiHost":
-			context = context.WithAPIHost(v.(string))
+			apiHost, ok := v.(string)
+			if ok {
+				context = context.WithAPIHost(apiHost)
+			} else {
+				logWarn("Invalid 'apiHost' field in JSON context data")
+			}
 		case "clientKey":
-			context = context.WithClientKey(v.(string))
+			clientKey, ok := v.(string)
+			if ok {
+				context = context.WithClientKey(clientKey)
+			} else {
+				logWarn("Invalid 'clientKey' field in JSON context data")
+			}
 		case "decryptionKey":
-			context = context.WithDecryptionKey(v.(string))
+			decryptionKey, ok := v.(string)
+			if ok {
+				context = context.WithDecryptionKey(decryptionKey)
+			} else {
+				logWarn("Invalid 'decryptionKey' field in JSON context data")
+			}
 		default:
 			logWarn("Unknown key in JSON data", "Context", k)
 		}

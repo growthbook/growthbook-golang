@@ -26,7 +26,10 @@ func ParseFeatureMap(data []byte) FeatureMap {
 func BuildFeatureMap(dict map[string]interface{}) FeatureMap {
 	fmap := FeatureMap{}
 	for k, v := range dict {
-		fmap[k] = BuildFeature(v)
+		feature := BuildFeature(v)
+		if feature != nil {
+			fmap[k] = BuildFeature(v)
+		}
 	}
 	return fmap
 }

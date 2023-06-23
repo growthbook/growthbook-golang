@@ -288,65 +288,65 @@ func getURLRegexp(regexString string) *regexp.Regexp {
 	return nil
 }
 
-func jsonString(v interface{}, typeName string, fieldName string) string {
+func jsonString(v interface{}, typeName string, fieldName string) (string, bool) {
 	tmp, ok := v.(string)
 	if ok {
-		return tmp
+		return tmp, true
 	}
 	logError("Invalid JSON data type", typeName, fieldName)
-	return ""
+	return "", false
 }
 
-func jsonBool(v interface{}, typeName string, fieldName string) bool {
+func jsonBool(v interface{}, typeName string, fieldName string) (bool, bool) {
 	tmp, ok := v.(bool)
 	if ok {
-		return tmp
+		return tmp, true
 	}
 	logError("Invalid JSON data type", typeName, fieldName)
-	return false
+	return false, false
 }
 
-func jsonInt(v interface{}, typeName string, fieldName string) int {
+func jsonInt(v interface{}, typeName string, fieldName string) (int, bool) {
 	tmp, ok := v.(float64)
 	if ok {
-		return int(tmp)
+		return int(tmp), true
 	}
 	logError("Invalid JSON data type", typeName, fieldName)
-	return 0
+	return 0, false
 }
 
-func jsonFloat(v interface{}, typeName string, fieldName string) float64 {
+func jsonFloat(v interface{}, typeName string, fieldName string) (float64, bool) {
 	tmp, ok := v.(float64)
 	if ok {
-		return tmp
+		return tmp, true
 	}
 	logError("Invalid JSON data type", typeName, fieldName)
-	return 0.0
+	return 0.0, false
 }
 
-func jsonMaybeFloat(v interface{}, typeName string, fieldName string) *float64 {
+func jsonMaybeFloat(v interface{}, typeName string, fieldName string) (*float64, bool) {
 	tmp, ok := v.(float64)
 	if ok {
-		return &tmp
+		return &tmp, true
 	}
 	logError("Invalid JSON data type", typeName, fieldName)
-	return nil
+	return nil, false
 }
 
-func jsonFloatArray(v interface{}, typeName string, fieldName string) []float64 {
+func jsonFloatArray(v interface{}, typeName string, fieldName string) ([]float64, bool) {
 	vals, ok := v.([]interface{})
 	if !ok {
 		logError("Invalid JSON data type", typeName, fieldName)
-		return nil
+		return nil, false
 	}
 	fvals := make([]float64, len(vals))
 	for i := range vals {
 		tmp, ok := vals[i].(float64)
 		if !ok {
 			logError("Invalid JSON data type", typeName, fieldName)
-			return nil
+			return nil, false
 		}
 		fvals[i] = tmp
 	}
-	return fvals
+	return fvals, true
 }

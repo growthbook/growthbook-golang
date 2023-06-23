@@ -5,6 +5,25 @@ import (
 	"testing"
 )
 
+func TestContextMalformedJSON(t *testing.T) {
+	contextJSON := `{"enabled": 1}`
+	context := ParseContext([]byte(contextJSON))
+	gb := New(context).
+		WithFeatures(FeatureMap{"feature": &Feature{DefaultValue: 0}})
+
+	result := gb.Feature("feature")
+	expected := FeatureResult{
+		Value:  0,
+		On:     false,
+		Off:    true,
+		Source: DefaultValueResultSource,
+	}
+
+	if result == nil || !reflect.DeepEqual(*result, expected) {
+		t.Errorf("unexpected result: %v", result)
+	}
+}
+
 func TestFeaturesCanSetFeatures(t *testing.T) {
 	context := NewContext().
 		WithAttributes(Attributes{"id": "123"})

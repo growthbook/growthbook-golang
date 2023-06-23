@@ -63,28 +63,28 @@ func chooseVariation(n float64, ranges []Range) int {
 	return -1
 }
 
-func jsonRange(v interface{}, typeName string, fieldName string) *Range {
-	vals := jsonFloatArray(v, typeName, fieldName)
-	if vals == nil || len(vals) != 2 {
+func jsonRange(v interface{}, typeName string, fieldName string) (*Range, bool) {
+	vals, ok := jsonFloatArray(v, typeName, fieldName)
+	if !ok || vals == nil || len(vals) != 2 {
 		logError("Invalid JSON data type", typeName, fieldName)
-		return nil
+		return nil, false
 	}
-	return &Range{vals[0], vals[1]}
+	return &Range{vals[0], vals[1]}, true
 }
 
-func jsonRangeArray(v interface{}, typeName string, fieldName string) []Range {
+func jsonRangeArray(v interface{}, typeName string, fieldName string) ([]Range, bool) {
 	vals, ok := v.([]interface{})
 	if !ok {
 		logError("Invalid JSON data type", typeName, fieldName)
-		return nil
+		return nil, false
 	}
 	ranges := make([]Range, len(vals))
 	for i := range vals {
-		tmp := jsonRange(vals[i], typeName, fieldName)
-		if tmp == nil {
-			return nil
+		tmp, ok := jsonRange(vals[i], typeName, fieldName)
+		if !ok || tmp == nil {
+			return nil, false
 		}
 		ranges[i] = *tmp
 	}
-	return ranges
+	return ranges, true
 }

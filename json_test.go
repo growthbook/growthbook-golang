@@ -46,6 +46,9 @@ func jsonTestFeature(t *testing.T, test []interface{}) {
 	context := BuildContext(contextDict)
 	growthbook := New(context)
 	expected := BuildFeatureResult(expectedDict)
+	if expected == nil {
+		t.Errorf("unexpected nil from BuildFeatureResult")
+	}
 	retval := growthbook.Feature(featureKey)
 
 	// fmt.Println("== RESULT ======================================================================")
@@ -296,6 +299,9 @@ func jsonTestRun(t *testing.T, test []interface{}) {
 	context := BuildContext(contextDict)
 	growthbook := New(context)
 	experiment := BuildExperiment(experimentDict)
+	if experiment == nil {
+		t.Errorf("unexpected nil from BuildExperiment")
+	}
 	result := growthbook.Run(experiment)
 
 	if !reflect.DeepEqual(result.Value, resultValue) {

@@ -31,7 +31,7 @@ func BuildFeature(val interface{}) *Feature {
 	dict, ok := val.(map[string]interface{})
 	if !ok {
 		logError("Invalid JSON data type", "Feature")
-		return &feature
+		return nil
 	}
 	defaultValue, ok := dict["defaultValue"]
 	if ok {
@@ -42,11 +42,15 @@ func BuildFeature(val interface{}) *Feature {
 		rulesArray, ok := rules.([]interface{})
 		if !ok {
 			logError("Invalid JSON data type", "Feature")
-			return &feature
+			return nil
 		}
 		feature.Rules = make([]*FeatureRule, len(rulesArray))
 		for i := range rulesArray {
-			feature.Rules[i] = BuildFeatureRule(rulesArray[i])
+			rule := BuildFeatureRule(rulesArray[i])
+			if rule == nil {
+				return nil
+			}
+			feature.Rules[i] = rule
 		}
 	}
 	return &feature

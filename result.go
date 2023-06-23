@@ -25,30 +25,66 @@ func BuildResult(dict map[string]interface{}) *Result {
 		case "value":
 			res.Value = v
 		case "variationId":
-			res.VariationID = jsonInt(v, "Result", "variationId")
+			variationID, ok := jsonInt(v, "Result", "variationId")
+			if !ok {
+				return nil
+			}
+			res.VariationID = variationID
 		case "inExperiment":
-			res.InExperiment = jsonBool(v, "Result", "inExperiment")
+			inExperiment, ok := jsonBool(v, "Result", "inExperiment")
+			if !ok {
+				return nil
+			}
+			res.InExperiment = inExperiment
 		case "hashUsed":
-			res.HashUsed = jsonBool(v, "Result", "hashUsed")
+			hashUsed, ok := jsonBool(v, "Result", "hashUsed")
+			if !ok {
+				return nil
+			}
+			res.HashUsed = hashUsed
 		case "hashAttribute":
-			res.HashAttribute = jsonString(v, "Result", "hashAttribute")
+			hashAttribute, ok := jsonString(v, "Result", "hashAttribute")
+			if !ok {
+				return nil
+			}
+			res.HashAttribute = hashAttribute
 		case "hashValue":
 			tmp, ok := convertHashValue(v)
 			if !ok {
 				logError("Invalid JSON data type", "Result", "hashValue")
-				continue
+				return nil
 			}
 			res.HashValue = tmp
 		case "featureId":
-			res.FeatureID = jsonString(v, "Result", "featureId")
+			featureID, ok := jsonString(v, "Result", "featureId")
+			if !ok {
+				return nil
+			}
+			res.FeatureID = featureID
 		case "bucket":
-			res.Bucket = jsonMaybeFloat(v, "Result", "bucket")
+			bucket, ok := jsonMaybeFloat(v, "Result", "bucket")
+			if !ok {
+				return nil
+			}
+			res.Bucket = bucket
 		case "key":
-			res.Key = jsonString(v, "Result", "key")
+			key, ok := jsonString(v, "Result", "key")
+			if !ok {
+				return nil
+			}
+			res.Key = key
 		case "name":
-			res.Name = jsonString(v, "Result", "name")
+			name, ok := jsonString(v, "Result", "name")
+			if !ok {
+				return nil
+			}
+			res.Name = name
 		case "passthrough":
-			res.Passthrough = jsonBool(v, "Result", "passthrough")
+			passthrough, ok := jsonBool(v, "Result", "passthrough")
+			if !ok {
+				return nil
+			}
+			res.Passthrough = passthrough
 		default:
 			logWarn("Unknown key in JSON data", "Result", k)
 		}

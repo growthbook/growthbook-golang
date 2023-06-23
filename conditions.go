@@ -182,6 +182,7 @@ func buildSeq(seq interface{}) []Condition {
 		condmap, ok := conds[i].(map[string]interface{})
 		if !ok {
 			logError("Something wrong in condition sequence element")
+			return nil
 		}
 		cond := BuildCondition(condmap)
 		if cond == nil {

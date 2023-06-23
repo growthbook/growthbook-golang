@@ -20,25 +20,45 @@ func BuildFeatureResult(dict map[string]interface{}) *FeatureResult {
 		case "value":
 			result.Value = v
 		case "on":
-			result.On = jsonBool(v, "FeatureResult", "on")
+			on, ok := jsonBool(v, "FeatureResult", "on")
+			if !ok {
+				return nil
+			}
+			result.On = on
 		case "off":
-			result.Off = jsonBool(v, "FeatureResult", "off")
+			off, ok := jsonBool(v, "FeatureResult", "off")
+			if !ok {
+				return nil
+			}
+			result.Off = off
 		case "source":
-			result.Source = ParseFeatureResultSource(jsonString(v, "FeatureResult", "source"))
+			source, ok := jsonString(v, "FeatureResult", "source")
+			if !ok {
+				return nil
+			}
+			result.Source = ParseFeatureResultSource(source)
 		case "experiment":
 			tmp, ok := v.(map[string]interface{})
 			if !ok {
 				logError("Invalid JSON data type", "FeatureResult", "experiment")
 				continue
 			}
-			result.Experiment = BuildExperiment(tmp)
+			experiment := BuildExperiment(tmp)
+			if experiment == nil {
+				return nil
+			}
+			result.Experiment = experiment
 		case "experimentResult":
 			tmp, ok := v.(map[string]interface{})
 			if !ok {
 				logError("Invalid JSON data type", "FeatureResult", "experimentResult")
-				continue
+				return nil
 			}
-			result.ExperimentResult = BuildResult(tmp)
+			experimentResult := BuildResult(tmp)
+			if experimentResult == nil {
+				return nil
+			}
+			result.ExperimentResult = experimentResult
 		default:
 			logWarn("Unknown key in JSON data", "FeatureResult", k)
 		}
