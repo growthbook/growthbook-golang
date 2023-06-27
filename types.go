@@ -28,7 +28,7 @@ func BuildFeatureMap(dict map[string]interface{}) FeatureMap {
 	for k, v := range dict {
 		feature := BuildFeature(v)
 		if feature != nil {
-			fmap[k] = BuildFeature(v)
+			fmap[k] = feature
 		}
 	}
 	return fmap

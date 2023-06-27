@@ -10,8 +10,8 @@ type FeatureValue interface{}
 // Feature has a default value plus rules than can override the
 // default.
 type Feature struct {
-	DefaultValue FeatureValue
-	Rules        []*FeatureRule
+	DefaultValue FeatureValue   `json:"defaultValue"`
+	Rules        []*FeatureRule `json:"rules"`
 }
 
 // ParseFeature creates a single Feature value from raw JSON input.
@@ -39,10 +39,15 @@ func BuildFeature(val interface{}) *Feature {
 	}
 	rules, ok := dict["rules"]
 	if ok {
-		rulesArray, ok := rules.([]interface{})
-		if !ok {
-			logError("Invalid JSON data type", "Feature")
-			return nil
+		var rulesArray []interface{}
+		if rules == nil {
+			rulesArray = []interface{}{}
+		} else {
+			rulesArray, ok = rules.([]interface{})
+			if !ok {
+				logError("Invalid JSON data type", "Feature")
+				return nil
+			}
 		}
 		feature.Rules = make([]*FeatureRule, len(rulesArray))
 		for i := range rulesArray {
@@ -66,12 +71,8 @@ func BuildFeatureValues(val interface{}) []FeatureValue {
 	}
 	result := make([]FeatureValue, len(vals))
 	for i, v := range vals {
-		tmp, ok := v.(FeatureValue)
-		if !ok {
-			logError("Invalid JSON data type", "FeatureValue")
-			return nil
-		}
-		result[i] = tmp
+		// FeatureValue is just an alias for interface{}.
+		result[i] = v
 	}
 	return result
 }
@@ -85,7 +86,10 @@ func BuildFeatures(v interface{}) map[string]*Feature {
 	}
 	result := make(map[string]*Feature, len(dict))
 	for k, v := range dict {
-		result[k] = BuildFeature(v)
+		feature := BuildFeature(v)
+		if feature != nil {
+			result[k] = feature
+		}
 	}
 	return result
 }

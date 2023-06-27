@@ -3,9 +3,9 @@ package growthbook
 import "encoding/json"
 
 type FeatureAPIResponse struct {
-	Features          map[string]*Feature
-	DateUpdated       string
-	EncryptedFeatures string
+	Features          map[string]*Feature `json:"features"`
+	DateUpdated       string              `json:"dateUpdated"`
+	EncryptedFeatures string              `json:"encryptedFeatures"`
 }
 
 // ParseFeature creates a single Feature value from raw JSON input.
@@ -27,14 +27,14 @@ func BuildFeatureAPIResponse(dict map[string]interface{}) *FeatureAPIResponse {
 		switch k {
 		case "features":
 			apiResponse.Features = BuildFeatures(v)
-		case "date_updated":
-			dateUpdated, ok := jsonString(v, "FeatureAPIResponse", "date_updated")
+		case "dateUpdated":
+			dateUpdated, ok := jsonString(v, "FeatureAPIResponse", "dateUpdated")
 			if !ok {
 				return nil
 			}
 			apiResponse.DateUpdated = dateUpdated
-		case "encrypted_features":
-			encryptedFeatures, ok := jsonString(v, "FeatureAPIResponse", "encrypted_features")
+		case "encryptedFeatures":
+			encryptedFeatures, ok := jsonString(v, "FeatureAPIResponse", "encryptedFeatures")
 			if !ok {
 				return nil
 			}

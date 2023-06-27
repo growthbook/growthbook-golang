@@ -32,12 +32,14 @@ func ParseNamespace(data []byte) *Namespace {
 func BuildNamespace(val interface{}) *Namespace {
 	array, ok := val.([]interface{})
 	if !ok || len(array) != 3 {
+		logError("Invalid JSON data type", "Namespace")
 		return nil
 	}
 	id, ok1 := array[0].(string)
 	start, ok2 := array[1].(float64)
 	end, ok3 := array[2].(float64)
 	if !ok1 || !ok2 || !ok3 {
+		logError("Invalid JSON data type", "Namespace")
 		return nil
 	}
 	return &Namespace{id, start, end}

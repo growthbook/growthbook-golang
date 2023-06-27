@@ -19,7 +19,7 @@ type env struct {
 	sync.RWMutex
 	server       *httptest.Server
 	sseServer    *sse.Server
-	nullFeatures bool
+	fetchFails   bool
 	featureValue *string
 	callCount    *int
 	urls         map[string]int
@@ -70,24 +70,26 @@ func setupWithDelay(provideSSE bool, delay time.Duration, encryptedFeatures stri
 
 		time.Sleep(delay)
 
-		if provideSSE {
-			w.Header().Set("X-SSE-Support", "enabled")
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+		if env.fetchFails {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte("fetch failed"))
+		} else {
+			features := FeatureMap{}
+			if encryptedFeatures == "" {
+				features = FeatureMap{"foo": {DefaultValue: *env.featureValue}}
+			}
+			response := &FeatureAPIResponse{
+				Features:          features,
+				EncryptedFeatures: encryptedFeatures,
+			}
 
-		features := FeatureMap{}
-		if encryptedFeatures == "" {
-			features = FeatureMap{"foo": {DefaultValue: *env.featureValue}}
+			if provideSSE {
+				w.Header().Set("X-SSE-Support", "enabled")
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(response)
 		}
-		response := &FeatureAPIResponse{
-			Features:          features,
-			EncryptedFeatures: encryptedFeatures,
-		}
-		if env.nullFeatures {
-			response = nil
-		}
-		json.NewEncoder(w).Encode(response)
 	})
 
 	// SSE server handler.
@@ -383,7 +385,7 @@ func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
 	defer env.close()
 
 	cache.clear()
-	env.nullFeatures = true
+	env.fetchFails = true
 
 	gb := makeGB(env.server.URL, "qwerty1234")
 	checkReady(t, gb, false)
