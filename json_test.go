@@ -16,11 +16,13 @@ import (
 
 func TestJSON(t *testing.T) {
 	SetLogger(&testLog)
-	jsonTest(t, "hash", jsonTestHash)
-	jsonTest(t, "run", jsonTestRun)
-	jsonTest(t, "feature", jsonTestFeature)
+
 	jsonTest(t, "evalCondition", jsonTestEvalCondition)
+	jsonMapTest(t, "versionCompare", jsonTestVersionCompare)
+	jsonTest(t, "hash", jsonTestHash)
 	jsonTest(t, "getBucketRange", jsonTestGetBucketRange)
+	jsonTest(t, "feature", jsonTestFeature)
+	jsonTest(t, "run", jsonTestRun)
 	jsonTest(t, "chooseVariation", jsonTestChooseVariation)
 	jsonTest(t, "getQueryStringOverride", jsonTestQueryStringOverride)
 	jsonTest(t, "inNamespace", jsonTestInNamespace)
@@ -31,46 +33,6 @@ func TestJSON(t *testing.T) {
 // Test functions driven from JSON cases. Each of this has a similar
 // structure, first extracting test data from the JSON data into typed
 // values, then performing the test.
-
-// Feature tests.
-//
-// Test parameters: name, context, feature key, result
-func jsonTestFeature(t *testing.T, test []interface{}) {
-	contextDict, ok1 := test[1].(map[string]interface{})
-	featureKey, ok2 := test[2].(string)
-	expectedDict, ok3 := test[3].(map[string]interface{})
-	if !ok1 || !ok2 || !ok3 {
-		log.Fatal("unpacking test data")
-	}
-
-	context := BuildContext(contextDict)
-	growthbook := New(context)
-	expected := BuildFeatureResult(expectedDict)
-	if expected == nil {
-		t.Errorf("unexpected nil from BuildFeatureResult")
-	}
-	retval := growthbook.Feature(featureKey)
-
-	// fmt.Println("== RESULT ======================================================================")
-	// fmt.Println(retval)
-	// fmt.Println(retval.Experiment)
-	// fmt.Println(retval.ExperimentResult)
-	// fmt.Println("--------------------------------------------------------------------------------")
-	// fmt.Println(expected)
-	// fmt.Println(expected.Experiment)
-	// fmt.Println(expected.ExperimentResult)
-	// fmt.Println("== EXPECTED ====================================================================")
-
-	if !reflect.DeepEqual(retval, expected) {
-		t.Errorf("unexpected value: %v", retval)
-	}
-
-	expectedWarnings := map[string]int{
-		"unknown feature key": 1,
-		"ignores empty rules": 1,
-	}
-	handleExpectedWarnings(t, test, expectedWarnings)
-}
 
 // Condition evaluation tests.
 //
@@ -91,6 +53,42 @@ func jsonTestEvalCondition(t *testing.T, test []interface{}) {
 	result := cond.Eval(attrs)
 	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("unexpected result: %v", result)
+	}
+}
+
+// Version comparison tests.
+//
+// Test parameters: ...
+func jsonTestVersionCompare(t *testing.T, comparison string, test []interface{}) {
+	for _, oneTest := range test {
+		testData, ok := oneTest.([]interface{})
+		if !ok || len(testData) != 3 {
+			log.Fatal("unpacking test data")
+		}
+		v1, ok1 := testData[0].(string)
+		v2, ok2 := testData[1].(string)
+		expected, ok3 := testData[2].(bool)
+		if !ok1 || !ok2 || !ok3 {
+			log.Fatal("unpacking test data")
+		}
+
+		pv1 := paddedVersionString(v1)
+		pv2 := paddedVersionString(v2)
+
+		switch comparison {
+		case "eq":
+			if (pv1 == pv2) != expected {
+				t.Errorf("unexpected result: '%s' eq '%s' => %v", v1, v2, pv1 == pv2)
+			}
+		case "gt":
+			if (pv1 > pv2) != expected {
+				t.Errorf("unexpected result: '%s' gt '%s' => %v", v1, v2, pv1 == pv2)
+			}
+		case "lt":
+			if (pv1 < pv2) != expected {
+				t.Errorf("unexpected result: '%s' lt '%s' => %v", v1, v2, pv1 == pv2)
+			}
+		}
 	}
 }
 
@@ -192,6 +190,79 @@ func jsonTestGetBucketRange(t *testing.T, test []interface{}) {
 	}
 }
 
+// Feature tests.
+//
+// Test parameters: name, context, feature key, result
+func jsonTestFeature(t *testing.T, test []interface{}) {
+	contextDict, ok1 := test[1].(map[string]interface{})
+	featureKey, ok2 := test[2].(string)
+	expectedDict, ok3 := test[3].(map[string]interface{})
+	if !ok1 || !ok2 || !ok3 {
+		log.Fatal("unpacking test data")
+	}
+
+	context := BuildContext(contextDict)
+	growthbook := New(context)
+	expected := BuildFeatureResult(expectedDict)
+	if expected == nil {
+		t.Errorf("unexpected nil from BuildFeatureResult")
+	}
+	retval := growthbook.Feature(featureKey)
+
+	// fmt.Println("== RESULT ======================================================================")
+	// fmt.Println(retval)
+	// fmt.Println(retval.Experiment)
+	// fmt.Println(retval.ExperimentResult)
+	// fmt.Println("--------------------------------------------------------------------------------")
+	// fmt.Println(expected)
+	// fmt.Println(expected.Experiment)
+	// fmt.Println(expected.ExperimentResult)
+	// fmt.Println("== EXPECTED ====================================================================")
+
+	if !reflect.DeepEqual(retval, expected) {
+		t.Errorf("unexpected value: %v", retval)
+	}
+
+	expectedWarnings := map[string]int{
+		"unknown feature key": 1,
+		"ignores empty rules": 1,
+	}
+	handleExpectedWarnings(t, test, expectedWarnings)
+}
+
+// Experiment tests.
+//
+// Test parameters: name, context, experiment, value, inExperiment
+func jsonTestRun(t *testing.T, test []interface{}) {
+	contextDict, ok1 := test[1].(map[string]interface{})
+	experimentDict, ok2 := test[2].(map[string]interface{})
+	resultValue := test[3]
+	resultInExperiment, ok3 := test[4].(bool)
+	if !ok1 || !ok2 || !ok3 {
+		log.Fatal("unpacking test data")
+	}
+
+	context := BuildContext(contextDict)
+	growthbook := New(context)
+	experiment := BuildExperiment(experimentDict)
+	if experiment == nil {
+		t.Errorf("unexpected nil from BuildExperiment")
+	}
+	result := growthbook.Run(experiment)
+
+	if !reflect.DeepEqual(result.Value, resultValue) {
+		t.Errorf("unexpected result value: %v", result.Value)
+	}
+	if result.InExperiment != resultInExperiment {
+		t.Errorf("unexpected inExperiment value: %v", result.InExperiment)
+	}
+
+	expectedWarnings := map[string]int{
+		"single variation": 1,
+	}
+	handleExpectedWarnings(t, test, expectedWarnings)
+}
+
 // Variation choice tests.
 //
 // Test parameters: name, hash, ranges, result
@@ -284,39 +355,6 @@ func jsonTestGetEqualWeights(t *testing.T, test []interface{}) {
 	}
 }
 
-// Experiment tests.
-//
-// Test parameters: name, context, experiment, value, inExperiment
-func jsonTestRun(t *testing.T, test []interface{}) {
-	contextDict, ok1 := test[1].(map[string]interface{})
-	experimentDict, ok2 := test[2].(map[string]interface{})
-	resultValue := test[3]
-	resultInExperiment, ok3 := test[4].(bool)
-	if !ok1 || !ok2 || !ok3 {
-		log.Fatal("unpacking test data")
-	}
-
-	context := BuildContext(contextDict)
-	growthbook := New(context)
-	experiment := BuildExperiment(experimentDict)
-	if experiment == nil {
-		t.Errorf("unexpected nil from BuildExperiment")
-	}
-	result := growthbook.Run(experiment)
-
-	if !reflect.DeepEqual(result.Value, resultValue) {
-		t.Errorf("unexpected result value: %v", result.Value)
-	}
-	if result.InExperiment != resultInExperiment {
-		t.Errorf("unexpected inExperiment value: %v", result.InExperiment)
-	}
-
-	expectedWarnings := map[string]int{
-		"single variation": 1,
-	}
-	handleExpectedWarnings(t, test, expectedWarnings)
-}
-
 // Decryption function tests.
 //
 // Test parameters: name, encryptedString, key, expected
@@ -358,7 +396,8 @@ func jsonTestDecrypt(t *testing.T, test []interface{}) {
 //  TEST UTILITIES
 //
 
-// Run a set of JSON test cases.
+// Run a set of JSON test cases provided as a JSON array.
+
 func jsonTest(t *testing.T, label string,
 	fn func(t *testing.T, test []interface{})) {
 	content, err := ioutil.ReadFile("cases.json")
@@ -379,7 +418,6 @@ func jsonTest(t *testing.T, label string,
 	// Extract the test data for each case as a JSON array and pass to
 	// the test function.
 	t.Run("json test suite: "+label, func(t *testing.T) {
-
 		// Run tests one at a time: each test's JSON data is an array,
 		// with the interpretation of the array entries depending on the
 		// test type.
@@ -407,6 +445,58 @@ func jsonTest(t *testing.T, label string,
 					t.Errorf("test log has warnings: %s", testLog.allWarnings())
 				}
 			})
+		}
+	})
+}
+
+// Run a set of JSON test cases provided as a JSON map.
+
+func jsonMapTest(t *testing.T, label string,
+	fn func(t *testing.T, label string, test []interface{})) {
+	content, err := ioutil.ReadFile("cases.json")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Unmarshal all test cases at once.
+	allCases := map[string]interface{}{}
+	err = json.Unmarshal(content, &allCases)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Extract just the test cases for the test type we're working on.
+	cases := allCases[label].(map[string]interface{})
+
+	// Extract the test data for each case as a JSON array and pass to
+	// the test function.
+	t.Run("json test suite: "+label, func(t *testing.T) {
+		// Run tests one at a time: each test's JSON data is an array,
+		// keyed by a string label, and the interpretation of the array
+		// entries depends on the test type.
+		itest := 1
+		for name, gtest := range cases {
+			test, ok := gtest.([]interface{})
+			if !ok {
+				log.Fatal("unpacking JSON test data")
+			}
+
+			t.Run(fmt.Sprintf("[%d] %s", itest, name), func(t *testing.T) {
+				// Handle logging during tests: reset log before each test,
+				// make sure there are no errors or warnings (some tests that
+				// check for correct handling of out-of-range parameters
+				// trigger warnings, but these are handled within the test
+				// themselves).
+				testLog.reset()
+				fn(t, name, test)
+				if len(testLog.errors) != 0 {
+					t.Errorf("test log has errors: %s", testLog.allErrors())
+				}
+				if len(testLog.warnings) != 0 {
+					t.Errorf("test log has warnings: %s", testLog.allWarnings())
+				}
+			})
+			itest++
 		}
 	})
 }

@@ -227,6 +227,14 @@ func isOperatorObject(obj map[string]interface{}) bool {
 // operator name.
 func evalOperatorCondition(key string, attrVal interface{}, condVal interface{}) bool {
 	switch key {
+	case "$veq", "$vne", "$vgt", "$vgte", "$vlt", "$vlte":
+		attrstring, attrok := attrVal.(string)
+		condstring, reok := condVal.(string)
+		if !reok || !attrok {
+			return false
+		}
+		return versionCompare(key, attrstring, condstring)
+
 	case "$eq":
 		return reflect.DeepEqual(attrVal, condVal)
 
@@ -249,10 +257,18 @@ func evalOperatorCondition(key string, attrVal interface{}, condVal interface{})
 		return re.MatchString(attrstring)
 
 	case "$in":
-		return elementIn(attrVal, condVal)
+		vals, ok := condVal.([]interface{})
+		if !ok {
+			return false
+		}
+		return elementIn(attrVal, vals)
 
 	case "$nin":
-		return !elementIn(attrVal, condVal)
+		vals, ok := condVal.([]interface{})
+		if !ok {
+			return false
+		}
+		return !elementIn(attrVal, vals)
 
 	case "$elemMatch":
 		return elemMatch(attrVal, condVal)
@@ -301,6 +317,28 @@ func getType(v interface{}) string {
 	}
 }
 
+// Perform version string comparisons.
+
+func versionCompare(comp string, v1 string, v2 string) bool {
+	v1 = paddedVersionString(v1)
+	v2 = paddedVersionString(v2)
+	switch comp {
+	case "$veq":
+		return v1 == v2
+	case "$vne":
+		return v1 != v2
+	case "$vgt":
+		return v1 > v2
+	case "$vgte":
+		return v1 >= v2
+	case "$vlt":
+		return v1 < v2
+	case "$vlte":
+		return v1 <= v2
+	}
+	return false
+}
+
 // Perform numeric or string ordering comparisons on polymorphic JSON
 // values.
 func compare(comp string, x interface{}, y interface{}) bool {
@@ -344,15 +382,33 @@ func compare(comp string, x interface{}, y interface{}) bool {
 	return false
 }
 
-// Check for membership of a JSON value in a JSON array.
-func elementIn(v interface{}, array interface{}) bool {
-	vals, ok := array.([]interface{})
-	if !ok {
-		return false
+// Check for membership of a JSON value in a JSON array or
+// intersection of two arrays.
+
+func elementIn(v interface{}, array []interface{}) bool {
+	otherArray, ok := v.([]interface{})
+	if ok {
+		// Both arguments are arrays, so look for intersection.
+		return commonElement(array, otherArray)
 	}
-	for _, val := range vals {
+
+	// One single value, one array, so do membership test.
+	for _, val := range array {
 		if reflect.DeepEqual(v, val) {
 			return true
+		}
+	}
+	return false
+}
+
+// Check for common element in two arrays.
+
+func commonElement(a1 []interface{}, a2 []interface{}) bool {
+	for _, el1 := range a1 {
+		for _, el2 := range a2 {
+			if reflect.DeepEqual(el1, el2) {
+				return true
+			}
 		}
 	}
 	return false
