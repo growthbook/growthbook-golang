@@ -115,6 +115,7 @@ func New(context *Context) *GrowthBook {
 func (gb *GrowthBook) Ready() bool {
 	gb.inner.RLock()
 	defer gb.inner.RUnlock()
+
 	return gb.inner.ready
 }
 
@@ -203,6 +204,7 @@ func (gb *GrowthBook) Features() FeatureMap {
 func (inner *growthBookData) features() FeatureMap {
 	inner.RLock()
 	defer inner.RUnlock()
+
 	return inner.context.Features
 }
 
@@ -248,12 +250,14 @@ func (gb *GrowthBook) WithForcedVariations(forcedVariations ForcedVariationsMap)
 func (gb *GrowthBook) ForceVariation(key string, variation int) {
 	gb.inner.RLock()
 	defer gb.inner.RUnlock()
+
 	gb.inner.context.ForceVariation(key, variation)
 }
 
 func (gb *GrowthBook) UnforceVariation(key string) {
 	gb.inner.RLock()
 	defer gb.inner.RUnlock()
+
 	gb.inner.context.UnforceVariation(key)
 }
 
@@ -346,6 +350,7 @@ func (fr *FeatureResult) GetValueWithDefault(def FeatureValue) FeatureValue {
 func (gb *GrowthBook) IsOn(key string) bool {
 	gb.inner.RLock()
 	defer gb.inner.RUnlock()
+
 	return gb.EvalFeature(key).On
 }
 
@@ -353,6 +358,7 @@ func (gb *GrowthBook) IsOn(key string) bool {
 func (gb *GrowthBook) IsOff(key string) bool {
 	gb.inner.RLock()
 	defer gb.inner.RUnlock()
+
 	return gb.EvalFeature(key).Off
 }
 
@@ -361,6 +367,7 @@ func (gb *GrowthBook) IsOff(key string) bool {
 func (gb *GrowthBook) GetFeatureValue(key string, defaultValue interface{}) interface{} {
 	gb.inner.RLock()
 	defer gb.inner.RUnlock()
+
 	featureValue := gb.EvalFeature(key).Value
 	if featureValue != nil {
 		return featureValue
@@ -373,6 +380,7 @@ func (gb *GrowthBook) GetFeatureValue(key string, defaultValue interface{}) inte
 func (gb *GrowthBook) Feature(key string) *FeatureResult {
 	gb.inner.RLock()
 	defer gb.inner.RUnlock()
+
 	return gb.EvalFeature(key)
 }
 
@@ -491,6 +499,7 @@ func (gb *GrowthBook) Subscribe(callback ExperimentCallback) func() {
 func (gb *GrowthBook) GetAllResults() map[string]*Assignment {
 	gb.inner.RLock()
 	defer gb.inner.RUnlock()
+
 	return gb.inner.assigned
 }
 
@@ -500,6 +509,7 @@ func (gb *GrowthBook) GetAllResults() map[string]*Assignment {
 func (gb *GrowthBook) ClearSavedResults() {
 	gb.inner.Lock()
 	defer gb.inner.Unlock()
+
 	gb.inner.assigned = make(map[string]*Assignment)
 }
 
@@ -508,6 +518,7 @@ func (gb *GrowthBook) ClearSavedResults() {
 func (gb *GrowthBook) ClearTrackingData() {
 	gb.inner.Lock()
 	defer gb.inner.Unlock()
+
 	gb.inner.trackedExperiments = make(map[string]bool)
 }
 

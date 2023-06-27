@@ -115,6 +115,7 @@ var outstandingRequest map[repositoryKey][]chan *FeatureAPIResponse
 func clearOutstandingRequests() {
 	outstandingRequestMutex.Lock()
 	defer outstandingRequestMutex.Unlock()
+
 	outstandingRequest = make(map[repositoryKey][]chan *FeatureAPIResponse)
 }
 
@@ -125,24 +126,9 @@ func fetchFeatures(gb *GrowthBook) *FeatureAPIResponse {
 	apiHost, clientKey := gb.GetAPIInfo()
 	key := makeKey(apiHost, clientKey)
 
-	// The first request for a given repository key will put a nil
-	// channel value into the relevant slot of the outstandingRequest
-	// map. Subsequent requests for the same repository key that come in
-	// while the first request is being processed will create a channel
-	// to receive the results from the in flight request.
-	outstandingRequestMutex.Lock()
-	if outstandingRequest == nil {
-		outstandingRequest = make(map[repositoryKey][]chan *FeatureAPIResponse)
-	}
-	chans := outstandingRequest[key]
-	myChan := make(chan *FeatureAPIResponse)
-	first := false
-	if chans == nil {
-		first = true
-		outstandingRequest[key] = []chan *FeatureAPIResponse{}
-	}
-	outstandingRequest[key] = append(outstandingRequest[key], myChan)
-	outstandingRequestMutex.Unlock()
+	// Get outstanding request channel, and flag to indicate whether
+	// this is the first channel created for this key.
+	myChan, first := addRequestChan(key)
 
 	// Either:
 	var apiResponse *FeatureAPIResponse
@@ -154,10 +140,7 @@ func fetchFeatures(gb *GrowthBook) *FeatureAPIResponse {
 		// ...retrieve a list of channels to other goroutines requesting
 		// features for the same repository key, clearing the outstanding
 		// requests slot for this repository key...
-		outstandingRequestMutex.Lock()
-		chans := outstandingRequest[key]
-		delete(outstandingRequest, key)
-		outstandingRequestMutex.Unlock()
+		chans := removeRequestChan(key)
 
 		// ...then send the API response to all the waiting goroutines. We
 		// check that our channel is still in the list, in case the cache
@@ -193,6 +176,42 @@ func fetchFeatures(gb *GrowthBook) *FeatureAPIResponse {
 		apiResponse = &FeatureAPIResponse{}
 	}
 	return apiResponse
+}
+
+// The first request for a given repository key will put a nil channel
+// value into the relevant slot of the outstandingRequest map.
+// Subsequent requests for the same repository key that come in while
+// the first request is being processed will create a channel to
+// receive the results from the in flight request.
+
+func addRequestChan(key repositoryKey) (chan *FeatureAPIResponse, bool) {
+	outstandingRequestMutex.Lock()
+	defer outstandingRequestMutex.Unlock()
+
+	if outstandingRequest == nil {
+		outstandingRequest = make(map[repositoryKey][]chan *FeatureAPIResponse)
+	}
+	chans := outstandingRequest[key]
+	myChan := make(chan *FeatureAPIResponse)
+	first := false
+	if chans == nil {
+		first = true
+		outstandingRequest[key] = []chan *FeatureAPIResponse{}
+	}
+	outstandingRequest[key] = append(outstandingRequest[key], myChan)
+
+	return myChan, first
+}
+
+// Remove the request channel for a given key.
+
+func removeRequestChan(key repositoryKey) []chan *FeatureAPIResponse {
+	outstandingRequestMutex.Lock()
+	defer outstandingRequestMutex.Unlock()
+
+	chans := outstandingRequest[key]
+	delete(outstandingRequest, key)
+	return chans
 }
 
 // Actually do the HTTP request to get feature data.
@@ -371,7 +390,6 @@ func (r *refreshData) addSubscription(gb *GrowthBook) {
 // if there is one and this is the last subscriber.
 
 func (r *refreshData) removeSubscription(gb *GrowthBook) {
-
 	r.Lock()
 	defer r.Unlock()
 
@@ -397,6 +415,7 @@ func (r *refreshData) removeSubscription(gb *GrowthBook) {
 func (r *refreshData) sseSupported(key repositoryKey, supported bool) {
 	r.Lock()
 	defer r.Unlock()
+
 	r.sse[key] = supported
 }
 
@@ -514,12 +533,14 @@ func (c *repoCache) clear() {
 func (c *repoCache) get(key repositoryKey) *cacheEntry {
 	c.RLock()
 	defer c.RUnlock()
+
 	return c.data[key]
 }
 
 func (c *repoCache) set(key repositoryKey, entry *cacheEntry) {
 	c.Lock()
 	defer c.Unlock()
+
 	c.data[key] = entry
 }
 
