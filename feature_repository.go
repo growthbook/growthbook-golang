@@ -35,6 +35,39 @@ func RepoSubscribe(gb *GrowthBook) { refresh.addSubscription(gb) }
 
 func RepoUnsubscribe(gb *GrowthBook) { refresh.removeSubscription(gb) }
 
+// Alias for names of repositories. Used as key type in various maps.
+// The key for a given repository is of the form
+// "<apiHost>||<clientKey>".
+
+type RepositoryKey string
+
+// Interface for feature caching.
+
+type Cache interface {
+	Initialize()
+	Clear()
+	Get(key RepositoryKey) *CacheEntry
+	Set(key RepositoryKey, entry *CacheEntry)
+}
+
+// Cache entry type for feature cache.
+
+type CacheEntry struct {
+	Data    *FeatureAPIResponse `json:"data"`
+	Version string              `json:"version"`
+	StaleAt time.Time           `json:"stale_at"`
+}
+
+// Set feature cache. Passing nil uses the default in-memory cache.
+
+func ConfigureCache(c Cache) {
+	if c == nil {
+		c = &repoCache{}
+	}
+	cache.Clear()
+	cache = c
+}
+
 // ConfigureCacheBackgroundSync enables or disables background cache
 // synchronization.
 
@@ -64,11 +97,11 @@ func fetchFeaturesWithCache(gb *GrowthBook, timeout time.Duration,
 	allowStale bool, skipCache bool) *FeatureAPIResponse {
 	key := getKey(gb)
 	now := time.Now()
-	cache.initialize()
-	existing := cache.get(key)
+	cache.Initialize()
+	existing := cache.Get(key)
 
-	if existing != nil && !skipCache && (allowStale || existing.staleAt.After(now)) {
-		if existing.staleAt.Before(now) {
+	if existing != nil && !skipCache && (allowStale || existing.StaleAt.After(now)) {
+		if existing.StaleAt.Before(now) {
 			// Reload features in the backgroud if stale
 			go fetchFeatures(gb)
 		} else {
@@ -76,7 +109,7 @@ func fetchFeaturesWithCache(gb *GrowthBook, timeout time.Duration,
 			// background sync.
 			refresh.runBackgroundRefresh(gb)
 		}
-		return existing.data
+		return existing.Data
 	} else {
 		// Perform API request with timeout.
 		if timeout == 0 {
@@ -96,18 +129,12 @@ func fetchFeaturesWithCache(gb *GrowthBook, timeout time.Duration,
 	}
 }
 
-// Alias for names of repositories. Used as key type in various maps.
-// The key for a given repository is of the form
-// "<apiHost>||<clientKey>".
-
-type repositoryKey string
-
 // Mutex-protected map holding channels to concurrent requests for
 // features for the same repository key. Only one real HTTP request is
 // in flight at any time for a given repository key.
 
 var outstandingRequestMutex sync.Mutex
-var outstandingRequest map[repositoryKey][]chan *FeatureAPIResponse
+var outstandingRequest map[RepositoryKey][]chan *FeatureAPIResponse
 
 // We need to be able to clear the outstanding requests when the cache
 // is cleared.
@@ -116,7 +143,7 @@ func clearOutstandingRequests() {
 	outstandingRequestMutex.Lock()
 	defer outstandingRequestMutex.Unlock()
 
-	outstandingRequest = make(map[repositoryKey][]chan *FeatureAPIResponse)
+	outstandingRequest = make(map[RepositoryKey][]chan *FeatureAPIResponse)
 }
 
 // Retrieve features from the API, ensuring that only one request for
@@ -184,12 +211,12 @@ func fetchFeatures(gb *GrowthBook) *FeatureAPIResponse {
 // the first request is being processed will create a channel to
 // receive the results from the in flight request.
 
-func addRequestChan(key repositoryKey) (chan *FeatureAPIResponse, bool) {
+func addRequestChan(key RepositoryKey) (chan *FeatureAPIResponse, bool) {
 	outstandingRequestMutex.Lock()
 	defer outstandingRequestMutex.Unlock()
 
 	if outstandingRequest == nil {
-		outstandingRequest = make(map[repositoryKey][]chan *FeatureAPIResponse)
+		outstandingRequest = make(map[RepositoryKey][]chan *FeatureAPIResponse)
 	}
 	chans := outstandingRequest[key]
 	myChan := make(chan *FeatureAPIResponse)
@@ -205,7 +232,7 @@ func addRequestChan(key repositoryKey) (chan *FeatureAPIResponse, bool) {
 
 // Remove the request channel for a given key.
 
-func removeRequestChan(key repositoryKey) []chan *FeatureAPIResponse {
+func removeRequestChan(key RepositoryKey) []chan *FeatureAPIResponse {
 	outstandingRequestMutex.Lock()
 	defer outstandingRequestMutex.Unlock()
 
@@ -281,20 +308,20 @@ func refreshInstance(inner *growthBookData, data *FeatureAPIResponse) {
 // Callback to process feature updates from API, via both explicit
 // requests and background processing.
 
-func onNewFeatureData(key repositoryKey, data *FeatureAPIResponse) {
+func onNewFeatureData(key RepositoryKey, data *FeatureAPIResponse) {
 	// If contents haven't changed, ignore the update and extend the
 	// stale TTL.
 	version := data.DateUpdated
 	now := time.Now()
 	staleAt := now.Add(cacheStaleTTL)
-	existing := cache.get(key)
-	if existing != nil && version != "" && existing.version == version {
-		existing.staleAt = staleAt
+	existing := cache.Get(key)
+	if existing != nil && version != "" && existing.Version == version {
+		existing.StaleAt = staleAt
 		return
 	}
 
 	// Update in-memory cache.
-	cache.set(key, &cacheEntry{data, version, staleAt})
+	cache.Set(key, &CacheEntry{data, version, staleAt})
 
 	// Update features for all subscribed GrowthBook instances.
 	for _, inner := range refresh.instances(key) {
@@ -316,20 +343,20 @@ type refreshData struct {
 	sync.RWMutex
 
 	// Repository keys where SSE is supported.
-	sse map[repositoryKey]bool
+	sse map[RepositoryKey]bool
 
 	// Channels to shut down SSE refresh goroutines.
-	shutdown map[repositoryKey]chan struct{}
+	shutdown map[RepositoryKey]chan struct{}
 
 	// Subscribed instances.
-	subscribed map[repositoryKey]gbDataSet
+	subscribed map[RepositoryKey]gbDataSet
 }
 
 func makeRefreshData() *refreshData {
 	return &refreshData{
-		sse:        make(map[repositoryKey]bool),
-		shutdown:   make(map[repositoryKey]chan struct{}),
-		subscribed: make(map[repositoryKey]gbDataSet),
+		sse:        make(map[RepositoryKey]bool),
+		shutdown:   make(map[RepositoryKey]chan struct{}),
+		subscribed: make(map[RepositoryKey]gbDataSet),
 	}
 }
 
@@ -343,7 +370,7 @@ func clearAutoRefresh() {
 // Safely get list of GrowthBook instance inner data structures for a
 // repository key.
 
-func (r *refreshData) instances(key repositoryKey) []*growthBookData {
+func (r *refreshData) instances(key RepositoryKey) []*growthBookData {
 	r.RLock()
 	defer r.RUnlock()
 
@@ -412,7 +439,7 @@ func (r *refreshData) removeSubscription(gb *GrowthBook) {
 	}
 }
 
-func (r *refreshData) sseSupported(key repositoryKey, supported bool) {
+func (r *refreshData) sseSupported(key RepositoryKey, supported bool) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -501,43 +528,40 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 //  CACHING
 //
 
+// Cache control parameters.
+
 var cacheBackgroundSync bool = true
 var cacheStaleTTL time.Duration = 60 * time.Second
 
-type cacheEntry struct {
-	data    *FeatureAPIResponse
-	version string
-	staleAt time.Time
-}
+// Default in-memory cache.
 
 type repoCache struct {
 	sync.RWMutex
-	data map[repositoryKey]*cacheEntry
+	data map[RepositoryKey]*CacheEntry
 }
 
-var cache repoCache
+var cache Cache = &repoCache{}
 
-func (c *repoCache) initialize() {
-}
+func (c *repoCache) Initialize() {}
 
-func (c *repoCache) clear() {
+func (c *repoCache) Clear() {
 	c.Lock()
 	defer c.Unlock()
 
 	// Clear cache, auto-refresh info and outstanding requests.
-	c.data = make(map[repositoryKey]*cacheEntry)
+	c.data = make(map[RepositoryKey]*CacheEntry)
 	clearAutoRefresh()
 	clearOutstandingRequests()
 }
 
-func (c *repoCache) get(key repositoryKey) *cacheEntry {
+func (c *repoCache) Get(key RepositoryKey) *CacheEntry {
 	c.RLock()
 	defer c.RUnlock()
 
 	return c.data[key]
 }
 
-func (c *repoCache) set(key repositoryKey, entry *cacheEntry) {
+func (c *repoCache) Set(key RepositoryKey, entry *CacheEntry) {
 	c.Lock()
 	defer c.Unlock()
 
@@ -548,11 +572,11 @@ func (c *repoCache) set(key repositoryKey, entry *cacheEntry) {
 //
 //  REPOSITORY KEY UTILITIES
 
-func getKey(gb *GrowthBook) repositoryKey {
+func getKey(gb *GrowthBook) RepositoryKey {
 	apiHost, clientKey := gb.GetAPIInfo()
-	return repositoryKey(apiHost + "||" + clientKey)
+	return RepositoryKey(apiHost + "||" + clientKey)
 }
 
-func makeKey(apiHost string, clientKey string) repositoryKey {
-	return repositoryKey(apiHost + "||" + clientKey)
+func makeKey(apiHost string, clientKey string) RepositoryKey {
+	return RepositoryKey(apiHost + "||" + clientKey)
 }

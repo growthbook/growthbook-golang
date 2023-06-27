@@ -181,11 +181,11 @@ func checkEmptyFeatures(t *testing.T, gb *GrowthBook) {
 
 func TestRepoDebounceFetchRequests(t *testing.T) {
 	env := setup(false)
-	defer cache.clear()
+	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
 
-	cache.clear()
+	cache.Clear()
 
 	gb1 := makeGB(env.server.URL, "qwerty1234")
 	gb2 := makeGB(env.server.URL, "other")
@@ -208,7 +208,7 @@ func TestRepoDebounceFetchRequests(t *testing.T) {
 
 func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	env := setup(false)
-	defer cache.clear()
+	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
 
@@ -219,7 +219,7 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 		ConfigureCacheStaleTTL(savedCacheStaleTTL)
 	}()
 
-	cache.clear()
+	cache.Clear()
 
 	gb := makeGB(env.server.URL, "qwerty1234")
 	time.Sleep(20 * time.Millisecond)
@@ -288,11 +288,11 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 
 func TestRepoUpdatesFeaturesBasedOnSSE1(t *testing.T) {
 	env := setup(true)
-	defer cache.clear()
+	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
 
-	cache.clear()
+	cache.Clear()
 
 	gb := makeGB(env.server.URL, "qwerty1234")
 
@@ -317,11 +317,11 @@ func TestRepoUpdatesFeaturesBasedOnSSE1(t *testing.T) {
 
 func TestRepoUpdatesFeaturesBasedOnSSE2(t *testing.T) {
 	env := setup(true)
-	defer cache.clear()
+	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
 
-	cache.clear()
+	cache.Clear()
 
 	gb := makeGB(env.server.URL, "qwerty1234")
 	gb2 := makeGB(env.server.URL, "qwerty1234")
@@ -350,11 +350,11 @@ func TestRepoUpdatesFeaturesBasedOnSSE2(t *testing.T) {
 
 func TestRepoExposesAReadyFlag(t *testing.T) {
 	env := setup(false)
-	defer cache.clear()
+	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
 
-	cache.clear()
+	cache.Clear()
 	*env.featureValue = "api"
 
 	gb := makeGB(env.server.URL, "qwerty1234")
@@ -380,11 +380,11 @@ func TestRepoExposesAReadyFlag(t *testing.T) {
 
 func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
 	env := setup(false)
-	defer cache.clear()
+	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
 
-	cache.clear()
+	cache.Clear()
 	env.fetchFails = true
 
 	gb := makeGB(env.server.URL, "qwerty1234")
@@ -410,11 +410,11 @@ func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
 
 func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
 	env := setupWithDelay(false, 100*time.Millisecond, "")
-	defer cache.clear()
+	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
 
-	cache.clear()
+	cache.Clear()
 	*env.featureValue = "api"
 
 	gb := makeGB(env.server.URL, "qwerty1234")
@@ -440,11 +440,11 @@ func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
 
 func TestRepoHandlesSSEErrors(t *testing.T) {
 	env := setup(true)
-	defer cache.clear()
+	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
 
-	cache.clear()
+	cache.Clear()
 
 	gb := makeGB(env.server.URL, "qwerty1234")
 
@@ -462,7 +462,7 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 	checkFeature(t, gb, "foo", "initial")
 	knownErrors(t, "SSE error")
 
-	cache.clear()
+	cache.Clear()
 }
 
 // This is a more complex test scenario for checking that parallel
@@ -471,13 +471,13 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 
 func TestRepoComplexSSEScenario(t *testing.T) {
 	env := setup(true)
-	defer cache.clear()
+	defer cache.Clear()
 	// We're going to generate SSE errors here, but that's all we expect
 	// to see.
 	defer knownSSEErrors(t)
 	defer env.close()
 
-	cache.clear()
+	cache.Clear()
 
 	// Data recording for test goroutines.
 	type record struct {
@@ -605,11 +605,11 @@ func TestRepoComplexSSEScenario(t *testing.T) {
 
 func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
 	env := setup(true)
-	defer cache.clear()
+	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
 
-	cache.clear()
+	cache.Clear()
 	ConfigureCacheBackgroundSync(false)
 	defer ConfigureCacheBackgroundSync(true)
 
@@ -639,11 +639,11 @@ func TestRepoDecryptsFeatures(t *testing.T) {
 	encryptedFeatures := "vMSg2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
 
 	env := setupEncrypted(encryptedFeatures, false)
-	defer cache.clear()
+	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
 
-	cache.clear()
+	cache.Clear()
 
 	context := NewContext().
 		WithAPIHost(env.server.URL).
