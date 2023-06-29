@@ -104,10 +104,13 @@ func setupWithDelay(provideSSE bool, delay time.Duration, encryptedFeatures stri
 	return &env
 }
 
-func makeGB(apiHost string, clientKey string) *GrowthBook {
+func makeGB(apiHost string, clientKey string, ttl time.Duration) *GrowthBook {
 	context := NewContext().
 		WithAPIHost(apiHost).
 		WithClientKey(clientKey)
+	if ttl != 0 {
+		context = context.WithCacheTTL(ttl)
+	}
 	return New(context)
 }
 
@@ -187,9 +190,9 @@ func TestRepoDebounceFetchRequests(t *testing.T) {
 
 	cache.Clear()
 
-	gb1 := makeGB(env.server.URL, "qwerty1234")
-	gb2 := makeGB(env.server.URL, "other")
-	gb3 := makeGB(env.server.URL, "qwerty1234")
+	gb1 := makeGB(env.server.URL, "qwerty1234", 0)
+	gb2 := makeGB(env.server.URL, "other", 0)
+	gb3 := makeGB(env.server.URL, "qwerty1234", 0)
 
 	gb1.LoadFeatures(nil)
 	gb2.LoadFeatures(nil)
@@ -212,16 +215,10 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	defer checkLogs(t)
 	defer env.close()
 
-	// Set cache TTL short so we can test expiry.
-	savedCacheStaleTTL := cacheStaleTTL
-	ConfigureCacheStaleTTL(100 * time.Millisecond)
-	defer func() {
-		ConfigureCacheStaleTTL(savedCacheStaleTTL)
-	}()
-
 	cache.Clear()
 
-	gb := makeGB(env.server.URL, "qwerty1234")
+	// Set cache TTL short so we can test expiry.
+	gb := makeGB(env.server.URL, "qwerty1234", 100*time.Millisecond)
 	time.Sleep(20 * time.Millisecond)
 
 	// Initial value of feature should be null.
@@ -238,14 +235,14 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	*env.featureValue = "changed"
 
 	// New instances should get cached value
-	gb2 := makeGB(env.server.URL, "qwerty1234")
+	gb2 := makeGB(env.server.URL, "qwerty1234", 100*time.Millisecond)
 	checkFeature(t, gb2, "foo", nil)
 	knownWarnings(t, 1)
 	gb2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 	checkFeature(t, gb2, "foo", "initial")
 
 	// Instance without autoRefresh.
-	gb3 := makeGB(env.server.URL, "qwerty1234")
+	gb3 := makeGB(env.server.URL, "qwerty1234", 100*time.Millisecond)
 	checkFeature(t, gb3, "foo", nil)
 	knownWarnings(t, 1)
 	gb3.LoadFeatures(nil)
@@ -277,7 +274,7 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	checkFeature(t, gb3, "foo", "initial")
 
 	// New instances should get the new value
-	gb4 := makeGB(env.server.URL, "qwerty1234")
+	gb4 := makeGB(env.server.URL, "qwerty1234", 100*time.Millisecond)
 	checkFeature(t, gb4, "foo", nil)
 	knownWarnings(t, 1)
 	gb4.LoadFeatures(nil)
@@ -294,7 +291,7 @@ func TestRepoUpdatesFeaturesBasedOnSSE1(t *testing.T) {
 
 	cache.Clear()
 
-	gb := makeGB(env.server.URL, "qwerty1234")
+	gb := makeGB(env.server.URL, "qwerty1234", 0)
 
 	// Load features and check API calls.
 	gb.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
@@ -323,8 +320,8 @@ func TestRepoUpdatesFeaturesBasedOnSSE2(t *testing.T) {
 
 	cache.Clear()
 
-	gb := makeGB(env.server.URL, "qwerty1234")
-	gb2 := makeGB(env.server.URL, "qwerty1234")
+	gb := makeGB(env.server.URL, "qwerty1234", 0)
+	gb2 := makeGB(env.server.URL, "qwerty1234", 0)
 
 	// Load features and check API calls.
 	gb.LoadFeatures(nil)
@@ -357,7 +354,7 @@ func TestRepoExposesAReadyFlag(t *testing.T) {
 	cache.Clear()
 	*env.featureValue = "api"
 
-	gb := makeGB(env.server.URL, "qwerty1234")
+	gb := makeGB(env.server.URL, "qwerty1234", 0)
 
 	if gb.Ready() {
 		t.Error("expected ready flag to be false")
@@ -368,7 +365,7 @@ func TestRepoExposesAReadyFlag(t *testing.T) {
 		t.Error("expected ready flag to be true")
 	}
 
-	gb2 := makeGB(env.server.URL, "qwerty1234")
+	gb2 := makeGB(env.server.URL, "qwerty1234", 0)
 	if gb2.Ready() {
 		t.Error("expected ready flag to be false")
 	}
@@ -387,7 +384,7 @@ func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
 	cache.Clear()
 	env.fetchFails = true
 
-	gb := makeGB(env.server.URL, "qwerty1234")
+	gb := makeGB(env.server.URL, "qwerty1234", 0)
 	checkReady(t, gb, false)
 	gb.LoadFeatures(nil)
 
@@ -417,7 +414,7 @@ func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
 	cache.Clear()
 	*env.featureValue = "api"
 
-	gb := makeGB(env.server.URL, "qwerty1234")
+	gb := makeGB(env.server.URL, "qwerty1234", 0)
 	checkReady(t, gb, false)
 
 	// Doesn't throw errors.
@@ -446,7 +443,7 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 
 	cache.Clear()
 
-	gb := makeGB(env.server.URL, "qwerty1234")
+	gb := makeGB(env.server.URL, "qwerty1234", 0)
 
 	gb.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 	env.checkCalls(t, 1)
@@ -513,7 +510,7 @@ func TestRepoComplexSSEScenario(t *testing.T) {
 	vals := make([][]*record, 10)
 	wg.Add(10)
 	for i := 0; i < 10; i++ {
-		gbs[i] = makeGB(env.server.URL, "qwerty1234")
+		gbs[i] = makeGB(env.server.URL, "qwerty1234", 0)
 		doneChs[i] = make(chan struct{})
 		vals[i] = []*record{}
 		go tester(gbs[i], doneChs[i], &vals[i])
@@ -613,8 +610,8 @@ func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
 	ConfigureCacheBackgroundSync(false)
 	defer ConfigureCacheBackgroundSync(true)
 
-	gb := makeGB(env.server.URL, "qwerty1234")
-	gb2 := makeGB(env.server.URL, "qwerty1234")
+	gb := makeGB(env.server.URL, "qwerty1234", 0)
+	gb2 := makeGB(env.server.URL, "qwerty1234", 0)
 
 	gb.LoadFeatures(nil)
 	gb2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})

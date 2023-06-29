@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/url"
 	"regexp"
+	"time"
 )
 
 // ExperimentOverride provides the possibility to temporarily override
@@ -40,6 +41,7 @@ type Context struct {
 	ClientKey        string
 	DecryptionKey    string
 	Overrides        ExperimentOverrides
+	CacheTTL         time.Duration
 }
 
 // ExperimentCallback is a callback function that is executed every
@@ -57,7 +59,10 @@ type FeatureUsageCallback func(key string, result *FeatureResult)
 // NewContext creates a context with default settings: enabled, but
 // all other fields empty.
 func NewContext() *Context {
-	return &Context{Enabled: true}
+	return &Context{
+		Enabled:  true,
+		CacheTTL: 60 * time.Second,
+	}
 }
 
 // WithEnabled sets the enabled flag for a context.
@@ -173,6 +178,12 @@ func (ctx *Context) WithDecryptionKey(key string) *Context {
 // WithOverrides sets the experiment overrides of a context.
 func (ctx *Context) WithOverrides(overrides ExperimentOverrides) *Context {
 	ctx.Overrides = overrides
+	return ctx
+}
+
+// WithCacheTTL sets the TTL for the feature cache.
+func (ctx *Context) WithCacheTTL(ttl time.Duration) *Context {
+	ctx.CacheTTL = ttl
 	return ctx
 }
 

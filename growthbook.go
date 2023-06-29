@@ -566,6 +566,7 @@ func (gb *GrowthBook) refresh(
 		timeout = options.Timeout
 		skipCache = skipCache || options.SkipCache
 	}
+	ConfigureCacheStaleTTL(gb.inner.context.CacheTTL)
 	RepoRefreshFeatures(gb, timeout, skipCache, allowStale, updateInstance)
 }
 
