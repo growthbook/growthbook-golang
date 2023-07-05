@@ -375,8 +375,8 @@ func (gb *GrowthBook) GetFeatureValue(key string, defaultValue interface{}) inte
 	return defaultValue
 }
 
-// Feature returns the result for a feature identified by a string
-// feature key. (DEPRECATED: Use EvalFeature instead.)
+// Deprecated: Use EvalFeature instead. Feature returns the result for
+// a feature identified by a string feature key.
 func (gb *GrowthBook) Feature(key string) *FeatureResult {
 	gb.inner.RLock()
 	defer gb.inner.RUnlock()
