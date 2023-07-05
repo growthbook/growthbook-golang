@@ -1,0 +1,157 @@
+<!DOCTYPE html><html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#375EAB"/>
+
+  <title>growthbook-golang - Documentation</title>
+
+
+
+
+
+
+
+
+
+
+<link type="text/css" rel="stylesheet" href="../../../../lib/style.css"/></head>
+<body>
+
+<div id="lowframe" style="position: fixed; bottom: 0; left: 0; height: 0; width: 100%; border-top: thin solid grey; background-color: white; overflow: auto;">
+...
+</div><!-- #lowframe -->
+
+<div id="topbar" class="wide"><div class="container">
+<div class="top-heading" id="heading-wide"><a href="../../../../">Documentation</a></div>
+<div class="top-heading" id="heading-narrow"><a href="../../../../">Documentation</a></div>
+<!--<a href="#" id="menu-button"><span id="menu-button-arrow">▽</span></a>-->
+<div id="menu">
+<a href="../../../../" style="margin-right: 10px;">Package Index</a>
+</div>
+</div></div>
+
+
+
+<div id="page" class="wide">
+<div class="container">
+
+
+  <h1>
+    Source file
+    <a href="/src">src</a>/<a href="../../../../src/github.com.html">github.com</a>/<a href="../../../../src/github.com/growthbook">growthbook</a>/<a href="../../../../src/github.com/growthbook/growthbook-golang">growthbook-golang</a>/<span class="text-muted">range.go</span>
+  </h1>
+
+
+
+
+
+  <h2>
+    Documentation: <a href="../../../../github.com/growthbook/growthbook-golang">github.com/growthbook/growthbook-golang</a>
+  </h2>
+
+
+
+<div id="nav"></div>
+
+
+
+<pre><span id="L1" class="ln">     1  </span>package growthbook
+<span id="L2" class="ln">     2  </span>
+<span id="L3" class="ln">     3  </span><span class="comment">// Range represents a single bucket range.</span>
+<span id="L4" class="ln">     4  </span>type Range struct {
+<span id="L5" class="ln">     5  </span>	Min float64
+<span id="L6" class="ln">     6  </span>	Max float64
+<span id="L7" class="ln">     7  </span>}
+<span id="L8" class="ln">     8  </span>
+<span id="L9" class="ln">     9  </span>func (r *Range) InRange(n float64) bool {
+<span id="L10" class="ln">    10  </span>	return n &gt;= r.Min &amp;&amp; n &lt; r.Max
+<span id="L11" class="ln">    11  </span>}
+<span id="L12" class="ln">    12  </span>
+<span id="L13" class="ln">    13  </span><span class="comment">// This converts an experiment&#39;s coverage and variation weights into</span>
+<span id="L14" class="ln">    14  </span><span class="comment">// an array of bucket ranges.</span>
+<span id="L15" class="ln">    15  </span>func getBucketRanges(numVariations int, coverage float64, weights []float64) []Range {
+<span id="L16" class="ln">    16  </span>	<span class="comment">// Make sure coverage is within bounds.</span>
+<span id="L17" class="ln">    17  </span>	if coverage &lt; 0 {
+<span id="L18" class="ln">    18  </span>		logWarn(&#34;Experiment coverage must be greater than or equal to 0&#34;)
+<span id="L19" class="ln">    19  </span>		coverage = 0
+<span id="L20" class="ln">    20  </span>	}
+<span id="L21" class="ln">    21  </span>	if coverage &gt; 1 {
+<span id="L22" class="ln">    22  </span>		logWarn(&#34;Experiment coverage must be less than or equal to 1&#34;)
+<span id="L23" class="ln">    23  </span>		coverage = 1
+<span id="L24" class="ln">    24  </span>	}
+<span id="L25" class="ln">    25  </span>
+<span id="L26" class="ln">    26  </span>	<span class="comment">// Default to equal weights if missing or invalid</span>
+<span id="L27" class="ln">    27  </span>	if weights == nil || len(weights) == 0 {
+<span id="L28" class="ln">    28  </span>		weights = getEqualWeights(numVariations)
+<span id="L29" class="ln">    29  </span>	}
+<span id="L30" class="ln">    30  </span>	if len(weights) != numVariations {
+<span id="L31" class="ln">    31  </span>		logWarn(&#34;Experiment weights and variations arrays must be the same length&#34;)
+<span id="L32" class="ln">    32  </span>		weights = getEqualWeights(numVariations)
+<span id="L33" class="ln">    33  </span>	}
+<span id="L34" class="ln">    34  </span>
+<span id="L35" class="ln">    35  </span>	<span class="comment">// If weights don&#39;t add up to 1 (or close to it), default to equal weights</span>
+<span id="L36" class="ln">    36  </span>	totalWeight := 0.0
+<span id="L37" class="ln">    37  </span>	for i := range weights {
+<span id="L38" class="ln">    38  </span>		totalWeight += weights[i]
+<span id="L39" class="ln">    39  </span>	}
+<span id="L40" class="ln">    40  </span>	if totalWeight &lt; 0.99 || totalWeight &gt; 1.01 {
+<span id="L41" class="ln">    41  </span>		logWarn(&#34;Experiment weights must add up to 1&#34;)
+<span id="L42" class="ln">    42  </span>		weights = getEqualWeights(numVariations)
+<span id="L43" class="ln">    43  </span>	}
+<span id="L44" class="ln">    44  </span>
+<span id="L45" class="ln">    45  </span>	<span class="comment">// Convert weights to ranges</span>
+<span id="L46" class="ln">    46  </span>	cumulative := 0.0
+<span id="L47" class="ln">    47  </span>	ranges := make([]Range, len(weights))
+<span id="L48" class="ln">    48  </span>	for i := range weights {
+<span id="L49" class="ln">    49  </span>		start := cumulative
+<span id="L50" class="ln">    50  </span>		cumulative += weights[i]
+<span id="L51" class="ln">    51  </span>		ranges[i] = Range{start, start + coverage*weights[i]}
+<span id="L52" class="ln">    52  </span>	}
+<span id="L53" class="ln">    53  </span>	return ranges
+<span id="L54" class="ln">    54  </span>}
+<span id="L55" class="ln">    55  </span>
+<span id="L56" class="ln">    56  </span><span class="comment">// Given a hash and bucket ranges, assigns one of the bucket ranges.</span>
+<span id="L57" class="ln">    57  </span>func chooseVariation(n float64, ranges []Range) int {
+<span id="L58" class="ln">    58  </span>	for i := range ranges {
+<span id="L59" class="ln">    59  </span>		if ranges[i].InRange(n) {
+<span id="L60" class="ln">    60  </span>			return i
+<span id="L61" class="ln">    61  </span>		}
+<span id="L62" class="ln">    62  </span>	}
+<span id="L63" class="ln">    63  </span>	return -1
+<span id="L64" class="ln">    64  </span>}
+<span id="L65" class="ln">    65  </span>
+<span id="L66" class="ln">    66  </span>func jsonRange(v interface{}, typeName string, fieldName string) (*Range, bool) {
+<span id="L67" class="ln">    67  </span>	vals, ok := jsonFloatArray(v, typeName, fieldName)
+<span id="L68" class="ln">    68  </span>	if !ok || vals == nil || len(vals) != 2 {
+<span id="L69" class="ln">    69  </span>		logError(&#34;Invalid JSON data type&#34;, typeName, fieldName)
+<span id="L70" class="ln">    70  </span>		return nil, false
+<span id="L71" class="ln">    71  </span>	}
+<span id="L72" class="ln">    72  </span>	return &amp;Range{vals[0], vals[1]}, true
+<span id="L73" class="ln">    73  </span>}
+<span id="L74" class="ln">    74  </span>
+<span id="L75" class="ln">    75  </span>func jsonRangeArray(v interface{}, typeName string, fieldName string) ([]Range, bool) {
+<span id="L76" class="ln">    76  </span>	vals, ok := v.([]interface{})
+<span id="L77" class="ln">    77  </span>	if !ok {
+<span id="L78" class="ln">    78  </span>		logError(&#34;Invalid JSON data type&#34;, typeName, fieldName)
+<span id="L79" class="ln">    79  </span>		return nil, false
+<span id="L80" class="ln">    80  </span>	}
+<span id="L81" class="ln">    81  </span>	ranges := make([]Range, len(vals))
+<span id="L82" class="ln">    82  </span>	for i := range vals {
+<span id="L83" class="ln">    83  </span>		tmp, ok := jsonRange(vals[i], typeName, fieldName)
+<span id="L84" class="ln">    84  </span>		if !ok || tmp == nil {
+<span id="L85" class="ln">    85  </span>			return nil, false
+<span id="L86" class="ln">    86  </span>		}
+<span id="L87" class="ln">    87  </span>		ranges[i] = *tmp
+<span id="L88" class="ln">    88  </span>	}
+<span id="L89" class="ln">    89  </span>	return ranges, true
+<span id="L90" class="ln">    90  </span>}
+<span id="L91" class="ln">    91  </span>
+</pre><p><a href="../../../../src/github.com/growthbook/growthbook-golang/range.go.html?m=text">View as plain text</a></p>
+
+<div id="footer"><a href="../../../../docs.zip">Download docs.zip</a> to browse offline - Generated by <a href="https://godoc.org/golang.org/x/tools/godoc" target="_blank">godoc</a> + <a href="https://code.rocketnine.space/tslocum/godoc-static" target="_blank">godoc-static</a></div>
+
+</div><!-- .container -->
+</div><!-- #page -->
+
+
+</body></html>

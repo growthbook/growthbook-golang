@@ -63,408 +63,501 @@
 <span id="L6" class="ln">     6  </span>	&#34;fmt&#34;
 <span id="L7" class="ln">     7  </span>	&#34;io/ioutil&#34;
 <span id="L8" class="ln">     8  </span>	&#34;log&#34;
-<span id="L9" class="ln">     9  </span>	&#34;math&#34;
-<span id="L10" class="ln">    10  </span>	&#34;net/url&#34;
-<span id="L11" class="ln">    11  </span>	&#34;reflect&#34;
-<span id="L12" class="ln">    12  </span>	&#34;testing&#34;
+<span id="L9" class="ln">     9  </span>	&#34;net/url&#34;
+<span id="L10" class="ln">    10  </span>	&#34;reflect&#34;
+<span id="L11" class="ln">    11  </span>	&#34;testing&#34;
+<span id="L12" class="ln">    12  </span>)
 <span id="L13" class="ln">    13  </span>
-<span id="L14" class="ln">    14  </span>	. &#34;github.com/franela/goblin&#34;
-<span id="L15" class="ln">    15  </span>)
+<span id="L14" class="ln">    14  </span><span class="comment">// Main test function for running JSON-based tests. These all use a</span>
+<span id="L15" class="ln">    15  </span><span class="comment">// jsonTest helper function to read and parse the JSON test case file.</span>
 <span id="L16" class="ln">    16  </span>
-<span id="L17" class="ln">    17  </span><span class="comment">// Main test function for running JSON-based tests. These all use a</span>
-<span id="L18" class="ln">    18  </span><span class="comment">// jsonTest helper function to read and parse the JSON test case file.</span>
+<span id="L17" class="ln">    17  </span>func TestJSON(t *testing.T) {
+<span id="L18" class="ln">    18  </span>	SetLogger(&amp;testLog)
 <span id="L19" class="ln">    19  </span>
-<span id="L20" class="ln">    20  </span>func TestJSON(t *testing.T) {
-<span id="L21" class="ln">    21  </span>	SetLogger(&amp;testLog)
-<span id="L22" class="ln">    22  </span>	jsonTest(t, &#34;feature&#34;, jsonTestFeature)
-<span id="L23" class="ln">    23  </span>	jsonTest(t, &#34;evalCondition&#34;, jsonTestEvalCondition)
-<span id="L24" class="ln">    24  </span>	jsonTest(t, &#34;hash&#34;, jsonTestHash)
-<span id="L25" class="ln">    25  </span>	jsonTest(t, &#34;getBucketRange&#34;, jsonTestGetBucketRange)
+<span id="L20" class="ln">    20  </span>	jsonTest(t, &#34;evalCondition&#34;, jsonTestEvalCondition)
+<span id="L21" class="ln">    21  </span>	jsonMapTest(t, &#34;versionCompare&#34;, jsonTestVersionCompare)
+<span id="L22" class="ln">    22  </span>	jsonTest(t, &#34;hash&#34;, jsonTestHash)
+<span id="L23" class="ln">    23  </span>	jsonTest(t, &#34;getBucketRange&#34;, jsonTestGetBucketRange)
+<span id="L24" class="ln">    24  </span>	jsonTest(t, &#34;feature&#34;, jsonTestFeature)
+<span id="L25" class="ln">    25  </span>	jsonTest(t, &#34;run&#34;, jsonTestRun)
 <span id="L26" class="ln">    26  </span>	jsonTest(t, &#34;chooseVariation&#34;, jsonTestChooseVariation)
 <span id="L27" class="ln">    27  </span>	jsonTest(t, &#34;getQueryStringOverride&#34;, jsonTestQueryStringOverride)
 <span id="L28" class="ln">    28  </span>	jsonTest(t, &#34;inNamespace&#34;, jsonTestInNamespace)
 <span id="L29" class="ln">    29  </span>	jsonTest(t, &#34;getEqualWeights&#34;, jsonTestGetEqualWeights)
-<span id="L30" class="ln">    30  </span>	jsonTest(t, &#34;run&#34;, jsonTestRun)
+<span id="L30" class="ln">    30  </span>	jsonTest(t, &#34;decrypt&#34;, jsonTestDecrypt)
 <span id="L31" class="ln">    31  </span>}
 <span id="L32" class="ln">    32  </span>
 <span id="L33" class="ln">    33  </span><span class="comment">// Test functions driven from JSON cases. Each of this has a similar</span>
 <span id="L34" class="ln">    34  </span><span class="comment">// structure, first extracting test data from the JSON data into typed</span>
 <span id="L35" class="ln">    35  </span><span class="comment">// values, then performing the test.</span>
 <span id="L36" class="ln">    36  </span>
-<span id="L37" class="ln">    37  </span><span class="comment">// Feature tests.</span>
+<span id="L37" class="ln">    37  </span><span class="comment">// Condition evaluation tests.</span>
 <span id="L38" class="ln">    38  </span><span class="comment">//</span>
-<span id="L39" class="ln">    39  </span><span class="comment">// Test parameters: name, context, feature key, result</span>
-<span id="L40" class="ln">    40  </span>func jsonTestFeature(g *G, itest int, test []interface{}) {
-<span id="L41" class="ln">    41  </span>	name, ok0 := test[0].(string)
-<span id="L42" class="ln">    42  </span>	contextDict, ok1 := test[1].(map[string]interface{})
-<span id="L43" class="ln">    43  </span>	featureKey, ok2 := test[2].(string)
-<span id="L44" class="ln">    44  </span>	expectedDict, ok3 := test[3].(map[string]interface{})
-<span id="L45" class="ln">    45  </span>	if !ok0 || !ok1 || !ok2 || !ok3 {
-<span id="L46" class="ln">    46  </span>		log.Fatal(&#34;unpacking test data&#34;)
-<span id="L47" class="ln">    47  </span>	}
-<span id="L48" class="ln">    48  </span>
-<span id="L49" class="ln">    49  </span>	g.It(fmt.Sprintf(&#34;GrowthBook.Feature[%d] %s&#34;, itest, name), func() {
-<span id="L50" class="ln">    50  </span>		context := BuildContext(contextDict)
-<span id="L51" class="ln">    51  </span>		growthbook := New(context)
-<span id="L52" class="ln">    52  </span>		expected := BuildFeatureResult(expectedDict)
-<span id="L53" class="ln">    53  </span>		retval := growthbook.Feature(featureKey)
-<span id="L54" class="ln">    54  </span>		g.Assert(reflect.DeepEqual(retval, expected)).IsTrue()
-<span id="L55" class="ln">    55  </span>	})
-<span id="L56" class="ln">    56  </span>}
-<span id="L57" class="ln">    57  </span>
-<span id="L58" class="ln">    58  </span><span class="comment">// Condition evaluation tests.</span>
-<span id="L59" class="ln">    59  </span><span class="comment">//</span>
-<span id="L60" class="ln">    60  </span><span class="comment">// Test parameters: name, condition, attributes, result</span>
-<span id="L61" class="ln">    61  </span>func jsonTestEvalCondition(g *G, itest int, test []interface{}) {
-<span id="L62" class="ln">    62  </span>	name, ok0 := test[0].(string)
-<span id="L63" class="ln">    63  </span>	condition, ok1 := test[1].(map[string]interface{})
-<span id="L64" class="ln">    64  </span>	value, ok2 := test[2].(map[string]interface{})
-<span id="L65" class="ln">    65  </span>	expected, ok3 := test[3].(bool)
-<span id="L66" class="ln">    66  </span>	if !ok0 || !ok1 || !ok2 || !ok3 {
-<span id="L67" class="ln">    67  </span>		log.Fatal(&#34;unpacking test data&#34;)
-<span id="L68" class="ln">    68  </span>	}
-<span id="L69" class="ln">    69  </span>
-<span id="L70" class="ln">    70  </span>	g.It(fmt.Sprintf(&#34;Condition.Eval[%d] %s&#34;, itest, name), func() {
-<span id="L71" class="ln">    71  </span>		cond := BuildCondition(condition)
-<span id="L72" class="ln">    72  </span>		if cond == nil {
-<span id="L73" class="ln">    73  </span>			log.Fatal(errors.New(&#34;failed to build condition&#34;))
-<span id="L74" class="ln">    74  </span>		}
-<span id="L75" class="ln">    75  </span>		attrs := Attributes(value)
-<span id="L76" class="ln">    76  </span>		g.Assert(cond.Eval(attrs)).Equal(expected)
-<span id="L77" class="ln">    77  </span>	})
-<span id="L78" class="ln">    78  </span>}
-<span id="L79" class="ln">    79  </span>
-<span id="L80" class="ln">    80  </span><span class="comment">// Hash function tests.</span>
-<span id="L81" class="ln">    81  </span><span class="comment">//</span>
-<span id="L82" class="ln">    82  </span><span class="comment">// Test parameters: value, hash</span>
-<span id="L83" class="ln">    83  </span>func jsonTestHash(g *G, itest int, test []interface{}) {
-<span id="L84" class="ln">    84  </span>	string, ok0 := test[0].(string)
-<span id="L85" class="ln">    85  </span>	value, ok1 := test[1].(float64)
-<span id="L86" class="ln">    86  </span>	if !ok0 || !ok1 {
-<span id="L87" class="ln">    87  </span>		log.Fatal(&#34;unpacking test data&#34;)
-<span id="L88" class="ln">    88  </span>	}
-<span id="L89" class="ln">    89  </span>
-<span id="L90" class="ln">    90  </span>	g.It(fmt.Sprintf(&#34;hashFnv32a[%d] %s&#34;, itest, string), func() {
-<span id="L91" class="ln">    91  </span>		g.Assert(float64(hashFnv32a(string)%1000) / 1000).Equal(value)
-<span id="L92" class="ln">    92  </span>	})
+<span id="L39" class="ln">    39  </span><span class="comment">// Test parameters: name, condition, attributes, result</span>
+<span id="L40" class="ln">    40  </span>func jsonTestEvalCondition(t *testing.T, test []interface{}) {
+<span id="L41" class="ln">    41  </span>	condition, ok1 := test[1].(map[string]interface{})
+<span id="L42" class="ln">    42  </span>	value, ok2 := test[2].(map[string]interface{})
+<span id="L43" class="ln">    43  </span>	expected, ok3 := test[3].(bool)
+<span id="L44" class="ln">    44  </span>	if !ok1 || !ok2 || !ok3 {
+<span id="L45" class="ln">    45  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L46" class="ln">    46  </span>	}
+<span id="L47" class="ln">    47  </span>
+<span id="L48" class="ln">    48  </span>	cond := BuildCondition(condition)
+<span id="L49" class="ln">    49  </span>	if cond == nil {
+<span id="L50" class="ln">    50  </span>		log.Fatal(errors.New(&#34;failed to build condition&#34;))
+<span id="L51" class="ln">    51  </span>	}
+<span id="L52" class="ln">    52  </span>	attrs := Attributes(value)
+<span id="L53" class="ln">    53  </span>	result := cond.Eval(attrs)
+<span id="L54" class="ln">    54  </span>	if !reflect.DeepEqual(result, expected) {
+<span id="L55" class="ln">    55  </span>		t.Errorf(&#34;unexpected result: %v&#34;, result)
+<span id="L56" class="ln">    56  </span>	}
+<span id="L57" class="ln">    57  </span>}
+<span id="L58" class="ln">    58  </span>
+<span id="L59" class="ln">    59  </span><span class="comment">// Version comparison tests.</span>
+<span id="L60" class="ln">    60  </span><span class="comment">//</span>
+<span id="L61" class="ln">    61  </span><span class="comment">// Test parameters: ...</span>
+<span id="L62" class="ln">    62  </span>func jsonTestVersionCompare(t *testing.T, comparison string, test []interface{}) {
+<span id="L63" class="ln">    63  </span>	for _, oneTest := range test {
+<span id="L64" class="ln">    64  </span>		testData, ok := oneTest.([]interface{})
+<span id="L65" class="ln">    65  </span>		if !ok || len(testData) != 3 {
+<span id="L66" class="ln">    66  </span>			log.Fatal(&#34;unpacking test data&#34;)
+<span id="L67" class="ln">    67  </span>		}
+<span id="L68" class="ln">    68  </span>		v1, ok1 := testData[0].(string)
+<span id="L69" class="ln">    69  </span>		v2, ok2 := testData[1].(string)
+<span id="L70" class="ln">    70  </span>		expected, ok3 := testData[2].(bool)
+<span id="L71" class="ln">    71  </span>		if !ok1 || !ok2 || !ok3 {
+<span id="L72" class="ln">    72  </span>			log.Fatal(&#34;unpacking test data&#34;)
+<span id="L73" class="ln">    73  </span>		}
+<span id="L74" class="ln">    74  </span>
+<span id="L75" class="ln">    75  </span>		pv1 := paddedVersionString(v1)
+<span id="L76" class="ln">    76  </span>		pv2 := paddedVersionString(v2)
+<span id="L77" class="ln">    77  </span>
+<span id="L78" class="ln">    78  </span>		switch comparison {
+<span id="L79" class="ln">    79  </span>		case &#34;eq&#34;:
+<span id="L80" class="ln">    80  </span>			if (pv1 == pv2) != expected {
+<span id="L81" class="ln">    81  </span>				t.Errorf(&#34;unexpected result: &#39;%s&#39; eq &#39;%s&#39; =&gt; %v&#34;, v1, v2, pv1 == pv2)
+<span id="L82" class="ln">    82  </span>			}
+<span id="L83" class="ln">    83  </span>		case &#34;gt&#34;:
+<span id="L84" class="ln">    84  </span>			if (pv1 &gt; pv2) != expected {
+<span id="L85" class="ln">    85  </span>				t.Errorf(&#34;unexpected result: &#39;%s&#39; gt &#39;%s&#39; =&gt; %v&#34;, v1, v2, pv1 == pv2)
+<span id="L86" class="ln">    86  </span>			}
+<span id="L87" class="ln">    87  </span>		case &#34;lt&#34;:
+<span id="L88" class="ln">    88  </span>			if (pv1 &lt; pv2) != expected {
+<span id="L89" class="ln">    89  </span>				t.Errorf(&#34;unexpected result: &#39;%s&#39; lt &#39;%s&#39; =&gt; %v&#34;, v1, v2, pv1 == pv2)
+<span id="L90" class="ln">    90  </span>			}
+<span id="L91" class="ln">    91  </span>		}
+<span id="L92" class="ln">    92  </span>	}
 <span id="L93" class="ln">    93  </span>}
 <span id="L94" class="ln">    94  </span>
-<span id="L95" class="ln">    95  </span><span class="comment">// Bucket range tests.</span>
+<span id="L95" class="ln">    95  </span><span class="comment">// Hash function tests.</span>
 <span id="L96" class="ln">    96  </span><span class="comment">//</span>
-<span id="L97" class="ln">    97  </span><span class="comment">// Test parameters: name, args ([numVariations, coverage, weights]), result</span>
-<span id="L98" class="ln">    98  </span>func jsonTestGetBucketRange(g *G, itest int, test []interface{}) {
-<span id="L99" class="ln">    99  </span>	name, ok0 := test[0].(string)
-<span id="L100" class="ln">   100  </span>	args, ok1 := test[1].([]interface{})
-<span id="L101" class="ln">   101  </span>	result, ok2 := test[2].([]interface{})
-<span id="L102" class="ln">   102  </span>	if !ok0 || !ok1 || !ok2 {
-<span id="L103" class="ln">   103  </span>		log.Fatal(&#34;unpacking test data&#34;)
-<span id="L104" class="ln">   104  </span>	}
-<span id="L105" class="ln">   105  </span>
-<span id="L106" class="ln">   106  </span>	numVariations, argok0 := args[0].(float64)
-<span id="L107" class="ln">   107  </span>	coverage, argok1 := args[1].(float64)
-<span id="L108" class="ln">   108  </span>	if !argok0 || !argok1 {
-<span id="L109" class="ln">   109  </span>		log.Fatal(&#34;unpacking test data&#34;)
-<span id="L110" class="ln">   110  </span>	}
-<span id="L111" class="ln">   111  </span>	var weights []float64
-<span id="L112" class="ln">   112  </span>	if args[2] != nil {
-<span id="L113" class="ln">   113  </span>		wgts, ok := args[2].([]interface{})
-<span id="L114" class="ln">   114  </span>		if !ok {
-<span id="L115" class="ln">   115  </span>			log.Fatal(&#34;unpacking test data&#34;)
-<span id="L116" class="ln">   116  </span>		}
-<span id="L117" class="ln">   117  </span>		weights = make([]float64, len(wgts))
-<span id="L118" class="ln">   118  </span>		for i, w := range wgts {
-<span id="L119" class="ln">   119  </span>			weights[i] = w.(float64)
-<span id="L120" class="ln">   120  </span>		}
-<span id="L121" class="ln">   121  </span>	}
-<span id="L122" class="ln">   122  </span>
-<span id="L123" class="ln">   123  </span>	variations := make([]VariationRange, len(result))
-<span id="L124" class="ln">   124  </span>	for i, v := range result {
-<span id="L125" class="ln">   125  </span>		vr, ok := v.([]interface{})
-<span id="L126" class="ln">   126  </span>		if !ok || len(vr) != 2 {
-<span id="L127" class="ln">   127  </span>			log.Fatal(&#34;unpacking test data&#34;)
-<span id="L128" class="ln">   128  </span>		}
-<span id="L129" class="ln">   129  </span>		variations[i] = VariationRange{vr[0].(float64), vr[1].(float64)}
-<span id="L130" class="ln">   130  </span>	}
-<span id="L131" class="ln">   131  </span>
-<span id="L132" class="ln">   132  </span>	g.It(fmt.Sprintf(&#34;getBucketRange[%d] %s&#34;, itest, name), func() {
-<span id="L133" class="ln">   133  </span>		g.Assert(roundRanges(getBucketRanges(int(numVariations), coverage, weights))).
-<span id="L134" class="ln">   134  </span>			Equal(variations)
-<span id="L135" class="ln">   135  </span>	})
-<span id="L136" class="ln">   136  </span>}
+<span id="L97" class="ln">    97  </span><span class="comment">// Test parameters: value, hash</span>
+<span id="L98" class="ln">    98  </span>func jsonTestHash(t *testing.T, test []interface{}) {
+<span id="L99" class="ln">    99  </span>	seed, ok0 := test[0].(string)
+<span id="L100" class="ln">   100  </span>	value, ok1 := test[1].(string)
+<span id="L101" class="ln">   101  </span>	version, ok2 := test[2].(float64)
+<span id="L102" class="ln">   102  </span>	expectedValue, ok3 := test[3].(float64)
+<span id="L103" class="ln">   103  </span>	var expected *float64
+<span id="L104" class="ln">   104  </span>	if ok3 {
+<span id="L105" class="ln">   105  </span>		expected = &amp;expectedValue
+<span id="L106" class="ln">   106  </span>	} else {
+<span id="L107" class="ln">   107  </span>		ok3 = test[3] == nil
+<span id="L108" class="ln">   108  </span>	}
+<span id="L109" class="ln">   109  </span>	if !ok0 || !ok1 || !ok2 || !ok3 {
+<span id="L110" class="ln">   110  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L111" class="ln">   111  </span>	}
+<span id="L112" class="ln">   112  </span>
+<span id="L113" class="ln">   113  </span>	result := hash(seed, value, int(version))
+<span id="L114" class="ln">   114  </span>	if expected == nil {
+<span id="L115" class="ln">   115  </span>		if result != nil {
+<span id="L116" class="ln">   116  </span>			t.Errorf(&#34;expected nil result, got %v&#34;, result)
+<span id="L117" class="ln">   117  </span>		}
+<span id="L118" class="ln">   118  </span>	} else {
+<span id="L119" class="ln">   119  </span>		if result == nil {
+<span id="L120" class="ln">   120  </span>			t.Errorf(&#34;expected non-nil result, got nil&#34;)
+<span id="L121" class="ln">   121  </span>		}
+<span id="L122" class="ln">   122  </span>		if !reflect.DeepEqual(*result, *expected) {
+<span id="L123" class="ln">   123  </span>			t.Errorf(&#34;unexpected result: %v&#34;, *result)
+<span id="L124" class="ln">   124  </span>		}
+<span id="L125" class="ln">   125  </span>	}
+<span id="L126" class="ln">   126  </span>}
+<span id="L127" class="ln">   127  </span>
+<span id="L128" class="ln">   128  </span><span class="comment">// Bucket range tests.</span>
+<span id="L129" class="ln">   129  </span><span class="comment">//</span>
+<span id="L130" class="ln">   130  </span><span class="comment">// Test parameters: name, args ([numVariations, coverage, weights]), result</span>
+<span id="L131" class="ln">   131  </span>func jsonTestGetBucketRange(t *testing.T, test []interface{}) {
+<span id="L132" class="ln">   132  </span>	args, ok1 := test[1].([]interface{})
+<span id="L133" class="ln">   133  </span>	result, ok2 := test[2].([]interface{})
+<span id="L134" class="ln">   134  </span>	if !ok1 || !ok2 {
+<span id="L135" class="ln">   135  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L136" class="ln">   136  </span>	}
 <span id="L137" class="ln">   137  </span>
-<span id="L138" class="ln">   138  </span><span class="comment">// Variation choice tests.</span>
-<span id="L139" class="ln">   139  </span><span class="comment">//</span>
-<span id="L140" class="ln">   140  </span><span class="comment">// Test parameters: name, hash, ranges, result</span>
-<span id="L141" class="ln">   141  </span>func jsonTestChooseVariation(g *G, itest int, test []interface{}) {
-<span id="L142" class="ln">   142  </span>	name, ok0 := test[0].(string)
-<span id="L143" class="ln">   143  </span>	hash, ok1 := test[1].(float64)
-<span id="L144" class="ln">   144  </span>	ranges, ok2 := test[2].([]interface{})
-<span id="L145" class="ln">   145  </span>	result, ok3 := test[3].(float64)
-<span id="L146" class="ln">   146  </span>	if !ok0 || !ok1 || !ok2 || !ok3 {
-<span id="L147" class="ln">   147  </span>		log.Fatal(&#34;unpacking test data&#34;)
-<span id="L148" class="ln">   148  </span>	}
-<span id="L149" class="ln">   149  </span>
-<span id="L150" class="ln">   150  </span>	variations := make([]VariationRange, len(ranges))
-<span id="L151" class="ln">   151  </span>	for i, v := range ranges {
-<span id="L152" class="ln">   152  </span>		vr, ok := v.([]interface{})
-<span id="L153" class="ln">   153  </span>		if !ok || len(vr) != 2 {
-<span id="L154" class="ln">   154  </span>			log.Fatal(&#34;unpacking test data&#34;)
-<span id="L155" class="ln">   155  </span>		}
-<span id="L156" class="ln">   156  </span>		variations[i] = VariationRange{vr[0].(float64), vr[1].(float64)}
-<span id="L157" class="ln">   157  </span>	}
-<span id="L158" class="ln">   158  </span>
-<span id="L159" class="ln">   159  </span>	g.It(fmt.Sprintf(&#34;chooseVariation[%d] %s&#34;, itest, name), func() {
-<span id="L160" class="ln">   160  </span>		g.Assert(chooseVariation(hash, variations)).Equal(int(result))
-<span id="L161" class="ln">   161  </span>	})
-<span id="L162" class="ln">   162  </span>}
-<span id="L163" class="ln">   163  </span>
-<span id="L164" class="ln">   164  </span><span class="comment">// Query string override tests</span>
-<span id="L165" class="ln">   165  </span><span class="comment">//</span>
-<span id="L166" class="ln">   166  </span><span class="comment">// Test parameters: name, experiment key, url, numVariations, result</span>
-<span id="L167" class="ln">   167  </span>func jsonTestQueryStringOverride(g *G, itest int, test []interface{}) {
-<span id="L168" class="ln">   168  </span>	name, ok0 := test[0].(string)
-<span id="L169" class="ln">   169  </span>	key, ok1 := test[1].(string)
-<span id="L170" class="ln">   170  </span>	rawURL, ok2 := test[2].(string)
-<span id="L171" class="ln">   171  </span>	numVariations, ok3 := test[3].(float64)
-<span id="L172" class="ln">   172  </span>	result := test[4]
-<span id="L173" class="ln">   173  </span>	var expected *int
-<span id="L174" class="ln">   174  </span>	if result != nil {
-<span id="L175" class="ln">   175  </span>		tmp := int(result.(float64))
-<span id="L176" class="ln">   176  </span>		expected = &amp;tmp
-<span id="L177" class="ln">   177  </span>	}
-<span id="L178" class="ln">   178  </span>	if !ok0 || !ok1 || !ok2 || !ok3 {
-<span id="L179" class="ln">   179  </span>		log.Fatal(&#34;unpacking test data&#34;)
-<span id="L180" class="ln">   180  </span>	}
-<span id="L181" class="ln">   181  </span>	url, err := url.Parse(rawURL)
-<span id="L182" class="ln">   182  </span>	if err != nil {
-<span id="L183" class="ln">   183  </span>		log.Fatal(&#34;invalid URL&#34;)
+<span id="L138" class="ln">   138  </span>	numVariations, argok0 := args[0].(float64)
+<span id="L139" class="ln">   139  </span>	coverage, argok1 := args[1].(float64)
+<span id="L140" class="ln">   140  </span>	if !argok0 || !argok1 {
+<span id="L141" class="ln">   141  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L142" class="ln">   142  </span>	}
+<span id="L143" class="ln">   143  </span>	var weights []float64
+<span id="L144" class="ln">   144  </span>	totalWeights := 0.0
+<span id="L145" class="ln">   145  </span>	if args[2] != nil {
+<span id="L146" class="ln">   146  </span>		wgts, ok := args[2].([]interface{})
+<span id="L147" class="ln">   147  </span>		if !ok {
+<span id="L148" class="ln">   148  </span>			log.Fatal(&#34;unpacking test data&#34;)
+<span id="L149" class="ln">   149  </span>		}
+<span id="L150" class="ln">   150  </span>		weights = make([]float64, len(wgts))
+<span id="L151" class="ln">   151  </span>		for i, w := range wgts {
+<span id="L152" class="ln">   152  </span>			weights[i] = w.(float64)
+<span id="L153" class="ln">   153  </span>			totalWeights += w.(float64)
+<span id="L154" class="ln">   154  </span>		}
+<span id="L155" class="ln">   155  </span>	}
+<span id="L156" class="ln">   156  </span>
+<span id="L157" class="ln">   157  </span>	variations := make([]Range, len(result))
+<span id="L158" class="ln">   158  </span>	for i, v := range result {
+<span id="L159" class="ln">   159  </span>		vr, ok := v.([]interface{})
+<span id="L160" class="ln">   160  </span>		if !ok || len(vr) != 2 {
+<span id="L161" class="ln">   161  </span>			log.Fatal(&#34;unpacking test data&#34;)
+<span id="L162" class="ln">   162  </span>		}
+<span id="L163" class="ln">   163  </span>		variations[i] = Range{vr[0].(float64), vr[1].(float64)}
+<span id="L164" class="ln">   164  </span>	}
+<span id="L165" class="ln">   165  </span>
+<span id="L166" class="ln">   166  </span>	ranges := roundRanges(getBucketRanges(int(numVariations), coverage, weights))
+<span id="L167" class="ln">   167  </span>
+<span id="L168" class="ln">   168  </span>	if !reflect.DeepEqual(ranges, variations) {
+<span id="L169" class="ln">   169  </span>		t.Errorf(&#34;unexpected value: %v&#34;, result)
+<span id="L170" class="ln">   170  </span>	}
+<span id="L171" class="ln">   171  </span>
+<span id="L172" class="ln">   172  </span>	<span class="comment">// Handle expected warnings.</span>
+<span id="L173" class="ln">   173  </span>	if coverage &lt; 0 || coverage &gt; 1 {
+<span id="L174" class="ln">   174  </span>		if len(testLog.errors) != 0 &amp;&amp; len(testLog.warnings) != 1 {
+<span id="L175" class="ln">   175  </span>			t.Errorf(&#34;expected coverage log warning&#34;)
+<span id="L176" class="ln">   176  </span>		}
+<span id="L177" class="ln">   177  </span>		testLog.reset()
+<span id="L178" class="ln">   178  </span>	}
+<span id="L179" class="ln">   179  </span>	if totalWeights != 1 {
+<span id="L180" class="ln">   180  </span>		if len(testLog.errors) != 0 &amp;&amp; len(testLog.warnings) != 1 {
+<span id="L181" class="ln">   181  </span>			t.Errorf(&#34;expected weight sum log warning&#34;)
+<span id="L182" class="ln">   182  </span>		}
+<span id="L183" class="ln">   183  </span>		testLog.reset()
 <span id="L184" class="ln">   184  </span>	}
-<span id="L185" class="ln">   185  </span>
-<span id="L186" class="ln">   186  </span>	g.It(fmt.Sprintf(&#34;getQueryStringOverride[%d] %s&#34;, itest, name), func() {
-<span id="L187" class="ln">   187  </span>		g.Assert(getQueryStringOverride(key, url, int(numVariations))).Equal(expected)
-<span id="L188" class="ln">   188  </span>	})
-<span id="L189" class="ln">   189  </span>}
-<span id="L190" class="ln">   190  </span>
-<span id="L191" class="ln">   191  </span><span class="comment">// Namespace inclusion tests</span>
-<span id="L192" class="ln">   192  </span><span class="comment">//</span>
-<span id="L193" class="ln">   193  </span><span class="comment">// Test parameters: name, id, namespace, result</span>
-<span id="L194" class="ln">   194  </span>func jsonTestInNamespace(g *G, itest int, test []interface{}) {
-<span id="L195" class="ln">   195  </span>	name, ok0 := test[0].(string)
-<span id="L196" class="ln">   196  </span>	id, ok1 := test[1].(string)
-<span id="L197" class="ln">   197  </span>	ns, ok2 := test[2].([]interface{})
-<span id="L198" class="ln">   198  </span>	expected, ok3 := test[3].(bool)
-<span id="L199" class="ln">   199  </span>	if !ok0 || !ok1 || !ok2 || !ok3 {
-<span id="L200" class="ln">   200  </span>		log.Fatal(&#34;unpacking test data&#34;)
-<span id="L201" class="ln">   201  </span>	}
-<span id="L202" class="ln">   202  </span>
-<span id="L203" class="ln">   203  </span>	namespace := BuildNamespace(ns)
-<span id="L204" class="ln">   204  </span>	g.It(fmt.Sprintf(&#34;inNamespace[%d] %s&#34;, itest, name), func() {
-<span id="L205" class="ln">   205  </span>		g.Assert(inNamespace(id, namespace)).Equal(expected)
-<span id="L206" class="ln">   206  </span>	})
-<span id="L207" class="ln">   207  </span>}
-<span id="L208" class="ln">   208  </span>
-<span id="L209" class="ln">   209  </span><span class="comment">// Equal weight calculation tests.</span>
-<span id="L210" class="ln">   210  </span><span class="comment">//</span>
-<span id="L211" class="ln">   211  </span><span class="comment">// Test parameters: numVariations, result</span>
-<span id="L212" class="ln">   212  </span>func jsonTestGetEqualWeights(g *G, itest int, test []interface{}) {
-<span id="L213" class="ln">   213  </span>	numVariations, ok0 := test[0].(float64)
-<span id="L214" class="ln">   214  </span>	exp, ok1 := test[1].([]interface{})
-<span id="L215" class="ln">   215  </span>	if !ok0 || !ok1 {
-<span id="L216" class="ln">   216  </span>		log.Fatal(&#34;unpacking test data&#34;)
-<span id="L217" class="ln">   217  </span>	}
-<span id="L218" class="ln">   218  </span>
-<span id="L219" class="ln">   219  </span>	expected := make([]float64, len(exp))
-<span id="L220" class="ln">   220  </span>	for i, e := range exp {
-<span id="L221" class="ln">   221  </span>		expected[i] = e.(float64)
-<span id="L222" class="ln">   222  </span>	}
-<span id="L223" class="ln">   223  </span>
-<span id="L224" class="ln">   224  </span>	g.It(fmt.Sprintf(&#34;getEqualWeights[%d] %v&#34;, itest, numVariations), func() {
-<span id="L225" class="ln">   225  </span>		g.Assert(round(getEqualWeights(int(numVariations)))).Equal(round(expected))
-<span id="L226" class="ln">   226  </span>	})
-<span id="L227" class="ln">   227  </span>}
-<span id="L228" class="ln">   228  </span>
-<span id="L229" class="ln">   229  </span><span class="comment">// Experiment tests.</span>
-<span id="L230" class="ln">   230  </span><span class="comment">//</span>
-<span id="L231" class="ln">   231  </span><span class="comment">// Test parameters: name, context, experiment, value, inExperiment</span>
-<span id="L232" class="ln">   232  </span>func jsonTestRun(g *G, itest int, test []interface{}) {
-<span id="L233" class="ln">   233  </span>	name, ok0 := test[0].(string)
-<span id="L234" class="ln">   234  </span>	contextDict, ok1 := test[1].(map[string]interface{})
-<span id="L235" class="ln">   235  </span>	experimentDict, ok2 := test[2].(map[string]interface{})
-<span id="L236" class="ln">   236  </span>	resultValue := test[3]
-<span id="L237" class="ln">   237  </span>	resultInExperiment, ok3 := test[4].(bool)
-<span id="L238" class="ln">   238  </span>	if !ok0 || !ok1 || !ok2 || !ok3 {
-<span id="L239" class="ln">   239  </span>		log.Fatal(&#34;unpacking test data&#34;)
-<span id="L240" class="ln">   240  </span>	}
-<span id="L241" class="ln">   241  </span>
-<span id="L242" class="ln">   242  </span>	g.It(fmt.Sprintf(&#34;GrowthBook.Run[%d] %s&#34;, itest, name), func() {
-<span id="L243" class="ln">   243  </span>		context := BuildContext(contextDict)
-<span id="L244" class="ln">   244  </span>		growthbook := New(context)
-<span id="L245" class="ln">   245  </span>		experiment := BuildExperiment(experimentDict)
-<span id="L246" class="ln">   246  </span>		result := growthbook.Run(experiment)
-<span id="L247" class="ln">   247  </span>		g.Assert(result.Value).Equal(resultValue)
-<span id="L248" class="ln">   248  </span>		g.Assert(result.InExperiment).Equal(resultInExperiment)
-<span id="L249" class="ln">   249  </span>	})
-<span id="L250" class="ln">   250  </span>	<span class="comment">// if icase &gt;= 2 {</span>
-<span id="L251" class="ln">   251  </span>	<span class="comment">// 	os.Exit(1)</span>
-<span id="L252" class="ln">   252  </span>	<span class="comment">// }</span>
-<span id="L253" class="ln">   253  </span>}
-<span id="L254" class="ln">   254  </span>
-<span id="L255" class="ln">   255  </span><span class="comment">//------------------------------------------------------------------------------</span>
-<span id="L256" class="ln">   256  </span><span class="comment">//</span>
-<span id="L257" class="ln">   257  </span><span class="comment">//  TEST UTILITIES</span>
-<span id="L258" class="ln">   258  </span><span class="comment">//</span>
+<span id="L185" class="ln">   185  </span>	if len(weights) != len(result) {
+<span id="L186" class="ln">   186  </span>		if len(testLog.errors) != 0 &amp;&amp; len(testLog.warnings) != 1 {
+<span id="L187" class="ln">   187  </span>			t.Errorf(&#34;expected weight length log warning&#34;)
+<span id="L188" class="ln">   188  </span>		}
+<span id="L189" class="ln">   189  </span>		testLog.reset()
+<span id="L190" class="ln">   190  </span>	}
+<span id="L191" class="ln">   191  </span>}
+<span id="L192" class="ln">   192  </span>
+<span id="L193" class="ln">   193  </span><span class="comment">// Feature tests.</span>
+<span id="L194" class="ln">   194  </span><span class="comment">//</span>
+<span id="L195" class="ln">   195  </span><span class="comment">// Test parameters: name, context, feature key, result</span>
+<span id="L196" class="ln">   196  </span>func jsonTestFeature(t *testing.T, test []interface{}) {
+<span id="L197" class="ln">   197  </span>	contextDict, ok1 := test[1].(map[string]interface{})
+<span id="L198" class="ln">   198  </span>	featureKey, ok2 := test[2].(string)
+<span id="L199" class="ln">   199  </span>	expectedDict, ok3 := test[3].(map[string]interface{})
+<span id="L200" class="ln">   200  </span>	if !ok1 || !ok2 || !ok3 {
+<span id="L201" class="ln">   201  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L202" class="ln">   202  </span>	}
+<span id="L203" class="ln">   203  </span>
+<span id="L204" class="ln">   204  </span>	context := BuildContext(contextDict)
+<span id="L205" class="ln">   205  </span>	growthbook := New(context)
+<span id="L206" class="ln">   206  </span>	expected := BuildFeatureResult(expectedDict)
+<span id="L207" class="ln">   207  </span>	if expected == nil {
+<span id="L208" class="ln">   208  </span>		t.Errorf(&#34;unexpected nil from BuildFeatureResult&#34;)
+<span id="L209" class="ln">   209  </span>	}
+<span id="L210" class="ln">   210  </span>	retval := growthbook.Feature(featureKey)
+<span id="L211" class="ln">   211  </span>
+<span id="L212" class="ln">   212  </span>	<span class="comment">// fmt.Println(&#34;== RESULT ======================================================================&#34;)</span>
+<span id="L213" class="ln">   213  </span>	<span class="comment">// fmt.Println(retval)</span>
+<span id="L214" class="ln">   214  </span>	<span class="comment">// fmt.Println(retval.Experiment)</span>
+<span id="L215" class="ln">   215  </span>	<span class="comment">// fmt.Println(retval.ExperimentResult)</span>
+<span id="L216" class="ln">   216  </span>	<span class="comment">// fmt.Println(&#34;--------------------------------------------------------------------------------&#34;)</span>
+<span id="L217" class="ln">   217  </span>	<span class="comment">// fmt.Println(expected)</span>
+<span id="L218" class="ln">   218  </span>	<span class="comment">// fmt.Println(expected.Experiment)</span>
+<span id="L219" class="ln">   219  </span>	<span class="comment">// fmt.Println(expected.ExperimentResult)</span>
+<span id="L220" class="ln">   220  </span>	<span class="comment">// fmt.Println(&#34;== EXPECTED ====================================================================&#34;)</span>
+<span id="L221" class="ln">   221  </span>
+<span id="L222" class="ln">   222  </span>	if !reflect.DeepEqual(retval, expected) {
+<span id="L223" class="ln">   223  </span>		t.Errorf(&#34;unexpected value: %v&#34;, retval)
+<span id="L224" class="ln">   224  </span>	}
+<span id="L225" class="ln">   225  </span>
+<span id="L226" class="ln">   226  </span>	expectedWarnings := map[string]int{
+<span id="L227" class="ln">   227  </span>		&#34;unknown feature key&#34;: 1,
+<span id="L228" class="ln">   228  </span>		&#34;ignores empty rules&#34;: 1,
+<span id="L229" class="ln">   229  </span>	}
+<span id="L230" class="ln">   230  </span>	handleExpectedWarnings(t, test, expectedWarnings)
+<span id="L231" class="ln">   231  </span>}
+<span id="L232" class="ln">   232  </span>
+<span id="L233" class="ln">   233  </span><span class="comment">// Experiment tests.</span>
+<span id="L234" class="ln">   234  </span><span class="comment">//</span>
+<span id="L235" class="ln">   235  </span><span class="comment">// Test parameters: name, context, experiment, value, inExperiment</span>
+<span id="L236" class="ln">   236  </span>func jsonTestRun(t *testing.T, test []interface{}) {
+<span id="L237" class="ln">   237  </span>	contextDict, ok1 := test[1].(map[string]interface{})
+<span id="L238" class="ln">   238  </span>	experimentDict, ok2 := test[2].(map[string]interface{})
+<span id="L239" class="ln">   239  </span>	resultValue := test[3]
+<span id="L240" class="ln">   240  </span>	resultInExperiment, ok3 := test[4].(bool)
+<span id="L241" class="ln">   241  </span>	if !ok1 || !ok2 || !ok3 {
+<span id="L242" class="ln">   242  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L243" class="ln">   243  </span>	}
+<span id="L244" class="ln">   244  </span>
+<span id="L245" class="ln">   245  </span>	context := BuildContext(contextDict)
+<span id="L246" class="ln">   246  </span>	growthbook := New(context)
+<span id="L247" class="ln">   247  </span>	experiment := BuildExperiment(experimentDict)
+<span id="L248" class="ln">   248  </span>	if experiment == nil {
+<span id="L249" class="ln">   249  </span>		t.Errorf(&#34;unexpected nil from BuildExperiment&#34;)
+<span id="L250" class="ln">   250  </span>	}
+<span id="L251" class="ln">   251  </span>	result := growthbook.Run(experiment)
+<span id="L252" class="ln">   252  </span>
+<span id="L253" class="ln">   253  </span>	if !reflect.DeepEqual(result.Value, resultValue) {
+<span id="L254" class="ln">   254  </span>		t.Errorf(&#34;unexpected result value: %v&#34;, result.Value)
+<span id="L255" class="ln">   255  </span>	}
+<span id="L256" class="ln">   256  </span>	if result.InExperiment != resultInExperiment {
+<span id="L257" class="ln">   257  </span>		t.Errorf(&#34;unexpected inExperiment value: %v&#34;, result.InExperiment)
+<span id="L258" class="ln">   258  </span>	}
 <span id="L259" class="ln">   259  </span>
-<span id="L260" class="ln">   260  </span><span class="comment">// Run a set of JSON test cases.</span>
-<span id="L261" class="ln">   261  </span>func jsonTest(t *testing.T, label string,
-<span id="L262" class="ln">   262  </span>	fn func(g *G, itest int, test []interface{})) {
-<span id="L263" class="ln">   263  </span>	content, err := ioutil.ReadFile(&#34;cases.json&#34;)
-<span id="L264" class="ln">   264  </span>	if err != nil {
-<span id="L265" class="ln">   265  </span>		log.Fatal(err)
-<span id="L266" class="ln">   266  </span>	}
-<span id="L267" class="ln">   267  </span>
-<span id="L268" class="ln">   268  </span>	<span class="comment">// Unmarshal all test cases at once.</span>
-<span id="L269" class="ln">   269  </span>	allCases := map[string]interface{}{}
-<span id="L270" class="ln">   270  </span>	err = json.Unmarshal(content, &amp;allCases)
-<span id="L271" class="ln">   271  </span>	if err != nil {
-<span id="L272" class="ln">   272  </span>		log.Fatal(err)
-<span id="L273" class="ln">   273  </span>	}
-<span id="L274" class="ln">   274  </span>
-<span id="L275" class="ln">   275  </span>	<span class="comment">// Extract just the test cases for the test type we&#39;re working on.</span>
-<span id="L276" class="ln">   276  </span>	cases := allCases[label].([]interface{})
-<span id="L277" class="ln">   277  </span>
-<span id="L278" class="ln">   278  </span>	<span class="comment">// Extract the test data for each case as a JSON array and pass to</span>
-<span id="L279" class="ln">   279  </span>	<span class="comment">// the test function.</span>
-<span id="L280" class="ln">   280  </span>	g := Goblin(t)
-<span id="L281" class="ln">   281  </span>	g.Describe(&#34;json test suite: &#34;+label, func() {
-<span id="L282" class="ln">   282  </span>		<span class="comment">// Handle logging during tests: reset log before each test, make</span>
-<span id="L283" class="ln">   283  </span>		<span class="comment">// sure there are no errors, and make sure there is never more</span>
-<span id="L284" class="ln">   284  </span>		<span class="comment">// than one warning during a test (some tests that check for</span>
-<span id="L285" class="ln">   285  </span>		<span class="comment">// correct handling of out-of-range parameters trigger warnings,</span>
-<span id="L286" class="ln">   286  </span>		<span class="comment">// but there should never be more than one per test).</span>
-<span id="L287" class="ln">   287  </span>		g.BeforeEach(func() { testLog.reset() })
-<span id="L288" class="ln">   288  </span>		g.AfterEach(func() {
-<span id="L289" class="ln">   289  </span>			g.Assert(len(testLog.errors)).Equal(0, &#34;test log has errors:&#34;, testLog.allErrors())
-<span id="L290" class="ln">   290  </span>			g.Assert(len(testLog.warnings) &lt;= 1).IsTrue(&#34;test log has warnings:&#34;, testLog.allWarnings())
-<span id="L291" class="ln">   291  </span>		})
-<span id="L292" class="ln">   292  </span>
-<span id="L293" class="ln">   293  </span>		<span class="comment">// Run tests one at a time: each test&#39;s JSON data is an array,</span>
-<span id="L294" class="ln">   294  </span>		<span class="comment">// with the interpretation of the array entries depending on the</span>
-<span id="L295" class="ln">   295  </span>		<span class="comment">// test type.</span>
-<span id="L296" class="ln">   296  </span>		for itest, gtest := range cases {
-<span id="L297" class="ln">   297  </span>			test, ok := gtest.([]interface{})
-<span id="L298" class="ln">   298  </span>			if !ok {
-<span id="L299" class="ln">   299  </span>				log.Fatal(&#34;unpacking JSON test data&#34;)
-<span id="L300" class="ln">   300  </span>			}
-<span id="L301" class="ln">   301  </span>			fn(g, itest, test)
-<span id="L302" class="ln">   302  </span>		}
-<span id="L303" class="ln">   303  </span>	})
-<span id="L304" class="ln">   304  </span>}
-<span id="L305" class="ln">   305  </span>
-<span id="L306" class="ln">   306  </span><span class="comment">// Helper to round variation ranges for comparison with fixed test</span>
-<span id="L307" class="ln">   307  </span><span class="comment">// values.</span>
-<span id="L308" class="ln">   308  </span>func roundRanges(ranges []VariationRange) []VariationRange {
-<span id="L309" class="ln">   309  </span>	result := make([]VariationRange, len(ranges))
-<span id="L310" class="ln">   310  </span>	for i, r := range ranges {
-<span id="L311" class="ln">   311  </span>		rmin := math.Round(r.Min*1000000) / 1000000
-<span id="L312" class="ln">   312  </span>		rmax := math.Round(r.Max*1000000) / 1000000
-<span id="L313" class="ln">   313  </span>		result[i] = VariationRange{rmin, rmax}
-<span id="L314" class="ln">   314  </span>	}
-<span id="L315" class="ln">   315  </span>	return result
-<span id="L316" class="ln">   316  </span>}
-<span id="L317" class="ln">   317  </span>
-<span id="L318" class="ln">   318  </span><span class="comment">// Helper to round floating point arrays for test comparison.</span>
-<span id="L319" class="ln">   319  </span>func round(vals []float64) []float64 {
-<span id="L320" class="ln">   320  </span>	result := make([]float64, len(vals))
-<span id="L321" class="ln">   321  </span>	for i, v := range vals {
-<span id="L322" class="ln">   322  </span>		result[i] = math.Round(v*1000000) / 1000000
-<span id="L323" class="ln">   323  </span>	}
-<span id="L324" class="ln">   324  </span>	return result
-<span id="L325" class="ln">   325  </span>}
-<span id="L326" class="ln">   326  </span>
-<span id="L327" class="ln">   327  </span><span class="comment">// Logger to capture error and log messages.</span>
-<span id="L328" class="ln">   328  </span>type testLogger struct {
-<span id="L329" class="ln">   329  </span>	errors   []string
-<span id="L330" class="ln">   330  </span>	warnings []string
-<span id="L331" class="ln">   331  </span>	info     []string
-<span id="L332" class="ln">   332  </span>}
-<span id="L333" class="ln">   333  </span>
-<span id="L334" class="ln">   334  </span>var testLog = testLogger{}
-<span id="L335" class="ln">   335  </span>
-<span id="L336" class="ln">   336  </span>func (log *testLogger) allErrors() string {
-<span id="L337" class="ln">   337  </span>	s := &#34;&#34;
-<span id="L338" class="ln">   338  </span>	for i, e := range log.errors {
-<span id="L339" class="ln">   339  </span>		if i != 0 {
-<span id="L340" class="ln">   340  </span>			s += &#34;, &#34;
-<span id="L341" class="ln">   341  </span>		}
-<span id="L342" class="ln">   342  </span>		s += e
-<span id="L343" class="ln">   343  </span>	}
-<span id="L344" class="ln">   344  </span>	return s
-<span id="L345" class="ln">   345  </span>}
+<span id="L260" class="ln">   260  </span>	expectedWarnings := map[string]int{
+<span id="L261" class="ln">   261  </span>		&#34;single variation&#34;: 1,
+<span id="L262" class="ln">   262  </span>	}
+<span id="L263" class="ln">   263  </span>	handleExpectedWarnings(t, test, expectedWarnings)
+<span id="L264" class="ln">   264  </span>}
+<span id="L265" class="ln">   265  </span>
+<span id="L266" class="ln">   266  </span><span class="comment">// Variation choice tests.</span>
+<span id="L267" class="ln">   267  </span><span class="comment">//</span>
+<span id="L268" class="ln">   268  </span><span class="comment">// Test parameters: name, hash, ranges, result</span>
+<span id="L269" class="ln">   269  </span>func jsonTestChooseVariation(t *testing.T, test []interface{}) {
+<span id="L270" class="ln">   270  </span>	hash, ok1 := test[1].(float64)
+<span id="L271" class="ln">   271  </span>	ranges, ok2 := test[2].([]interface{})
+<span id="L272" class="ln">   272  </span>	result, ok3 := test[3].(float64)
+<span id="L273" class="ln">   273  </span>	if !ok1 || !ok2 || !ok3 {
+<span id="L274" class="ln">   274  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L275" class="ln">   275  </span>	}
+<span id="L276" class="ln">   276  </span>
+<span id="L277" class="ln">   277  </span>	variations := make([]Range, len(ranges))
+<span id="L278" class="ln">   278  </span>	for i, v := range ranges {
+<span id="L279" class="ln">   279  </span>		vr, ok := v.([]interface{})
+<span id="L280" class="ln">   280  </span>		if !ok || len(vr) != 2 {
+<span id="L281" class="ln">   281  </span>			log.Fatal(&#34;unpacking test data&#34;)
+<span id="L282" class="ln">   282  </span>		}
+<span id="L283" class="ln">   283  </span>		variations[i] = Range{vr[0].(float64), vr[1].(float64)}
+<span id="L284" class="ln">   284  </span>	}
+<span id="L285" class="ln">   285  </span>
+<span id="L286" class="ln">   286  </span>	variation := chooseVariation(hash, variations)
+<span id="L287" class="ln">   287  </span>	if variation != int(result) {
+<span id="L288" class="ln">   288  </span>		t.Errorf(&#34;unexpected result: %d&#34;, variation)
+<span id="L289" class="ln">   289  </span>	}
+<span id="L290" class="ln">   290  </span>}
+<span id="L291" class="ln">   291  </span>
+<span id="L292" class="ln">   292  </span><span class="comment">// Query string override tests</span>
+<span id="L293" class="ln">   293  </span><span class="comment">//</span>
+<span id="L294" class="ln">   294  </span><span class="comment">// Test parameters: name, experiment key, url, numVariations, result</span>
+<span id="L295" class="ln">   295  </span>func jsonTestQueryStringOverride(t *testing.T, test []interface{}) {
+<span id="L296" class="ln">   296  </span>	key, ok1 := test[1].(string)
+<span id="L297" class="ln">   297  </span>	rawURL, ok2 := test[2].(string)
+<span id="L298" class="ln">   298  </span>	numVariations, ok3 := test[3].(float64)
+<span id="L299" class="ln">   299  </span>	result := test[4]
+<span id="L300" class="ln">   300  </span>	var expected *int
+<span id="L301" class="ln">   301  </span>	if result != nil {
+<span id="L302" class="ln">   302  </span>		tmp := int(result.(float64))
+<span id="L303" class="ln">   303  </span>		expected = &amp;tmp
+<span id="L304" class="ln">   304  </span>	}
+<span id="L305" class="ln">   305  </span>	if !ok1 || !ok2 || !ok3 {
+<span id="L306" class="ln">   306  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L307" class="ln">   307  </span>	}
+<span id="L308" class="ln">   308  </span>	url, err := url.Parse(rawURL)
+<span id="L309" class="ln">   309  </span>	if err != nil {
+<span id="L310" class="ln">   310  </span>		log.Fatal(&#34;invalid URL&#34;)
+<span id="L311" class="ln">   311  </span>	}
+<span id="L312" class="ln">   312  </span>
+<span id="L313" class="ln">   313  </span>	override := getQueryStringOverride(key, url, int(numVariations))
+<span id="L314" class="ln">   314  </span>	if !reflect.DeepEqual(override, expected) {
+<span id="L315" class="ln">   315  </span>		t.Errorf(&#34;unexpected result: %v&#34;, override)
+<span id="L316" class="ln">   316  </span>	}
+<span id="L317" class="ln">   317  </span>}
+<span id="L318" class="ln">   318  </span>
+<span id="L319" class="ln">   319  </span><span class="comment">// Namespace inclusion tests</span>
+<span id="L320" class="ln">   320  </span><span class="comment">//</span>
+<span id="L321" class="ln">   321  </span><span class="comment">// Test parameters: name, id, namespace, result</span>
+<span id="L322" class="ln">   322  </span>func jsonTestInNamespace(t *testing.T, test []interface{}) {
+<span id="L323" class="ln">   323  </span>	id, ok1 := test[1].(string)
+<span id="L324" class="ln">   324  </span>	ns, ok2 := test[2].([]interface{})
+<span id="L325" class="ln">   325  </span>	expected, ok3 := test[3].(bool)
+<span id="L326" class="ln">   326  </span>	if !ok1 || !ok2 || !ok3 {
+<span id="L327" class="ln">   327  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L328" class="ln">   328  </span>	}
+<span id="L329" class="ln">   329  </span>
+<span id="L330" class="ln">   330  </span>	namespace := BuildNamespace(ns)
+<span id="L331" class="ln">   331  </span>	result := namespace.inNamespace(id)
+<span id="L332" class="ln">   332  </span>	if result != expected {
+<span id="L333" class="ln">   333  </span>		t.Errorf(&#34;unexpected result: %v&#34;, result)
+<span id="L334" class="ln">   334  </span>	}
+<span id="L335" class="ln">   335  </span>}
+<span id="L336" class="ln">   336  </span>
+<span id="L337" class="ln">   337  </span><span class="comment">// Equal weight calculation tests.</span>
+<span id="L338" class="ln">   338  </span><span class="comment">//</span>
+<span id="L339" class="ln">   339  </span><span class="comment">// Test parameters: numVariations, result</span>
+<span id="L340" class="ln">   340  </span>func jsonTestGetEqualWeights(t *testing.T, test []interface{}) {
+<span id="L341" class="ln">   341  </span>	numVariations, ok0 := test[0].(float64)
+<span id="L342" class="ln">   342  </span>	exp, ok1 := test[1].([]interface{})
+<span id="L343" class="ln">   343  </span>	if !ok0 || !ok1 {
+<span id="L344" class="ln">   344  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L345" class="ln">   345  </span>	}
 <span id="L346" class="ln">   346  </span>
-<span id="L347" class="ln">   347  </span>func (log *testLogger) allWarnings() string {
-<span id="L348" class="ln">   348  </span>	s := &#34;&#34;
-<span id="L349" class="ln">   349  </span>	for i, e := range log.warnings {
-<span id="L350" class="ln">   350  </span>		if i != 0 {
-<span id="L351" class="ln">   351  </span>			s += &#34;, &#34;
-<span id="L352" class="ln">   352  </span>		}
-<span id="L353" class="ln">   353  </span>		s += e
-<span id="L354" class="ln">   354  </span>	}
-<span id="L355" class="ln">   355  </span>	return s
+<span id="L347" class="ln">   347  </span>	expected := make([]float64, len(exp))
+<span id="L348" class="ln">   348  </span>	for i, e := range exp {
+<span id="L349" class="ln">   349  </span>		expected[i] = e.(float64)
+<span id="L350" class="ln">   350  </span>	}
+<span id="L351" class="ln">   351  </span>
+<span id="L352" class="ln">   352  </span>	result := getEqualWeights(int(numVariations))
+<span id="L353" class="ln">   353  </span>	if !reflect.DeepEqual(round(result), round(expected)) {
+<span id="L354" class="ln">   354  </span>		t.Errorf(&#34;unexpected value: %v&#34;, result)
+<span id="L355" class="ln">   355  </span>	}
 <span id="L356" class="ln">   356  </span>}
 <span id="L357" class="ln">   357  </span>
-<span id="L358" class="ln">   358  </span>func (log *testLogger) reset() {
-<span id="L359" class="ln">   359  </span>	log.errors = []string{}
-<span id="L360" class="ln">   360  </span>	log.warnings = []string{}
-<span id="L361" class="ln">   361  </span>	log.info = []string{}
-<span id="L362" class="ln">   362  </span>}
-<span id="L363" class="ln">   363  </span>
-<span id="L364" class="ln">   364  </span>func formatArgs(args ...interface{}) string {
-<span id="L365" class="ln">   365  </span>	s := &#34;&#34;
-<span id="L366" class="ln">   366  </span>	for i, a := range args {
-<span id="L367" class="ln">   367  </span>		if i != 0 {
-<span id="L368" class="ln">   368  </span>			s += &#34; &#34;
-<span id="L369" class="ln">   369  </span>		}
-<span id="L370" class="ln">   370  </span>		s += fmt.Sprint(a)
-<span id="L371" class="ln">   371  </span>	}
-<span id="L372" class="ln">   372  </span>	return s
-<span id="L373" class="ln">   373  </span>}
-<span id="L374" class="ln">   374  </span>
-<span id="L375" class="ln">   375  </span>func (log *testLogger) Error(msg string, args ...interface{}) {
-<span id="L376" class="ln">   376  </span>	s := msg
-<span id="L377" class="ln">   377  </span>	if len(args) &gt; 0 {
-<span id="L378" class="ln">   378  </span>		s += &#34;: &#34; + formatArgs(args...)
-<span id="L379" class="ln">   379  </span>	}
-<span id="L380" class="ln">   380  </span>	log.errors = append(log.errors, s)
-<span id="L381" class="ln">   381  </span>}
-<span id="L382" class="ln">   382  </span>
-<span id="L383" class="ln">   383  </span>func (log *testLogger) Errorf(format string, args ...interface{}) {
-<span id="L384" class="ln">   384  </span>	log.errors = append(log.errors, fmt.Sprintf(format, args...))
-<span id="L385" class="ln">   385  </span>}
-<span id="L386" class="ln">   386  </span>
-<span id="L387" class="ln">   387  </span>func (log *testLogger) Warn(msg string, args ...interface{}) {
-<span id="L388" class="ln">   388  </span>	s := msg
-<span id="L389" class="ln">   389  </span>	if len(args) &gt; 0 {
-<span id="L390" class="ln">   390  </span>		s += &#34;: &#34; + formatArgs(args...)
+<span id="L358" class="ln">   358  </span><span class="comment">// Decryption function tests.</span>
+<span id="L359" class="ln">   359  </span><span class="comment">//</span>
+<span id="L360" class="ln">   360  </span><span class="comment">// Test parameters: name, encryptedString, key, expected</span>
+<span id="L361" class="ln">   361  </span>func jsonTestDecrypt(t *testing.T, test []interface{}) {
+<span id="L362" class="ln">   362  </span>	encryptedString, ok1 := test[1].(string)
+<span id="L363" class="ln">   363  </span>	key, ok2 := test[2].(string)
+<span id="L364" class="ln">   364  </span>	if !ok1 || !ok2 {
+<span id="L365" class="ln">   365  </span>		log.Fatal(&#34;unpacking test data&#34;)
+<span id="L366" class="ln">   366  </span>	}
+<span id="L367" class="ln">   367  </span>	nilExpected := test[3] == nil
+<span id="L368" class="ln">   368  </span>	expected := &#34;&#34;
+<span id="L369" class="ln">   369  </span>	if !nilExpected {
+<span id="L370" class="ln">   370  </span>		expected, ok2 = test[3].(string)
+<span id="L371" class="ln">   371  </span>		if !ok2 {
+<span id="L372" class="ln">   372  </span>			log.Fatal(&#34;unpacking test data&#34;)
+<span id="L373" class="ln">   373  </span>		}
+<span id="L374" class="ln">   374  </span>	}
+<span id="L375" class="ln">   375  </span>
+<span id="L376" class="ln">   376  </span>	result, err := decrypt(encryptedString, key)
+<span id="L377" class="ln">   377  </span>	if nilExpected {
+<span id="L378" class="ln">   378  </span>		if err == nil {
+<span id="L379" class="ln">   379  </span>			t.Errorf(&#34;expected error return&#34;)
+<span id="L380" class="ln">   380  </span>		}
+<span id="L381" class="ln">   381  </span>	} else {
+<span id="L382" class="ln">   382  </span>		if err != nil {
+<span id="L383" class="ln">   383  </span>			t.Errorf(&#34;error in decrypt: %v&#34;, err)
+<span id="L384" class="ln">   384  </span>		} else if !reflect.DeepEqual(result, expected) {
+<span id="L385" class="ln">   385  </span>			t.Errorf(&#34;unexpected result: %v&#34;, result)
+<span id="L386" class="ln">   386  </span>			fmt.Printf(&#34;expected: &#39;%s&#39; (%d)\n&#34;, expected, len(expected))
+<span id="L387" class="ln">   387  </span>			fmt.Println([]byte(expected))
+<span id="L388" class="ln">   388  </span>			fmt.Printf(&#34;     got: &#39;%s&#39; (%d)\n&#34;, result, len(result))
+<span id="L389" class="ln">   389  </span>			fmt.Println([]byte(result))
+<span id="L390" class="ln">   390  </span>		}
 <span id="L391" class="ln">   391  </span>	}
-<span id="L392" class="ln">   392  </span>	log.warnings = append(log.warnings, s)
-<span id="L393" class="ln">   393  </span>}
-<span id="L394" class="ln">   394  </span>
-<span id="L395" class="ln">   395  </span>func (log *testLogger) Warnf(format string, args ...interface{}) {
-<span id="L396" class="ln">   396  </span>	log.warnings = append(log.warnings, fmt.Sprintf(format, args...))
-<span id="L397" class="ln">   397  </span>}
+<span id="L392" class="ln">   392  </span>}
+<span id="L393" class="ln">   393  </span>
+<span id="L394" class="ln">   394  </span><span class="comment">//------------------------------------------------------------------------------</span>
+<span id="L395" class="ln">   395  </span><span class="comment">//</span>
+<span id="L396" class="ln">   396  </span><span class="comment">//  TEST UTILITIES</span>
+<span id="L397" class="ln">   397  </span><span class="comment">//</span>
 <span id="L398" class="ln">   398  </span>
-<span id="L399" class="ln">   399  </span>func (log *testLogger) Info(msg string, args ...interface{}) {
-<span id="L400" class="ln">   400  </span>	s := msg
-<span id="L401" class="ln">   401  </span>	if len(args) &gt; 0 {
-<span id="L402" class="ln">   402  </span>		s += &#34;: &#34; + fmt.Sprint(args...)
-<span id="L403" class="ln">   403  </span>	}
-<span id="L404" class="ln">   404  </span>	log.info = append(log.info, s)
-<span id="L405" class="ln">   405  </span>}
-<span id="L406" class="ln">   406  </span>
-<span id="L407" class="ln">   407  </span>func (log *testLogger) Infof(format string, args ...interface{}) {
-<span id="L408" class="ln">   408  </span>	log.info = append(log.info, fmt.Sprintf(format, args...))
-<span id="L409" class="ln">   409  </span>}
-<span id="L410" class="ln">   410  </span>
+<span id="L399" class="ln">   399  </span><span class="comment">// Run a set of JSON test cases provided as a JSON array.</span>
+<span id="L400" class="ln">   400  </span>
+<span id="L401" class="ln">   401  </span>func jsonTest(t *testing.T, label string,
+<span id="L402" class="ln">   402  </span>	fn func(t *testing.T, test []interface{})) {
+<span id="L403" class="ln">   403  </span>	content, err := ioutil.ReadFile(&#34;cases.json&#34;)
+<span id="L404" class="ln">   404  </span>	if err != nil {
+<span id="L405" class="ln">   405  </span>		log.Fatal(err)
+<span id="L406" class="ln">   406  </span>	}
+<span id="L407" class="ln">   407  </span>
+<span id="L408" class="ln">   408  </span>	<span class="comment">// Unmarshal all test cases at once.</span>
+<span id="L409" class="ln">   409  </span>	allCases := map[string]interface{}{}
+<span id="L410" class="ln">   410  </span>	err = json.Unmarshal(content, &amp;allCases)
+<span id="L411" class="ln">   411  </span>	if err != nil {
+<span id="L412" class="ln">   412  </span>		log.Fatal(err)
+<span id="L413" class="ln">   413  </span>	}
+<span id="L414" class="ln">   414  </span>
+<span id="L415" class="ln">   415  </span>	<span class="comment">// Extract just the test cases for the test type we&#39;re working on.</span>
+<span id="L416" class="ln">   416  </span>	cases := allCases[label].([]interface{})
+<span id="L417" class="ln">   417  </span>
+<span id="L418" class="ln">   418  </span>	<span class="comment">// Extract the test data for each case as a JSON array and pass to</span>
+<span id="L419" class="ln">   419  </span>	<span class="comment">// the test function.</span>
+<span id="L420" class="ln">   420  </span>	t.Run(&#34;json test suite: &#34;+label, func(t *testing.T) {
+<span id="L421" class="ln">   421  </span>		<span class="comment">// Run tests one at a time: each test&#39;s JSON data is an array,</span>
+<span id="L422" class="ln">   422  </span>		<span class="comment">// with the interpretation of the array entries depending on the</span>
+<span id="L423" class="ln">   423  </span>		<span class="comment">// test type.</span>
+<span id="L424" class="ln">   424  </span>		for itest, gtest := range cases {
+<span id="L425" class="ln">   425  </span>			test, ok := gtest.([]interface{})
+<span id="L426" class="ln">   426  </span>			if !ok {
+<span id="L427" class="ln">   427  </span>				log.Fatal(&#34;unpacking JSON test data&#34;)
+<span id="L428" class="ln">   428  </span>			}
+<span id="L429" class="ln">   429  </span>			name, ok := test[0].(string)
+<span id="L430" class="ln">   430  </span>			if !ok {
+<span id="L431" class="ln">   431  </span>				name = &#34;&#34;
+<span id="L432" class="ln">   432  </span>			}
+<span id="L433" class="ln">   433  </span>			t.Run(fmt.Sprintf(&#34;[%d] %s&#34;, itest, name), func(t *testing.T) {
+<span id="L434" class="ln">   434  </span>				<span class="comment">// Handle logging during tests: reset log before each test,</span>
+<span id="L435" class="ln">   435  </span>				<span class="comment">// make sure there are no errors or warnings (some tests that</span>
+<span id="L436" class="ln">   436  </span>				<span class="comment">// check for correct handling of out-of-range parameters</span>
+<span id="L437" class="ln">   437  </span>				<span class="comment">// trigger warnings, but these are handled within the test</span>
+<span id="L438" class="ln">   438  </span>				<span class="comment">// themselves).</span>
+<span id="L439" class="ln">   439  </span>				testLog.reset()
+<span id="L440" class="ln">   440  </span>				fn(t, test)
+<span id="L441" class="ln">   441  </span>				if len(testLog.errors) != 0 {
+<span id="L442" class="ln">   442  </span>					t.Errorf(&#34;test log has errors: %s&#34;, testLog.allErrors())
+<span id="L443" class="ln">   443  </span>				}
+<span id="L444" class="ln">   444  </span>				if len(testLog.warnings) != 0 {
+<span id="L445" class="ln">   445  </span>					t.Errorf(&#34;test log has warnings: %s&#34;, testLog.allWarnings())
+<span id="L446" class="ln">   446  </span>				}
+<span id="L447" class="ln">   447  </span>			})
+<span id="L448" class="ln">   448  </span>		}
+<span id="L449" class="ln">   449  </span>	})
+<span id="L450" class="ln">   450  </span>}
+<span id="L451" class="ln">   451  </span>
+<span id="L452" class="ln">   452  </span><span class="comment">// Run a set of JSON test cases provided as a JSON map.</span>
+<span id="L453" class="ln">   453  </span>
+<span id="L454" class="ln">   454  </span>func jsonMapTest(t *testing.T, label string,
+<span id="L455" class="ln">   455  </span>	fn func(t *testing.T, label string, test []interface{})) {
+<span id="L456" class="ln">   456  </span>	content, err := ioutil.ReadFile(&#34;cases.json&#34;)
+<span id="L457" class="ln">   457  </span>	if err != nil {
+<span id="L458" class="ln">   458  </span>		log.Fatal(err)
+<span id="L459" class="ln">   459  </span>	}
+<span id="L460" class="ln">   460  </span>
+<span id="L461" class="ln">   461  </span>	<span class="comment">// Unmarshal all test cases at once.</span>
+<span id="L462" class="ln">   462  </span>	allCases := map[string]interface{}{}
+<span id="L463" class="ln">   463  </span>	err = json.Unmarshal(content, &amp;allCases)
+<span id="L464" class="ln">   464  </span>	if err != nil {
+<span id="L465" class="ln">   465  </span>		log.Fatal(err)
+<span id="L466" class="ln">   466  </span>	}
+<span id="L467" class="ln">   467  </span>
+<span id="L468" class="ln">   468  </span>	<span class="comment">// Extract just the test cases for the test type we&#39;re working on.</span>
+<span id="L469" class="ln">   469  </span>	cases := allCases[label].(map[string]interface{})
+<span id="L470" class="ln">   470  </span>
+<span id="L471" class="ln">   471  </span>	<span class="comment">// Extract the test data for each case as a JSON array and pass to</span>
+<span id="L472" class="ln">   472  </span>	<span class="comment">// the test function.</span>
+<span id="L473" class="ln">   473  </span>	t.Run(&#34;json test suite: &#34;+label, func(t *testing.T) {
+<span id="L474" class="ln">   474  </span>		<span class="comment">// Run tests one at a time: each test&#39;s JSON data is an array,</span>
+<span id="L475" class="ln">   475  </span>		<span class="comment">// keyed by a string label, and the interpretation of the array</span>
+<span id="L476" class="ln">   476  </span>		<span class="comment">// entries depends on the test type.</span>
+<span id="L477" class="ln">   477  </span>		itest := 1
+<span id="L478" class="ln">   478  </span>		for name, gtest := range cases {
+<span id="L479" class="ln">   479  </span>			test, ok := gtest.([]interface{})
+<span id="L480" class="ln">   480  </span>			if !ok {
+<span id="L481" class="ln">   481  </span>				log.Fatal(&#34;unpacking JSON test data&#34;)
+<span id="L482" class="ln">   482  </span>			}
+<span id="L483" class="ln">   483  </span>
+<span id="L484" class="ln">   484  </span>			t.Run(fmt.Sprintf(&#34;[%d] %s&#34;, itest, name), func(t *testing.T) {
+<span id="L485" class="ln">   485  </span>				<span class="comment">// Handle logging during tests: reset log before each test,</span>
+<span id="L486" class="ln">   486  </span>				<span class="comment">// make sure there are no errors or warnings (some tests that</span>
+<span id="L487" class="ln">   487  </span>				<span class="comment">// check for correct handling of out-of-range parameters</span>
+<span id="L488" class="ln">   488  </span>				<span class="comment">// trigger warnings, but these are handled within the test</span>
+<span id="L489" class="ln">   489  </span>				<span class="comment">// themselves).</span>
+<span id="L490" class="ln">   490  </span>				testLog.reset()
+<span id="L491" class="ln">   491  </span>				fn(t, name, test)
+<span id="L492" class="ln">   492  </span>				if len(testLog.errors) != 0 {
+<span id="L493" class="ln">   493  </span>					t.Errorf(&#34;test log has errors: %s&#34;, testLog.allErrors())
+<span id="L494" class="ln">   494  </span>				}
+<span id="L495" class="ln">   495  </span>				if len(testLog.warnings) != 0 {
+<span id="L496" class="ln">   496  </span>					t.Errorf(&#34;test log has warnings: %s&#34;, testLog.allWarnings())
+<span id="L497" class="ln">   497  </span>				}
+<span id="L498" class="ln">   498  </span>			})
+<span id="L499" class="ln">   499  </span>			itest++
+<span id="L500" class="ln">   500  </span>		}
+<span id="L501" class="ln">   501  </span>	})
+<span id="L502" class="ln">   502  </span>}
+<span id="L503" class="ln">   503  </span>
 </pre><p><a href="../../../../src/github.com/growthbook/growthbook-golang/json_test.go.html?m=text">View as plain text</a></p>
 
 <div id="footer"><a href="../../../../docs.zip">Download docs.zip</a> to browse offline - Generated by <a href="https://godoc.org/golang.org/x/tools/godoc" target="_blank">godoc</a> + <a href="https://code.rocketnine.space/tslocum/godoc-static" target="_blank">godoc-static</a></div>

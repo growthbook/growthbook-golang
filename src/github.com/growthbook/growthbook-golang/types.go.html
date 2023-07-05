@@ -57,94 +57,92 @@
 
 <pre><span id="L1" class="ln">     1  </span>package growthbook
 <span id="L2" class="ln">     2  </span>
-<span id="L3" class="ln">     3  </span><span class="comment">// Attributes is an arbitrary JSON object containing user and request</span>
-<span id="L4" class="ln">     4  </span><span class="comment">// attributes.</span>
-<span id="L5" class="ln">     5  </span>type Attributes map[string]interface{}
-<span id="L6" class="ln">     6  </span>
-<span id="L7" class="ln">     7  </span><span class="comment">// FeatureValue is a wrapper around an arbitrary type representing the</span>
-<span id="L8" class="ln">     8  </span><span class="comment">// value of a feature. Features can return any kinds of values, so</span>
-<span id="L9" class="ln">     9  </span><span class="comment">// this is an alias for interface{}.</span>
-<span id="L10" class="ln">    10  </span>type FeatureValue interface{}
-<span id="L11" class="ln">    11  </span>
-<span id="L12" class="ln">    12  </span><span class="comment">// Feature has a default value plus rules than can override the</span>
-<span id="L13" class="ln">    13  </span><span class="comment">// default.</span>
-<span id="L14" class="ln">    14  </span>type Feature struct {
-<span id="L15" class="ln">    15  </span>	DefaultValue FeatureValue
-<span id="L16" class="ln">    16  </span>	Rules        []*FeatureRule
-<span id="L17" class="ln">    17  </span>}
-<span id="L18" class="ln">    18  </span>
-<span id="L19" class="ln">    19  </span><span class="comment">// FeatureMap is a map of feature objects, keyed by string feature</span>
-<span id="L20" class="ln">    20  </span><span class="comment">// IDs.</span>
-<span id="L21" class="ln">    21  </span>type FeatureMap map[string]*Feature
-<span id="L22" class="ln">    22  </span>
-<span id="L23" class="ln">    23  </span><span class="comment">// FeatureResultSource is an enumerated type representing the source</span>
-<span id="L24" class="ln">    24  </span><span class="comment">// of a FeatureResult.</span>
-<span id="L25" class="ln">    25  </span>type FeatureResultSource uint
-<span id="L26" class="ln">    26  </span>
-<span id="L27" class="ln">    27  </span><span class="comment">// FeatureResultSource values.</span>
-<span id="L28" class="ln">    28  </span>const (
-<span id="L29" class="ln">    29  </span>	UnknownFeatureResultSource FeatureResultSource = iota + 1
-<span id="L30" class="ln">    30  </span>	DefaultValueResultSource
-<span id="L31" class="ln">    31  </span>	ForceResultSource
-<span id="L32" class="ln">    32  </span>	ExperimentResultSource
-<span id="L33" class="ln">    33  </span>)
-<span id="L34" class="ln">    34  </span>
-<span id="L35" class="ln">    35  </span><span class="comment">// ParseFeatureResultSource creates a FeatureResultSource value from</span>
-<span id="L36" class="ln">    36  </span><span class="comment">// its string representation.</span>
-<span id="L37" class="ln">    37  </span>func ParseFeatureResultSource(source string) FeatureResultSource {
-<span id="L38" class="ln">    38  </span>	switch source {
-<span id="L39" class="ln">    39  </span>	case &#34;defaultValue&#34;:
-<span id="L40" class="ln">    40  </span>		return DefaultValueResultSource
-<span id="L41" class="ln">    41  </span>	case &#34;force&#34;:
-<span id="L42" class="ln">    42  </span>		return ForceResultSource
-<span id="L43" class="ln">    43  </span>	case &#34;experiment&#34;:
-<span id="L44" class="ln">    44  </span>		return ExperimentResultSource
-<span id="L45" class="ln">    45  </span>	default:
-<span id="L46" class="ln">    46  </span>		return UnknownFeatureResultSource
-<span id="L47" class="ln">    47  </span>	}
-<span id="L48" class="ln">    48  </span>}
-<span id="L49" class="ln">    49  </span>
-<span id="L50" class="ln">    50  </span><span class="comment">// FeatureResult is the result of evaluating a feature.</span>
-<span id="L51" class="ln">    51  </span>type FeatureResult struct {
-<span id="L52" class="ln">    52  </span>	Value            FeatureValue
-<span id="L53" class="ln">    53  </span>	On               bool
-<span id="L54" class="ln">    54  </span>	Off              bool
-<span id="L55" class="ln">    55  </span>	Source           FeatureResultSource
-<span id="L56" class="ln">    56  </span>	Experiment       *Experiment
-<span id="L57" class="ln">    57  </span>	ExperimentResult *ExperimentResult
-<span id="L58" class="ln">    58  </span>}
-<span id="L59" class="ln">    59  </span>
-<span id="L60" class="ln">    60  </span><span class="comment">// ExperimentResult records the result of running an Experiment given</span>
-<span id="L61" class="ln">    61  </span><span class="comment">// a specific Context.</span>
-<span id="L62" class="ln">    62  </span>type ExperimentResult struct {
-<span id="L63" class="ln">    63  </span>	Value         FeatureValue
-<span id="L64" class="ln">    64  </span>	VariationID   int
-<span id="L65" class="ln">    65  </span>	InExperiment  bool
-<span id="L66" class="ln">    66  </span>	HashUsed      bool
-<span id="L67" class="ln">    67  </span>	HashAttribute string
-<span id="L68" class="ln">    68  </span>	HashValue     string
-<span id="L69" class="ln">    69  </span>	FeatureID     *string
-<span id="L70" class="ln">    70  </span>}
+<span id="L3" class="ln">     3  </span>import &#34;encoding/json&#34;
+<span id="L4" class="ln">     4  </span>
+<span id="L5" class="ln">     5  </span><span class="comment">// Attributes is an arbitrary JSON object containing user and request</span>
+<span id="L6" class="ln">     6  </span><span class="comment">// attributes.</span>
+<span id="L7" class="ln">     7  </span>type Attributes map[string]interface{}
+<span id="L8" class="ln">     8  </span>
+<span id="L9" class="ln">     9  </span><span class="comment">// FeatureMap is a map of feature objects, keyed by string feature</span>
+<span id="L10" class="ln">    10  </span><span class="comment">// IDs.</span>
+<span id="L11" class="ln">    11  </span>type FeatureMap map[string]*Feature
+<span id="L12" class="ln">    12  </span>
+<span id="L13" class="ln">    13  </span><span class="comment">// ParseFeatureMap creates a FeatureMap value from raw JSON input.</span>
+<span id="L14" class="ln">    14  </span>func ParseFeatureMap(data []byte) FeatureMap {
+<span id="L15" class="ln">    15  </span>	dict := map[string]interface{}{}
+<span id="L16" class="ln">    16  </span>	err := json.Unmarshal(data, &amp;dict)
+<span id="L17" class="ln">    17  </span>	if err != nil {
+<span id="L18" class="ln">    18  </span>		logError(&#34;Failed parsing JSON input&#34;, &#34;FeatureMap&#34;)
+<span id="L19" class="ln">    19  </span>		return nil
+<span id="L20" class="ln">    20  </span>	}
+<span id="L21" class="ln">    21  </span>	return BuildFeatureMap(dict)
+<span id="L22" class="ln">    22  </span>}
+<span id="L23" class="ln">    23  </span>
+<span id="L24" class="ln">    24  </span><span class="comment">// BuildFeatureMap creates a FeatureMap value from a JSON object</span>
+<span id="L25" class="ln">    25  </span><span class="comment">// represented as a Go map.</span>
+<span id="L26" class="ln">    26  </span>func BuildFeatureMap(dict map[string]interface{}) FeatureMap {
+<span id="L27" class="ln">    27  </span>	fmap := FeatureMap{}
+<span id="L28" class="ln">    28  </span>	for k, v := range dict {
+<span id="L29" class="ln">    29  </span>		feature := BuildFeature(v)
+<span id="L30" class="ln">    30  </span>		if feature != nil {
+<span id="L31" class="ln">    31  </span>			fmap[k] = feature
+<span id="L32" class="ln">    32  </span>		}
+<span id="L33" class="ln">    33  </span>	}
+<span id="L34" class="ln">    34  </span>	return fmap
+<span id="L35" class="ln">    35  </span>}
+<span id="L36" class="ln">    36  </span>
+<span id="L37" class="ln">    37  </span><span class="comment">// ForcedVariationsMap is a map that forces an Experiment to always</span>
+<span id="L38" class="ln">    38  </span><span class="comment">// assign a specific variation. Useful for QA.</span>
+<span id="L39" class="ln">    39  </span><span class="comment">//</span>
+<span id="L40" class="ln">    40  </span><span class="comment">// Keys are the experiment key, values are the array index of the</span>
+<span id="L41" class="ln">    41  </span><span class="comment">// variation.</span>
+<span id="L42" class="ln">    42  </span>type ForcedVariationsMap map[string]int
+<span id="L43" class="ln">    43  </span>
+<span id="L44" class="ln">    44  </span><span class="comment">// URL matching supports regular expressions or simple string matches.</span>
+<span id="L45" class="ln">    45  </span>type URLTargetType uint
+<span id="L46" class="ln">    46  </span>
+<span id="L47" class="ln">    47  </span>const (
+<span id="L48" class="ln">    48  </span>	RegexURLTarget  URLTargetType = iota
+<span id="L49" class="ln">    49  </span>	SimpleURLTarget               = iota
+<span id="L50" class="ln">    50  </span>)
+<span id="L51" class="ln">    51  </span>
+<span id="L52" class="ln">    52  </span><span class="comment">// URL match target.</span>
+<span id="L53" class="ln">    53  </span>type URLTarget struct {
+<span id="L54" class="ln">    54  </span>	Type    URLTargetType
+<span id="L55" class="ln">    55  </span>	Include bool
+<span id="L56" class="ln">    56  </span>	Pattern string
+<span id="L57" class="ln">    57  </span>}
+<span id="L58" class="ln">    58  </span>
+<span id="L59" class="ln">    59  </span><span class="comment">// FeatureResultSource is an enumerated type representing the source</span>
+<span id="L60" class="ln">    60  </span><span class="comment">// of a FeatureResult.</span>
+<span id="L61" class="ln">    61  </span>type FeatureResultSource uint
+<span id="L62" class="ln">    62  </span>
+<span id="L63" class="ln">    63  </span><span class="comment">// FeatureResultSource values.</span>
+<span id="L64" class="ln">    64  </span>const (
+<span id="L65" class="ln">    65  </span>	UnknownResultSource FeatureResultSource = iota + 1
+<span id="L66" class="ln">    66  </span>	DefaultValueResultSource
+<span id="L67" class="ln">    67  </span>	ForceResultSource
+<span id="L68" class="ln">    68  </span>	ExperimentResultSource
+<span id="L69" class="ln">    69  </span>	OverrideResultSource
+<span id="L70" class="ln">    70  </span>)
 <span id="L71" class="ln">    71  </span>
-<span id="L72" class="ln">    72  </span><span class="comment">// FeatureRule overrides the default value of a Feature.</span>
-<span id="L73" class="ln">    73  </span>type FeatureRule struct {
-<span id="L74" class="ln">    74  </span>	Condition     Condition
-<span id="L75" class="ln">    75  </span>	Coverage      *float64
-<span id="L76" class="ln">    76  </span>	Force         FeatureValue
-<span id="L77" class="ln">    77  </span>	Variations    []FeatureValue
-<span id="L78" class="ln">    78  </span>	TrackingKey   *string
-<span id="L79" class="ln">    79  </span>	Weights       []float64
-<span id="L80" class="ln">    80  </span>	Namespace     *Namespace
-<span id="L81" class="ln">    81  </span>	HashAttribute *string
-<span id="L82" class="ln">    82  </span>}
-<span id="L83" class="ln">    83  </span>
-<span id="L84" class="ln">    84  </span><span class="comment">// ForcedVariationsMap is a map that forces an Experiment to always</span>
-<span id="L85" class="ln">    85  </span><span class="comment">// assign a specific variation. Useful for QA.</span>
-<span id="L86" class="ln">    86  </span><span class="comment">//</span>
-<span id="L87" class="ln">    87  </span><span class="comment">// Keys are the experiment key, values are the array index of the</span>
-<span id="L88" class="ln">    88  </span><span class="comment">// variation.</span>
-<span id="L89" class="ln">    89  </span>type ForcedVariationsMap map[string]int
-<span id="L90" class="ln">    90  </span>
+<span id="L72" class="ln">    72  </span><span class="comment">// ParseFeatureResultSource creates a FeatureResultSource value from</span>
+<span id="L73" class="ln">    73  </span><span class="comment">// its string representation.</span>
+<span id="L74" class="ln">    74  </span>func ParseFeatureResultSource(source string) FeatureResultSource {
+<span id="L75" class="ln">    75  </span>	switch source {
+<span id="L76" class="ln">    76  </span>	case &#34;&#34;, &#34;defaultValue&#34;:
+<span id="L77" class="ln">    77  </span>		return DefaultValueResultSource
+<span id="L78" class="ln">    78  </span>	case &#34;force&#34;:
+<span id="L79" class="ln">    79  </span>		return ForceResultSource
+<span id="L80" class="ln">    80  </span>	case &#34;experiment&#34;:
+<span id="L81" class="ln">    81  </span>		return ExperimentResultSource
+<span id="L82" class="ln">    82  </span>	case &#34;override&#34;:
+<span id="L83" class="ln">    83  </span>		return OverrideResultSource
+<span id="L84" class="ln">    84  </span>	default:
+<span id="L85" class="ln">    85  </span>		return UnknownResultSource
+<span id="L86" class="ln">    86  </span>	}
+<span id="L87" class="ln">    87  </span>}
+<span id="L88" class="ln">    88  </span>
 </pre><p><a href="../../../../src/github.com/growthbook/growthbook-golang/types.go.html?m=text">View as plain text</a></p>
 
 <div id="footer"><a href="../../../../docs.zip">Download docs.zip</a> to browse offline - Generated by <a href="https://godoc.org/golang.org/x/tools/godoc" target="_blank">godoc</a> + <a href="https://code.rocketnine.space/tslocum/godoc-static" target="_blank">godoc-static</a></div>

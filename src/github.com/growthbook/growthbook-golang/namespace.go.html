@@ -1,0 +1,113 @@
+<!DOCTYPE html><html><head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="theme-color" content="#375EAB"/>
+
+  <title>growthbook-golang - Documentation</title>
+
+
+
+
+
+
+
+
+
+
+<link type="text/css" rel="stylesheet" href="../../../../lib/style.css"/></head>
+<body>
+
+<div id="lowframe" style="position: fixed; bottom: 0; left: 0; height: 0; width: 100%; border-top: thin solid grey; background-color: white; overflow: auto;">
+...
+</div><!-- #lowframe -->
+
+<div id="topbar" class="wide"><div class="container">
+<div class="top-heading" id="heading-wide"><a href="../../../../">Documentation</a></div>
+<div class="top-heading" id="heading-narrow"><a href="../../../../">Documentation</a></div>
+<!--<a href="#" id="menu-button"><span id="menu-button-arrow">▽</span></a>-->
+<div id="menu">
+<a href="../../../../" style="margin-right: 10px;">Package Index</a>
+</div>
+</div></div>
+
+
+
+<div id="page" class="wide">
+<div class="container">
+
+
+  <h1>
+    Source file
+    <a href="/src">src</a>/<a href="../../../../src/github.com.html">github.com</a>/<a href="../../../../src/github.com/growthbook">growthbook</a>/<a href="../../../../src/github.com/growthbook/growthbook-golang">growthbook-golang</a>/<span class="text-muted">namespace.go</span>
+  </h1>
+
+
+
+
+
+  <h2>
+    Documentation: <a href="../../../../github.com/growthbook/growthbook-golang">github.com/growthbook/growthbook-golang</a>
+  </h2>
+
+
+
+<div id="nav"></div>
+
+
+
+<pre><span id="L1" class="ln">     1  </span>package growthbook
+<span id="L2" class="ln">     2  </span>
+<span id="L3" class="ln">     3  </span>import &#34;encoding/json&#34;
+<span id="L4" class="ln">     4  </span>
+<span id="L5" class="ln">     5  </span><span class="comment">// Namespace specifies what part of a namespace an experiment</span>
+<span id="L6" class="ln">     6  </span><span class="comment">// includes. If two experiments are in the same namespace and their</span>
+<span id="L7" class="ln">     7  </span><span class="comment">// ranges don&#39;t overlap, they wil be mutually exclusive.</span>
+<span id="L8" class="ln">     8  </span>type Namespace struct {
+<span id="L9" class="ln">     9  </span>	ID    string
+<span id="L10" class="ln">    10  </span>	Start float64
+<span id="L11" class="ln">    11  </span>	End   float64
+<span id="L12" class="ln">    12  </span>}
+<span id="L13" class="ln">    13  </span>
+<span id="L14" class="ln">    14  </span><span class="comment">// Determine whether a user&#39;s ID lies within a given namespace.</span>
+<span id="L15" class="ln">    15  </span>func (namespace *Namespace) inNamespace(userID string) bool {
+<span id="L16" class="ln">    16  </span>	n := float64(hashFnv32a(userID+&#34;__&#34;+namespace.ID)%1000) / 1000
+<span id="L17" class="ln">    17  </span>	return n &gt;= namespace.Start &amp;&amp; n &lt; namespace.End
+<span id="L18" class="ln">    18  </span>}
+<span id="L19" class="ln">    19  </span>
+<span id="L20" class="ln">    20  </span><span class="comment">// ParseNamespace creates a Namespace value from raw JSON input.</span>
+<span id="L21" class="ln">    21  </span>func ParseNamespace(data []byte) *Namespace {
+<span id="L22" class="ln">    22  </span>	array := []interface{}{}
+<span id="L23" class="ln">    23  </span>	err := json.Unmarshal(data, &amp;array)
+<span id="L24" class="ln">    24  </span>	if err != nil {
+<span id="L25" class="ln">    25  </span>		logError(&#34;Failed parsing JSON input&#34;, &#34;Namespace&#34;)
+<span id="L26" class="ln">    26  </span>		return nil
+<span id="L27" class="ln">    27  </span>	}
+<span id="L28" class="ln">    28  </span>	return BuildNamespace(array)
+<span id="L29" class="ln">    29  </span>}
+<span id="L30" class="ln">    30  </span>
+<span id="L31" class="ln">    31  </span><span class="comment">// BuildNamespace creates a Namespace value from a generic JSON value.</span>
+<span id="L32" class="ln">    32  </span>func BuildNamespace(val interface{}) *Namespace {
+<span id="L33" class="ln">    33  </span>	array, ok := val.([]interface{})
+<span id="L34" class="ln">    34  </span>	if !ok || len(array) != 3 {
+<span id="L35" class="ln">    35  </span>		logError(&#34;Invalid JSON data type&#34;, &#34;Namespace&#34;)
+<span id="L36" class="ln">    36  </span>		return nil
+<span id="L37" class="ln">    37  </span>	}
+<span id="L38" class="ln">    38  </span>	id, ok1 := array[0].(string)
+<span id="L39" class="ln">    39  </span>	start, ok2 := array[1].(float64)
+<span id="L40" class="ln">    40  </span>	end, ok3 := array[2].(float64)
+<span id="L41" class="ln">    41  </span>	if !ok1 || !ok2 || !ok3 {
+<span id="L42" class="ln">    42  </span>		logError(&#34;Invalid JSON data type&#34;, &#34;Namespace&#34;)
+<span id="L43" class="ln">    43  </span>		return nil
+<span id="L44" class="ln">    44  </span>	}
+<span id="L45" class="ln">    45  </span>	return &amp;Namespace{id, start, end}
+<span id="L46" class="ln">    46  </span>}
+<span id="L47" class="ln">    47  </span>
+</pre><p><a href="../../../../src/github.com/growthbook/growthbook-golang/namespace.go.html?m=text">View as plain text</a></p>
+
+<div id="footer"><a href="../../../../docs.zip">Download docs.zip</a> to browse offline - Generated by <a href="https://godoc.org/golang.org/x/tools/godoc" target="_blank">godoc</a> + <a href="https://code.rocketnine.space/tslocum/godoc-static" target="_blank">godoc-static</a></div>
+
+</div><!-- .container -->
+</div><!-- #page -->
+
+
+</body></html>
