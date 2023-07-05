@@ -553,6 +553,8 @@ func (gb *GrowthBook) RefreshFeatures(options *FeatureRepoOptions) {
 	gb.refresh(options, false, true)
 }
 
+//-- PRIVATE FUNCTIONS START HERE ----------------------------------------------
+
 func (gb *GrowthBook) refresh(
 	options *FeatureRepoOptions, allowStale bool, updateInstance bool) {
 
@@ -569,8 +571,6 @@ func (gb *GrowthBook) refresh(
 	ConfigureCacheStaleTTL(gb.inner.context.CacheTTL)
 	RepoRefreshFeatures(gb, timeout, skipCache, allowStale, updateInstance)
 }
-
-//-- PRIVATE FUNCTIONS START HERE ----------------------------------------------
 
 func (gb *GrowthBook) trackFeatureUsage(key string, res *FeatureResult) {
 	// Don't track feature usage that was forced via an override.
