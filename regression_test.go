@@ -1,28 +1,9 @@
 package growthbook
 
 import (
-	"fmt"
+	"reflect"
 	"testing"
-
-	. "github.com/franela/goblin"
 )
-
-var regressionTests = map[int]func(g *G){
-	1: issue1, // https://github.com/growthbook/growthbook-golang/issues/1
-	5: issue5, // https://github.com/growthbook/growthbook-golang/issues/5
-}
-
-func TestRegressions(t *testing.T) {
-	g := Goblin(t)
-	g.Describe("regression tests", func() {
-		for itest, test := range regressionTests {
-			g.It(fmt.Sprintf("issue #%d", itest), func() {
-				test(g)
-			})
-		}
-		g.It("nil context", func() { nilContext(g) })
-	})
-}
 
 const issue1FeaturesJson = `{
 	"banner_text": {
@@ -121,7 +102,7 @@ const issue1ContextJson = `{
 
 const issue1ExpectedJson = `{ "meal_type": "gf", "dessert": "French Vanilla Ice Cream" }`
 
-func issue1(g *G) {
+func TestIssue1(t *testing.T) {
 	// Check with slice value for attribute.
 	attrs := Attributes{
 		"id":                  "user-employee-123456789",
@@ -145,10 +126,13 @@ func issue1(g *G) {
 		"meal_type": "gf",
 		"dessert":   "French Vanilla Ice Cream",
 	}
-	g.Assert(value).Equal(expectedValue)
+
+	if !reflect.DeepEqual(value, expectedValue) {
+		t.Errorf("unexpected value: %v", value)
+	}
 }
 
-func issue5(g *G) {
+func TestIssue5(t *testing.T) {
 	// Check with array value for attribute.
 	attrs := Attributes{
 		"id":                  "user-employee-123456789",
@@ -172,12 +156,18 @@ func issue5(g *G) {
 		"meal_type": "gf",
 		"dessert":   "French Vanilla Ice Cream",
 	}
-	g.Assert(value).Equal(expectedValue)
+
+	if !reflect.DeepEqual(value, expectedValue) {
+		t.Errorf("unexpected value: %v", value)
+	}
 }
 
-func nilContext(g *G) {
+func TestNilContext(t *testing.T) {
 	// Check that there's no problem using a nil context.
 	var nilContext *Context
 	gbTest := New(nilContext)
-	g.Assert(gbTest.Enabled()).IsTrue()
+
+	if !gbTest.inner.context.Enabled {
+		t.Errorf("expected gbTest.enabled to be true")
+	}
 }

@@ -9,7 +9,7 @@
 
 ## Requirements
 
-- Go version 1.17 or higher
+- Go version 1.18 or higher (tested with 1.18, 1.19, 1.20)
 
 
 ## Installation

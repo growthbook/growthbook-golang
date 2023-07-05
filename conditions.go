@@ -93,10 +93,10 @@ func (cond baseCondition) Eval(attrs Attributes) bool {
 
 // ParseCondition creates a Condition value from raw JSON input.
 func ParseCondition(data []byte) Condition {
-	topLevel := map[string]interface{}{}
+	topLevel := make(map[string]interface{})
 	err := json.Unmarshal(data, &topLevel)
 	if err != nil {
-		logError(ErrJSONFailedToParse, "Condition")
+		logError("Failed parsing JSON input", "Condition")
 		return nil
 	}
 
@@ -133,7 +133,7 @@ func BuildCondition(cond map[string]interface{}) Condition {
 	if not, ok := cond["$not"]; ok {
 		subcond, ok := not.(map[string]interface{})
 		if !ok {
-			logError(ErrCondJSONNot)
+			logError("Invalid $not in JSON condition data")
 			return nil
 		}
 		cond := BuildCondition(subcond)
@@ -172,7 +172,7 @@ func buildSeq(seq interface{}) []Condition {
 	// The input should be a JSON array.
 	conds, ok := seq.([]interface{})
 	if !ok {
-		logError(ErrCondJSONSequence)
+		logError("Something wrong in condition sequence")
 		return nil
 	}
 
@@ -181,7 +181,8 @@ func buildSeq(seq interface{}) []Condition {
 		// Each condition in the sequence should be a JSON object.
 		condmap, ok := conds[i].(map[string]interface{})
 		if !ok {
-			logError(ErrCondJSONSequenceElement)
+			logError("Something wrong in condition sequence element")
+			return nil
 		}
 		cond := BuildCondition(condmap)
 		if cond == nil {
@@ -226,6 +227,14 @@ func isOperatorObject(obj map[string]interface{}) bool {
 // operator name.
 func evalOperatorCondition(key string, attrVal interface{}, condVal interface{}) bool {
 	switch key {
+	case "$veq", "$vne", "$vgt", "$vgte", "$vlt", "$vlte":
+		attrstring, attrok := attrVal.(string)
+		condstring, reok := condVal.(string)
+		if !reok || !attrok {
+			return false
+		}
+		return versionCompare(key, attrstring, condstring)
+
 	case "$eq":
 		return reflect.DeepEqual(attrVal, condVal)
 
@@ -248,10 +257,18 @@ func evalOperatorCondition(key string, attrVal interface{}, condVal interface{})
 		return re.MatchString(attrstring)
 
 	case "$in":
-		return elementIn(attrVal, condVal)
+		vals, ok := condVal.([]interface{})
+		if !ok {
+			return false
+		}
+		return elementIn(attrVal, vals)
 
 	case "$nin":
-		return !elementIn(attrVal, condVal)
+		vals, ok := condVal.([]interface{})
+		if !ok {
+			return false
+		}
+		return !elementIn(attrVal, vals)
 
 	case "$elemMatch":
 		return elemMatch(attrVal, condVal)
@@ -300,6 +317,28 @@ func getType(v interface{}) string {
 	}
 }
 
+// Perform version string comparisons.
+
+func versionCompare(comp string, v1 string, v2 string) bool {
+	v1 = paddedVersionString(v1)
+	v2 = paddedVersionString(v2)
+	switch comp {
+	case "$veq":
+		return v1 == v2
+	case "$vne":
+		return v1 != v2
+	case "$vgt":
+		return v1 > v2
+	case "$vgte":
+		return v1 >= v2
+	case "$vlt":
+		return v1 < v2
+	case "$vlte":
+		return v1 <= v2
+	}
+	return false
+}
+
 // Perform numeric or string ordering comparisons on polymorphic JSON
 // values.
 func compare(comp string, x interface{}, y interface{}) bool {
@@ -308,7 +347,7 @@ func compare(comp string, x interface{}, y interface{}) bool {
 		xn := x.(float64)
 		yn, ok := y.(float64)
 		if !ok {
-			logWarn(WarnCondCompareTypeMismatch)
+			logWarn("Types don't match in condition comparison operation")
 			return false
 		}
 		switch comp {
@@ -326,7 +365,7 @@ func compare(comp string, x interface{}, y interface{}) bool {
 		xs := x.(string)
 		ys, ok := y.(string)
 		if !ok {
-			logWarn(WarnCondCompareTypeMismatch)
+			logWarn("Types don't match in condition comparison operation")
 			return false
 		}
 		switch comp {
@@ -343,15 +382,33 @@ func compare(comp string, x interface{}, y interface{}) bool {
 	return false
 }
 
-// Check for membership of a JSON value in a JSON array.
-func elementIn(v interface{}, array interface{}) bool {
-	vals, ok := array.([]interface{})
-	if !ok {
-		return false
+// Check for membership of a JSON value in a JSON array or
+// intersection of two arrays.
+
+func elementIn(v interface{}, array []interface{}) bool {
+	otherArray, ok := v.([]interface{})
+	if ok {
+		// Both arguments are arrays, so look for intersection.
+		return commonElement(array, otherArray)
 	}
-	for _, val := range vals {
+
+	// One single value, one array, so do membership test.
+	for _, val := range array {
 		if reflect.DeepEqual(v, val) {
 			return true
+		}
+	}
+	return false
+}
+
+// Check for common element in two arrays.
+
+func commonElement(a1 []interface{}, a2 []interface{}) bool {
+	for _, el1 := range a1 {
+		for _, el2 := range a2 {
+			if reflect.DeepEqual(el1, el2) {
+				return true
+			}
 		}
 	}
 	return false

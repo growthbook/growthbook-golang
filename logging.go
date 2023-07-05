@@ -5,32 +5,6 @@ import (
 	"os"
 )
 
-// Message constants used for logging.
-const (
-	ErrJSONFailedToParse       = "failed parsing JSON input"
-	ErrJSONInvalidType         = "invalid JSON data type"
-	ErrCtxJSONInvalidURL       = "invalid URL in JSON context data"
-	ErrCtxArrayInAttributes    = "array values not permitted in attributes (use a slice)"
-	ErrExpJSONInvalidCondition = "invalid condition in JSON experiment data"
-	ErrCondJSONNot             = "invalid $not in JSON condition data"
-	ErrCondJSONSequence        = "something wrong in condition sequence"
-	ErrCondJSONSequenceElement = "something wrong in condition sequence element"
-
-	WarnJSONUnknownKey            = "unknown key in JSON data"
-	WarnCondCompareTypeMismatch   = "types don't match in condition comparison operation"
-	WarnExpJSONKeyNotSet          = "key not set in JSON experiment data"
-	WarnExpCoverageMustBePositive = "Experiment coverage must be greater than or equal to 0"
-	WarnExpCoverageMustBeFraction = "Experiment coverage must be less than or equal to 1"
-	WarnExpWeightsWrongLength     = "Experiment weights and variations arrays must be the same length"
-	WarnExpWeightsWrongTotal      = "Experiment weights must add up to 1"
-
-	InfoRuleSkipCondition          = "Skip rule because of condition"
-	InfoRuleSkipNoHashAttribute    = "Skip rule because of missing hash attribute"
-	InfoRuleSkipEmptyHashAttribute = "Skip rule because of empty hash attribute"
-	InfoRuleSkipCoverage           = "Skip rule because of coverage"
-	InfoRuleSkipUserNotInExp       = "Skip rule because user not in experiment"
-)
-
 // Logger is a common interface for logging information and warning
 // messages (errors are returned directly by SDK functions, but there
 // is some useful "out of band" data that's provided via this

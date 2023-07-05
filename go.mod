@@ -1,5 +1,9 @@
 module github.com/growthbook/growthbook-golang
 
-go 1.17
+go 1.18
 
-require github.com/franela/goblin v0.0.0-20211003143422-0a4f594942bf
+require (
+	github.com/r3labs/sse/v2 v2.10.0 // indirect
+	golang.org/x/net v0.0.0-20191116160921-f9c825593386 // indirect
+	gopkg.in/cenkalti/backoff.v1 v1.1.0 // indirect
+)
