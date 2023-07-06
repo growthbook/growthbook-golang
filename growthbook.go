@@ -72,7 +72,7 @@ func New(context *Context) *GrowthBook {
 	//  5. GrowthBook instance is unreferenced, so eligible for GC.
 	//  6. Garbage collection.
 	//  7. GrowthBook instance is collected by GC and its finalizer is
-	//     run, which calls RepoUnsubscribe. This removes the inner
+	//     run, which calls repoUnsubscribe. This removes the inner
 	//     growthBookData instance from the auto-refresh code's data
 	//     structures. (The finalizer resurrects the GrowthBook
 	//     instance, so another cycle of GC is needed to collect it for
@@ -103,7 +103,7 @@ func New(context *Context) *GrowthBook {
 		assigned:            make(map[string]*Assignment),
 	}
 	gb := &GrowthBook{inner}
-	runtime.SetFinalizer(gb, func(gb *GrowthBook) { RepoUnsubscribe(gb) })
+	runtime.SetFinalizer(gb, func(gb *GrowthBook) { repoUnsubscribe(gb) })
 	if context.ClientKey != "" {
 		go gb.refresh(nil, true, false)
 	}
@@ -545,8 +545,12 @@ type FeatureRepoOptions struct {
 func (gb *GrowthBook) LoadFeatures(options *FeatureRepoOptions) {
 	gb.refresh(options, true, true)
 	if options != nil && options.AutoRefresh {
-		RepoSubscribe(gb)
+		repoSubscribe(gb)
 	}
+}
+
+func (gb *GrowthBook) LatestFeatureUpdate() *time.Time {
+	return repoLatestUpdate(gb)
 }
 
 func (gb *GrowthBook) RefreshFeatures(options *FeatureRepoOptions) {
@@ -568,8 +572,8 @@ func (gb *GrowthBook) refresh(
 		timeout = options.Timeout
 		skipCache = skipCache || options.SkipCache
 	}
-	ConfigureCacheStaleTTL(gb.inner.context.CacheTTL)
-	RepoRefreshFeatures(gb, timeout, skipCache, allowStale, updateInstance)
+	configureCacheStaleTTL(gb.inner.context.CacheTTL)
+	repoRefreshFeatures(gb, timeout, skipCache, allowStale, updateInstance)
 }
 
 func (gb *GrowthBook) trackFeatureUsage(key string, res *FeatureResult) {

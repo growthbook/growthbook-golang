@@ -80,6 +80,7 @@ func setupWithDelay(provideSSE bool, delay time.Duration, encryptedFeatures stri
 			}
 			response := &FeatureAPIResponse{
 				Features:          features,
+				DateUpdated:       time.Now(),
 				EncryptedFeatures: encryptedFeatures,
 			}
 
@@ -530,7 +531,9 @@ func TestRepoComplexSSEScenario(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		ok := rand.Intn(100) < 90
 		if ok && bad == 0 {
-			featuresJson := fmt.Sprintf(`{"features": {"foo": {"defaultValue": "val%d"}}}`, i+1)
+			featuresJson := fmt.Sprintf(
+				`{"features": {"foo": {"defaultValue": "val%d"}}, "dateUpdated": "%s"}`,
+				i+1, time.Now().Format(dateLayout))
 			commands[i] = command{i + 1, time.Now()}
 			env.sseServer.Publish("features", &sse.Event{Data: []byte(featuresJson)})
 		} else {
@@ -594,7 +597,7 @@ func TestRepoComplexSSEScenario(t *testing.T) {
 			if v.result != expected && v.result != before && v.result != after {
 				errors++
 				t.Error("unexpected feature value")
-				fmt.Println(v.result, v.t, cmdidx, cmdidx, beforeidx, afteridx)
+				fmt.Println(v.result, expected, v.t, cmdidx, beforeidx, afteridx)
 			}
 		}
 	}

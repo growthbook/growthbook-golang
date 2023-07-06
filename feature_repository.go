@@ -12,29 +12,6 @@ import (
 	"github.com/r3labs/sse/v2"
 )
 
-// RepoRefreshFeatures fetches features from the GrowthBook API and
-// updates the calling GrowthBook instances as required.
-
-func RepoRefreshFeatures(gb *GrowthBook, timeout time.Duration,
-	skipCache bool, allowStale bool, updateInstance bool) {
-	data := fetchFeaturesWithCache(gb, timeout, allowStale, skipCache)
-	if updateInstance && data != nil {
-		refreshInstance(gb.inner, data)
-	}
-}
-
-// RepoSubscribe adds a subscription for automatic feature updates for
-// a GrowthBook instance. Feature values for the instance are updated
-// transparently when new values are retrieved from the API (either by
-// explicit requests or via SSE updates).
-
-func RepoSubscribe(gb *GrowthBook) { refresh.addSubscription(gb) }
-
-// RepoUnsubscribe removes a subscription for automatic feature
-// updates for a GrowthBook instance.
-
-func RepoUnsubscribe(gb *GrowthBook) { refresh.removeSubscription(gb) }
-
 // Alias for names of repositories. Used as key type in various maps.
 // The key for a given repository is of the form
 // "<apiHost>||<clientKey>".
@@ -54,7 +31,7 @@ type Cache interface {
 
 type CacheEntry struct {
 	Data    *FeatureAPIResponse `json:"data"`
-	Version string              `json:"version"`
+	Version time.Time           `json:"version"`
 	StaleAt time.Time           `json:"stale_at"`
 }
 
@@ -78,16 +55,48 @@ func ConfigureCacheBackgroundSync(bgSync bool) {
 	}
 }
 
-// ConfigureCacheStaleTTL sets the time-to-live duration for cache
-// entries.
-
-func ConfigureCacheStaleTTL(ttl time.Duration) {
-	cacheStaleTTL = ttl
-}
-
 // -----------------------------------------------------------------------------
 //
 //  PRIVATE FUNCTIONS START HERE
+
+// repoRefreshFeatures fetches features from the GrowthBook API and
+// updates the calling GrowthBook instances as required.
+
+func repoRefreshFeatures(gb *GrowthBook, timeout time.Duration,
+	skipCache bool, allowStale bool, updateInstance bool) {
+	data := fetchFeaturesWithCache(gb, timeout, allowStale, skipCache)
+	if updateInstance && data != nil {
+		refreshInstance(gb.inner, data)
+	}
+}
+
+func repoLatestUpdate(gb *GrowthBook) *time.Time {
+	key := getKey(gb)
+	existing := cache.Get(key)
+	if existing == nil {
+		return nil
+	}
+	return &existing.Version
+}
+
+// RepoSubscribe adds a subscription for automatic feature updates for
+// a GrowthBook instance. Feature values for the instance are updated
+// transparently when new values are retrieved from the API (either by
+// explicit requests or via SSE updates).
+
+func repoSubscribe(gb *GrowthBook) { refresh.addSubscription(gb) }
+
+// RepoUnsubscribe removes a subscription for automatic feature
+// updates for a GrowthBook instance.
+
+func repoUnsubscribe(gb *GrowthBook) { refresh.removeSubscription(gb) }
+
+// configureCacheStaleTTL sets the time-to-live duration for cache
+// entries.
+
+func configureCacheStaleTTL(ttl time.Duration) {
+	cacheStaleTTL = ttl
+}
 
 // Top-level feature fetching function. Responsible for caching,
 // starting background refresh goroutines, and timeout management for
@@ -315,7 +324,7 @@ func onNewFeatureData(key RepositoryKey, data *FeatureAPIResponse) {
 	now := time.Now()
 	staleAt := now.Add(cacheStaleTTL)
 	existing := cache.Get(key)
-	if existing != nil && version != "" && existing.Version == version {
+	if existing != nil && existing.Version == version {
 		existing.StaleAt = staleAt
 		return
 	}
@@ -540,7 +549,7 @@ type repoCache struct {
 	data map[RepositoryKey]*CacheEntry
 }
 
-var cache Cache = &repoCache{}
+var cache Cache = &repoCache{data: map[RepositoryKey]*CacheEntry{}}
 
 func (c *repoCache) Initialize() {}
 
