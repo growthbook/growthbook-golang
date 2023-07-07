@@ -209,7 +209,7 @@ func evalConditionValue(condVal interface{}, attrVal interface{}) bool {
 		return true
 	}
 
-	return reflect.DeepEqual(condVal, attrVal)
+	return jsEqual(condVal, attrVal)
 }
 
 // An operator object is a JSON object all of whose keys start with a
@@ -236,10 +236,10 @@ func evalOperatorCondition(key string, attrVal interface{}, condVal interface{})
 		return versionCompare(key, attrstring, condstring)
 
 	case "$eq":
-		return reflect.DeepEqual(attrVal, condVal)
+		return jsEqual(attrVal, condVal)
 
 	case "$ne":
-		return !reflect.DeepEqual(attrVal, condVal)
+		return !jsEqual(attrVal, condVal)
 
 	case "$lt", "$lte", "$gt", "$gte":
 		return compare(key, attrVal, condVal)
@@ -394,7 +394,7 @@ func elementIn(v interface{}, array []interface{}) bool {
 
 	// One single value, one array, so do membership test.
 	for _, val := range array {
-		if reflect.DeepEqual(v, val) {
+		if jsEqual(v, val) {
 			return true
 		}
 	}
@@ -486,4 +486,77 @@ func evalAll(condVal interface{}, attrVal interface{}) bool {
 		}
 	}
 	return true
+}
+
+// Equality on values derived from JSON data, following JavaScript
+// number comparison rules. This compares arrays/slices (derived from
+// JSON arrays), string-keyed maps (derived from JSON objects) and
+// atomic values, treating all numbers as floating point, so that "2"
+// as an integer compares equal to "2.0", for example. This gets
+// around the problem where the Go JSON package decodes all numbers as
+// float64, but users may want to use integer values for attributes
+// within their Go code, and we would like them to compare equal,
+// since that's what happens in the JS SDK.
+
+func jsEqual(a interface{}, b interface{}) bool {
+	if a == nil {
+		return b == nil
+	}
+	if b == nil {
+		return false
+	}
+	switch reflect.TypeOf(a).Kind() {
+	case reflect.Array, reflect.Slice:
+		aa, aok := a.([]interface{})
+		ba, bok := b.([]interface{})
+		if !aok || !bok {
+			return false
+		}
+		if len(aa) != len(ba) {
+			return false
+		}
+		for i, av := range aa {
+			if !jsEqual(av, ba[i]) {
+				return false
+			}
+		}
+		return true
+
+	case reflect.Map:
+		am, aok := a.(map[string]interface{})
+		bm, bok := b.(map[string]interface{})
+		if !aok || !bok {
+			return false
+		}
+		if len(am) != len(bm) {
+			return false
+		}
+		for k, av := range am {
+			bv, ok := bm[k]
+			if !ok {
+				return false
+			}
+			if !jsEqual(av, bv) {
+				return false
+			}
+		}
+		return true
+
+	default:
+		return reflect.DeepEqual(normalizeNumber(a), normalizeNumber(b))
+	}
+}
+
+func normalizeNumber(a interface{}) interface{} {
+	v := reflect.ValueOf(a)
+	if v.CanFloat() {
+		return v.Float()
+	}
+	if v.CanInt() {
+		return float64(v.Int())
+	}
+	if v.CanUint() {
+		return float64(v.Uint())
+	}
+	return a
 }

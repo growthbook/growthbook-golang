@@ -171,3 +171,51 @@ func TestNilContext(t *testing.T) {
 		t.Errorf("expected gbTest.enabled to be true")
 	}
 }
+
+const numericComparisonsJson = `{
+  "donut_price": {
+    "defaultValue": 2.5,
+    "rules": [
+      {
+        "condition": {
+          "bonus_scheme": 2
+        },
+        "force": 1.0
+      }
+    ]
+  },
+  "donut_rating": {
+    "defaultValue": 4,
+    "rules": [
+      {
+        "condition": {
+          "bonus_scheme": 1
+        },
+        "force": 1
+      }
+    ]
+  }
+
+}
+`
+
+func TestNumericComparisons(t *testing.T) {
+	features := ParseFeatureMap([]byte(numericComparisonsJson))
+
+	attrs := Attributes{"bonus_scheme": 2}
+
+	context := NewContext().
+		WithFeatures(features).
+		WithAttributes(attrs)
+
+	gb := New(context)
+
+	value1 := gb.Feature("donut_price").Value
+	if value1 != 1.0 {
+		t.Errorf("unexpected value: %v", value1)
+	}
+	value2 := gb.Feature("donut_rating").Value
+	if value2 != 4.0 {
+		t.Errorf("unexpected value: %v", value2)
+	}
+}
