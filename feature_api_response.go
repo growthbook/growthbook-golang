@@ -1,11 +1,41 @@
 package growthbook
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+	"time"
+)
+
+const dateLayout = "2006-01-02T15:04:05.000Z"
 
 type FeatureAPIResponse struct {
 	Features          map[string]*Feature `json:"features"`
-	DateUpdated       string              `json:"dateUpdated"`
+	DateUpdated       time.Time           `json:"dateUpdated"`
 	EncryptedFeatures string              `json:"encryptedFeatures"`
+}
+
+// Implement normal JSON marshalling interfaces for convenience.
+
+func (r *FeatureAPIResponse) MarshalJSON() ([]byte, error) {
+	type Alias FeatureAPIResponse
+	return json.Marshal(&struct {
+		*Alias
+		DateUpdated string `json:"dateUpdated"`
+	}{
+		Alias:       (*Alias)(r),
+		DateUpdated: r.DateUpdated.Format(dateLayout),
+	})
+}
+
+func (r *FeatureAPIResponse) UnmarshalJSON(data []byte) error {
+	parsed := ParseFeatureAPIResponse(data)
+	if parsed == nil {
+		return errors.New("failed to parse feature API response")
+	}
+	r.Features = parsed.Features
+	r.DateUpdated = parsed.DateUpdated
+	r.EncryptedFeatures = parsed.EncryptedFeatures
+	return nil
 }
 
 // ParseFeature creates a single Feature value from raw JSON input.
@@ -32,7 +62,11 @@ func BuildFeatureAPIResponse(dict map[string]interface{}) *FeatureAPIResponse {
 			if !ok {
 				return nil
 			}
-			apiResponse.DateUpdated = dateUpdated
+			var err error
+			apiResponse.DateUpdated, err = time.Parse(dateLayout, dateUpdated)
+			if err != nil {
+				return nil
+			}
 		case "encryptedFeatures":
 			encryptedFeatures, ok := jsonString(v, "FeatureAPIResponse", "encryptedFeatures")
 			if !ok {
