@@ -116,18 +116,6 @@ and feature flagging service.
 				<dd><a href="#ConfigureCacheBackgroundSync">func ConfigureCacheBackgroundSync(bgSync bool)</a></dd>
 			
 				
-				<dd><a href="#ConfigureCacheStaleTTL">func ConfigureCacheStaleTTL(ttl time.Duration)</a></dd>
-			
-				
-				<dd><a href="#RepoRefreshFeatures">func RepoRefreshFeatures(gb *GrowthBook, timeout time.Duration, skipCache bool, allowStale bool, updateInstance bool)</a></dd>
-			
-				
-				<dd><a href="#RepoSubscribe">func RepoSubscribe(gb *GrowthBook)</a></dd>
-			
-				
-				<dd><a href="#RepoUnsubscribe">func RepoUnsubscribe(gb *GrowthBook)</a></dd>
-			
-				
 				<dd><a href="#SetLogger">func SetLogger(userLogger Logger)</a></dd>
 			
 			
@@ -365,6 +353,12 @@ and feature flagging service.
 					<dd>    <a href="#ParseFeatureAPIResponse">func ParseFeatureAPIResponse(data []byte) *FeatureAPIResponse</a></dd>
 				
 				
+					
+					<dd>    <a href="#FeatureAPIResponse.MarshalJSON">func (r *FeatureAPIResponse) MarshalJSON() ([]byte, error)</a></dd>
+				
+					
+					<dd>    <a href="#FeatureAPIResponse.UnmarshalJSON">func (r *FeatureAPIResponse) UnmarshalJSON(data []byte) error</a></dd>
+				
 			
 				
 				<dd><a href="#FeatureMap">type FeatureMap</a></dd>
@@ -474,6 +468,9 @@ and feature flagging service.
 				
 					
 					<dd>    <a href="#GrowthBook.IsOn">func (gb *GrowthBook) IsOn(key string) bool</a></dd>
+				
+					
+					<dd>    <a href="#GrowthBook.LatestFeatureUpdate">func (gb *GrowthBook) LatestFeatureUpdate() *time.Time</a></dd>
 				
 					
 					<dd>    <a href="#GrowthBook.LoadFeatures">func (gb *GrowthBook) LoadFeatures(options *FeatureRepoOptions)</a></dd>
@@ -670,7 +667,7 @@ and feature flagging service.
 		
 			
 			
-			</p><h2 id="ConfigureCache">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=1642:1670#L53">ConfigureCache</a>
+			</p><h2 id="ConfigureCache">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=752:780#L30">ConfigureCache</a>
 				<a class="permalink" href="#ConfigureCache">¶</a>
 				
 				
@@ -683,65 +680,12 @@ and feature flagging service.
 		
 			
 			
-			<h2 id="ConfigureCacheBackgroundSync">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=1829:1875#L64">ConfigureCacheBackgroundSync</a>
+			<h2 id="ConfigureCacheBackgroundSync">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=939:985#L41">ConfigureCacheBackgroundSync</a>
 				<a class="permalink" href="#ConfigureCacheBackgroundSync">¶</a>
 				
 				
 			</h2>
 			<pre>func ConfigureCacheBackgroundSync(bgSync <a href="../../../builtin/#bool">bool</a>)</pre>
-			
-			
-			
-
-		
-			
-			
-			<h2 id="ConfigureCacheStaleTTL">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=2029:2075#L74">ConfigureCacheStaleTTL</a>
-				<a class="permalink" href="#ConfigureCacheStaleTTL">¶</a>
-				
-				
-			</h2>
-			<pre>func ConfigureCacheStaleTTL(ttl <a href="../../../time/">time</a>.<a href="../../../time/#Duration">Duration</a>)</pre>
-			
-			
-			
-
-		
-			
-			
-			<h2 id="RepoRefreshFeatures">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=266:384#L8">RepoRefreshFeatures</a>
-				<a class="permalink" href="#RepoRefreshFeatures">¶</a>
-				
-				
-			</h2>
-			<pre>func RepoRefreshFeatures(gb *<a href="#GrowthBook">GrowthBook</a>, timeout <a href="../../../time/">time</a>.<a href="../../../time/#Duration">Duration</a>,
-    skipCache <a href="../../../builtin/#bool">bool</a>, allowStale <a href="../../../builtin/#bool">bool</a>, updateInstance <a href="../../../builtin/#bool">bool</a>)</pre>
-			
-			
-			
-
-		
-			
-			
-			<h2 id="RepoSubscribe">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=786:820#L21">RepoSubscribe</a>
-				<a class="permalink" href="#RepoSubscribe">¶</a>
-				
-				
-			</h2>
-			<pre>func RepoSubscribe(gb *<a href="#GrowthBook">GrowthBook</a>)</pre>
-			
-			
-			
-
-		
-			
-			
-			<h2 id="RepoUnsubscribe">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=957:993#L26">RepoUnsubscribe</a>
-				<a class="permalink" href="#RepoUnsubscribe">¶</a>
-				
-				
-			</h2>
-			<pre>func RepoUnsubscribe(gb *<a href="#GrowthBook">GrowthBook</a>)</pre>
 			
 			
 			
@@ -824,7 +768,7 @@ attributes.
 		
 			
 			
-			<h2 id="Cache">type <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=1241:1367#L36">Cache</a>
+			<h2 id="Cache">type <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=351:477#L13">Cache</a>
 				<a class="permalink" href="#Cache">¶</a>
 				
 				
@@ -851,7 +795,7 @@ attributes.
 		
 			
 			
-			<h2 id="CacheEntry">type <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=1409:1571#L45">CacheEntry</a>
+			<h2 id="CacheEntry">type <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=519:681#L22">CacheEntry</a>
 				<a class="permalink" href="#CacheEntry">¶</a>
 				
 				
@@ -859,7 +803,7 @@ attributes.
 			
 			<pre>type CacheEntry struct {
 <span id="CacheEntry.Data"></span>    Data    *<a href="#FeatureAPIResponse">FeatureAPIResponse</a> `json:&#34;data&#34;`
-<span id="CacheEntry.Version"></span>    Version <a href="../../../builtin/#string">string</a>              `json:&#34;version&#34;`
+<span id="CacheEntry.Version"></span>    Version <a href="../../../time/">time</a>.<a href="../../../time/#Time">Time</a>           `json:&#34;version&#34;`
 <span id="CacheEntry.StaleAt"></span>    StaleAt <a href="../../../time/">time</a>.<a href="../../../time/#Time">Time</a>           `json:&#34;stale_at&#34;`
 }
 </pre>
@@ -1842,7 +1786,7 @@ default.
 		
 			
 			
-			</p><h2 id="FeatureAPIResponse">type <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=44:261#L1">FeatureAPIResponse</a>
+			</p><h2 id="FeatureAPIResponse">type <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=114:331#L1">FeatureAPIResponse</a>
 				<a class="permalink" href="#FeatureAPIResponse">¶</a>
 				
 				
@@ -1850,7 +1794,7 @@ default.
 			
 			<pre>type FeatureAPIResponse struct {
 <span id="FeatureAPIResponse.Features"></span>    Features          map[<a href="../../../builtin/#string">string</a>]*<a href="#Feature">Feature</a> `json:&#34;features&#34;`
-<span id="FeatureAPIResponse.DateUpdated"></span>    DateUpdated       <a href="../../../builtin/#string">string</a>              `json:&#34;dateUpdated&#34;`
+<span id="FeatureAPIResponse.DateUpdated"></span>    DateUpdated       <a href="../../../time/">time</a>.<a href="../../../time/#Time">Time</a>           `json:&#34;dateUpdated&#34;`
 <span id="FeatureAPIResponse.EncryptedFeatures"></span>    EncryptedFeatures <a href="../../../builtin/#string">string</a>              `json:&#34;encryptedFeatures&#34;`
 }
 </pre>
@@ -1865,7 +1809,7 @@ default.
 
 			
 				
-				<h3 id="BuildFeatureAPIResponse">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=697:774#L14">BuildFeatureAPIResponse</a>
+				<h3 id="BuildFeatureAPIResponse">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=1412:1489#L44">BuildFeatureAPIResponse</a>
 					<a class="permalink" href="#BuildFeatureAPIResponse">¶</a>
 					
 					
@@ -1878,7 +1822,7 @@ generic JSON value.
 				
 			
 				
-				</p><h3 id="ParseFeatureAPIResponse">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=331:392#L2">ParseFeatureAPIResponse</a>
+				</p><h3 id="ParseFeatureAPIResponse">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=1046:1107#L32">ParseFeatureAPIResponse</a>
 					<a class="permalink" href="#ParseFeatureAPIResponse">¶</a>
 					
 					
@@ -1891,10 +1835,34 @@ generic JSON value.
 			
 
 			
+				
+				</p><h3 id="FeatureAPIResponse.MarshalJSON">func (*FeatureAPIResponse) <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=399:457#L9">MarshalJSON</a>
+					<a class="permalink" href="#FeatureAPIResponse.MarshalJSON">¶</a>
+					
+					
+				</h3>
+				<pre>func (r *<a href="#FeatureAPIResponse">FeatureAPIResponse</a>) MarshalJSON() ([]<a href="../../../builtin/#byte">byte</a>, <a href="../../../builtin/#error">error</a>)</pre>
+				
+				
+				
+				
+			
+				
+				<h3 id="FeatureAPIResponse.UnmarshalJSON">func (*FeatureAPIResponse) <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=661:722#L20">UnmarshalJSON</a>
+					<a class="permalink" href="#FeatureAPIResponse.UnmarshalJSON">¶</a>
+					
+					
+				</h3>
+				<pre>func (r *<a href="#FeatureAPIResponse">FeatureAPIResponse</a>) UnmarshalJSON(data []<a href="../../../builtin/#byte">byte</a>) <a href="../../../builtin/#error">error</a></pre>
+				
+				
+				
+				
+			
 		
 			
 			
-			</p><h2 id="FeatureMap">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=244:279#L1">FeatureMap</a>
+			<h2 id="FeatureMap">type <a href="../../../src/github.com/growthbook/growthbook-golang/types.go.html?s=244:279#L1">FeatureMap</a>
 				<a class="permalink" href="#FeatureMap">¶</a>
 				
 				
@@ -2449,7 +2417,19 @@ string feature key, with an explicit default.
 				
 			
 				
-				</p><h3 id="GrowthBook.LoadFeatures">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=15031:15094#L535">LoadFeatures</a>
+				</p><h3 id="GrowthBook.LatestFeatureUpdate">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=15200:15254#L542">LatestFeatureUpdate</a>
+					<a class="permalink" href="#GrowthBook.LatestFeatureUpdate">¶</a>
+					
+					
+				</h3>
+				<pre>func (gb *<a href="#GrowthBook">GrowthBook</a>) LatestFeatureUpdate() *<a href="../../../time/">time</a>.<a href="../../../time/#Time">Time</a></pre>
+				
+				
+				
+				
+			
+				
+				<h3 id="GrowthBook.LoadFeatures">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=15031:15094#L535">LoadFeatures</a>
 					<a class="permalink" href="#GrowthBook.LoadFeatures">¶</a>
 					
 					
@@ -2475,7 +2455,7 @@ been loaded.
 				
 			
 				
-				</p><h3 id="GrowthBook.RefreshFeatures">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=15200:15266#L542">RefreshFeatures</a>
+				</p><h3 id="GrowthBook.RefreshFeatures">func (*GrowthBook) <a href="../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?s=15289:15355#L546">RefreshFeatures</a>
 					<a class="permalink" href="#GrowthBook.RefreshFeatures">¶</a>
 					
 					
@@ -2870,7 +2850,7 @@ ranges don&#39;t overlap, they wil be mutually exclusive.
 		
 			
 			
-			<h2 id="RepositoryKey">type <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=1179:1204#L32">RepositoryKey</a>
+			<h2 id="RepositoryKey">type <a href="../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?s=289:314#L9">RepositoryKey</a>
 				<a class="permalink" href="#RepositoryKey">¶</a>
 				
 				
