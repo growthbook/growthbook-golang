@@ -266,7 +266,7 @@
 <span id="L209" class="ln">   209  </span>		return true
 <span id="L210" class="ln">   210  </span>	}
 <span id="L211" class="ln">   211  </span>
-<span id="L212" class="ln">   212  </span>	return reflect.DeepEqual(condVal, attrVal)
+<span id="L212" class="ln">   212  </span>	return jsEqual(condVal, attrVal)
 <span id="L213" class="ln">   213  </span>}
 <span id="L214" class="ln">   214  </span>
 <span id="L215" class="ln">   215  </span><span class="comment">// An operator object is a JSON object all of whose keys start with a</span>
@@ -293,10 +293,10 @@
 <span id="L236" class="ln">   236  </span>		return versionCompare(key, attrstring, condstring)
 <span id="L237" class="ln">   237  </span>
 <span id="L238" class="ln">   238  </span>	case &#34;$eq&#34;:
-<span id="L239" class="ln">   239  </span>		return reflect.DeepEqual(attrVal, condVal)
+<span id="L239" class="ln">   239  </span>		return jsEqual(attrVal, condVal)
 <span id="L240" class="ln">   240  </span>
 <span id="L241" class="ln">   241  </span>	case &#34;$ne&#34;:
-<span id="L242" class="ln">   242  </span>		return !reflect.DeepEqual(attrVal, condVal)
+<span id="L242" class="ln">   242  </span>		return !jsEqual(attrVal, condVal)
 <span id="L243" class="ln">   243  </span>
 <span id="L244" class="ln">   244  </span>	case &#34;$lt&#34;, &#34;$lte&#34;, &#34;$gt&#34;, &#34;$gte&#34;:
 <span id="L245" class="ln">   245  </span>		return compare(key, attrVal, condVal)
@@ -451,7 +451,7 @@
 <span id="L394" class="ln">   394  </span>
 <span id="L395" class="ln">   395  </span>	<span class="comment">// One single value, one array, so do membership test.</span>
 <span id="L396" class="ln">   396  </span>	for _, val := range array {
-<span id="L397" class="ln">   397  </span>		if reflect.DeepEqual(v, val) {
+<span id="L397" class="ln">   397  </span>		if jsEqual(v, val) {
 <span id="L398" class="ln">   398  </span>			return true
 <span id="L399" class="ln">   399  </span>		}
 <span id="L400" class="ln">   400  </span>	}
@@ -545,6 +545,79 @@
 <span id="L488" class="ln">   488  </span>	return true
 <span id="L489" class="ln">   489  </span>}
 <span id="L490" class="ln">   490  </span>
+<span id="L491" class="ln">   491  </span><span class="comment">// Equality on values derived from JSON data, following JavaScript</span>
+<span id="L492" class="ln">   492  </span><span class="comment">// number comparison rules. This compares arrays/slices (derived from</span>
+<span id="L493" class="ln">   493  </span><span class="comment">// JSON arrays), string-keyed maps (derived from JSON objects) and</span>
+<span id="L494" class="ln">   494  </span><span class="comment">// atomic values, treating all numbers as floating point, so that &#34;2&#34;</span>
+<span id="L495" class="ln">   495  </span><span class="comment">// as an integer compares equal to &#34;2.0&#34;, for example. This gets</span>
+<span id="L496" class="ln">   496  </span><span class="comment">// around the problem where the Go JSON package decodes all numbers as</span>
+<span id="L497" class="ln">   497  </span><span class="comment">// float64, but users may want to use integer values for attributes</span>
+<span id="L498" class="ln">   498  </span><span class="comment">// within their Go code, and we would like them to compare equal,</span>
+<span id="L499" class="ln">   499  </span><span class="comment">// since that&#39;s what happens in the JS SDK.</span>
+<span id="L500" class="ln">   500  </span>
+<span id="L501" class="ln">   501  </span>func jsEqual(a interface{}, b interface{}) bool {
+<span id="L502" class="ln">   502  </span>	if a == nil {
+<span id="L503" class="ln">   503  </span>		return b == nil
+<span id="L504" class="ln">   504  </span>	}
+<span id="L505" class="ln">   505  </span>	if b == nil {
+<span id="L506" class="ln">   506  </span>		return false
+<span id="L507" class="ln">   507  </span>	}
+<span id="L508" class="ln">   508  </span>	switch reflect.TypeOf(a).Kind() {
+<span id="L509" class="ln">   509  </span>	case reflect.Array, reflect.Slice:
+<span id="L510" class="ln">   510  </span>		aa, aok := a.([]interface{})
+<span id="L511" class="ln">   511  </span>		ba, bok := b.([]interface{})
+<span id="L512" class="ln">   512  </span>		if !aok || !bok {
+<span id="L513" class="ln">   513  </span>			return false
+<span id="L514" class="ln">   514  </span>		}
+<span id="L515" class="ln">   515  </span>		if len(aa) != len(ba) {
+<span id="L516" class="ln">   516  </span>			return false
+<span id="L517" class="ln">   517  </span>		}
+<span id="L518" class="ln">   518  </span>		for i, av := range aa {
+<span id="L519" class="ln">   519  </span>			if !jsEqual(av, ba[i]) {
+<span id="L520" class="ln">   520  </span>				return false
+<span id="L521" class="ln">   521  </span>			}
+<span id="L522" class="ln">   522  </span>		}
+<span id="L523" class="ln">   523  </span>		return true
+<span id="L524" class="ln">   524  </span>
+<span id="L525" class="ln">   525  </span>	case reflect.Map:
+<span id="L526" class="ln">   526  </span>		am, aok := a.(map[string]interface{})
+<span id="L527" class="ln">   527  </span>		bm, bok := b.(map[string]interface{})
+<span id="L528" class="ln">   528  </span>		if !aok || !bok {
+<span id="L529" class="ln">   529  </span>			return false
+<span id="L530" class="ln">   530  </span>		}
+<span id="L531" class="ln">   531  </span>		if len(am) != len(bm) {
+<span id="L532" class="ln">   532  </span>			return false
+<span id="L533" class="ln">   533  </span>		}
+<span id="L534" class="ln">   534  </span>		for k, av := range am {
+<span id="L535" class="ln">   535  </span>			bv, ok := bm[k]
+<span id="L536" class="ln">   536  </span>			if !ok {
+<span id="L537" class="ln">   537  </span>				return false
+<span id="L538" class="ln">   538  </span>			}
+<span id="L539" class="ln">   539  </span>			if !jsEqual(av, bv) {
+<span id="L540" class="ln">   540  </span>				return false
+<span id="L541" class="ln">   541  </span>			}
+<span id="L542" class="ln">   542  </span>		}
+<span id="L543" class="ln">   543  </span>		return true
+<span id="L544" class="ln">   544  </span>
+<span id="L545" class="ln">   545  </span>	default:
+<span id="L546" class="ln">   546  </span>		return reflect.DeepEqual(normalizeNumber(a), normalizeNumber(b))
+<span id="L547" class="ln">   547  </span>	}
+<span id="L548" class="ln">   548  </span>}
+<span id="L549" class="ln">   549  </span>
+<span id="L550" class="ln">   550  </span>func normalizeNumber(a interface{}) interface{} {
+<span id="L551" class="ln">   551  </span>	v := reflect.ValueOf(a)
+<span id="L552" class="ln">   552  </span>	if v.CanFloat() {
+<span id="L553" class="ln">   553  </span>		return v.Float()
+<span id="L554" class="ln">   554  </span>	}
+<span id="L555" class="ln">   555  </span>	if v.CanInt() {
+<span id="L556" class="ln">   556  </span>		return float64(v.Int())
+<span id="L557" class="ln">   557  </span>	}
+<span id="L558" class="ln">   558  </span>	if v.CanUint() {
+<span id="L559" class="ln">   559  </span>		return float64(v.Uint())
+<span id="L560" class="ln">   560  </span>	}
+<span id="L561" class="ln">   561  </span>	return a
+<span id="L562" class="ln">   562  </span>}
+<span id="L563" class="ln">   563  </span>
 </pre><p><a href="../../../../src/github.com/growthbook/growthbook-golang/conditions.go.html?m=text">View as plain text</a></p>
 
 <div id="footer"><a href="../../../../docs.zip">Download docs.zip</a> to browse offline - Generated by <a href="https://godoc.org/golang.org/x/tools/godoc" target="_blank">godoc</a> + <a href="https://code.rocketnine.space/tslocum/godoc-static" target="_blank">godoc-static</a></div>
