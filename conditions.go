@@ -11,6 +11,7 @@ import (
 // to specific users.
 type Condition interface {
 	Eval(attrs Attributes) bool
+	Unbuild() map[string]interface{}
 }
 
 // Concrete condition representing ORing together a list of
@@ -58,10 +59,34 @@ func (cond orCondition) Eval(attrs Attributes) bool {
 	return false
 }
 
+func (cond orCondition) Unbuild() map[string]interface{} {
+	conds := make([]interface{}, len(cond.conds))
+	for i, c := range cond.conds {
+		conds[i] = c.Unbuild()
+	}
+	return map[string]interface{}{"$or": conds}
+}
+
+func (cond orCondition) MarshalJSON() ([]byte, error) {
+	return json.Marshal(cond.Unbuild())
+}
+
 // Evaluate NORed list of conditions.
 func (cond norCondition) Eval(attrs Attributes) bool {
 	or := orCondition{cond.conds}
 	return !or.Eval(attrs)
+}
+
+func (cond norCondition) Unbuild() map[string]interface{} {
+	conds := make([]interface{}, len(cond.conds))
+	for i, c := range cond.conds {
+		conds[i] = c.Unbuild()
+	}
+	return map[string]interface{}{"$nor": conds}
+}
+
+func (cond norCondition) MarshalJSON() ([]byte, error) {
+	return json.Marshal(cond.Unbuild())
 }
 
 // Evaluate ANDed list of conditions.
@@ -74,9 +99,29 @@ func (cond andCondition) Eval(attrs Attributes) bool {
 	return true
 }
 
+func (cond andCondition) Unbuild() map[string]interface{} {
+	conds := make([]interface{}, len(cond.conds))
+	for i, c := range cond.conds {
+		conds[i] = c.Unbuild()
+	}
+	return map[string]interface{}{"$and": conds}
+}
+
+func (cond andCondition) MarshalJSON() ([]byte, error) {
+	return json.Marshal(cond.Unbuild())
+}
+
 // Evaluate complemented condition.
 func (cond notCondition) Eval(attrs Attributes) bool {
 	return !cond.cond.Eval(attrs)
+}
+
+func (cond notCondition) Unbuild() map[string]interface{} {
+	return map[string]interface{}{"$not": cond.cond.Unbuild()}
+}
+
+func (cond notCondition) MarshalJSON() ([]byte, error) {
+	return json.Marshal(cond.Unbuild())
 }
 
 // Evaluate base Condition case by iterating over keys and performing
@@ -89,6 +134,14 @@ func (cond baseCondition) Eval(attrs Attributes) bool {
 		}
 	}
 	return true
+}
+
+func (cond baseCondition) Unbuild() map[string]interface{} {
+	return cond.values
+}
+
+func (cond baseCondition) MarshalJSON() ([]byte, error) {
+	return json.Marshal(cond.Unbuild())
 }
 
 // ParseCondition creates a Condition value from raw JSON input.

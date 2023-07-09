@@ -2,23 +2,23 @@ package growthbook
 
 // FeatureRule overrides the default value of a Feature.
 type FeatureRule struct {
-	ID            string
-	Condition     Condition
-	Force         FeatureValue
-	Variations    []FeatureValue
-	Weights       []float64
-	Key           string
-	HashAttribute string
-	HashVersion   int
-	Range         *Range
-	Coverage      *float64
-	Namespace     *Namespace
-	Ranges        []Range
-	Meta          []VariationMeta
-	Filters       []Filter
-	Seed          string
-	Name          string
-	Phase         string
+	ID            string          `json:",omitempty"`
+	Condition     Condition       `json:"condition,omitempty"`
+	Force         FeatureValue    `json:"force,omitempty"`
+	Variations    []FeatureValue  `json:"variations,omitempty"`
+	Weights       []float64       `json:"weights,omitempty"`
+	Key           string          `json:"key,omitempty"`
+	HashAttribute string          `json:"hashAttribute,omitempty"`
+	HashVersion   int             `json:"hashVersion,omitempty"`
+	Range         *Range          `json:"range,omitempty"`
+	Coverage      *float64        `json:"coverage,omitempty"`
+	Namespace     *Namespace      `json:"namespace,omitempty"`
+	Ranges        []Range         `json:"ranges,omitempty"`
+	Meta          []VariationMeta `json:"meta,omitempty"`
+	Filters       []Filter        `json:"filters,omitempty"`
+	Seed          string          `json:"seed,omitempty"`
+	Name          string          `json:"name,omitempty"`
+	Phase         string          `json:"phase,omitempty"`
 }
 
 // BuildFeatureRule creates an FeatureRule value from a generic JSON

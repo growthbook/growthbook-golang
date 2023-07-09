@@ -125,7 +125,7 @@ func TestFeaturesUpdatesAttributes(t *testing.T) {
 	gb := New(context).
 		WithAttributes(Attributes{"foo": 2, "baz": 3})
 
-	result := context.Attributes
+	result := gb.Attributes()
 	expected := Attributes{"foo": 2, "baz": 3}
 
 	if !reflect.DeepEqual(result, expected) {

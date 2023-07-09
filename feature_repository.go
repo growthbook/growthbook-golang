@@ -66,7 +66,7 @@ func repoRefreshFeatures(gb *GrowthBook, timeout time.Duration,
 	skipCache bool, allowStale bool, updateInstance bool) {
 	data := fetchFeaturesWithCache(gb, timeout, allowStale, skipCache)
 	if updateInstance && data != nil {
-		refreshInstance(gb.inner, data)
+		refreshInstance(gb.features, data)
 	}
 }
 
@@ -299,18 +299,18 @@ func doFetchRequest(gb *GrowthBook) *FeatureAPIResponse {
 // GrowthBook instances. See the comment on the New function in
 // growthbook.go for an explanation.
 
-func refreshInstance(inner *growthBookData, data *FeatureAPIResponse) {
+func refreshInstance(feats *featureData, data *FeatureAPIResponse) {
 	if data.EncryptedFeatures != "" {
-		err := inner.withEncryptedFeatures(data.EncryptedFeatures, "")
+		err := feats.withEncryptedFeatures(data.EncryptedFeatures, "")
 		if err != nil {
 			logError("failed to decrypt encrypted features")
 		}
 	} else {
 		features := data.Features
 		if features == nil {
-			features = inner.features()
+			features = feats.getFeatures()
 		}
-		inner.withFeatures(features)
+		feats.withFeatures(features)
 	}
 }
 
@@ -333,8 +333,8 @@ func onNewFeatureData(key RepositoryKey, data *FeatureAPIResponse) {
 	cache.Set(key, &CacheEntry{data, version, staleAt})
 
 	// Update features for all subscribed GrowthBook instances.
-	for _, inner := range refresh.instances(key) {
-		refreshInstance(inner, data)
+	for _, feats := range refresh.instances(key) {
+		refreshInstance(feats, data)
 	}
 }
 
@@ -346,7 +346,7 @@ func onNewFeatureData(key RepositoryKey, data *FeatureAPIResponse) {
 // here, so that the finalizer added to the main (outer) GrowthBook
 // instances will run, triggering an unsubscribe, allowing us to
 // remove the inner data structure here.
-type gbDataSet map[*growthBookData]bool
+type gbDataSet map[*featureData]bool
 
 type refreshData struct {
 	sync.RWMutex
@@ -379,15 +379,15 @@ func clearAutoRefresh() {
 // Safely get list of GrowthBook instance inner data structures for a
 // repository key.
 
-func (r *refreshData) instances(key RepositoryKey) []*growthBookData {
+func (r *refreshData) instances(key RepositoryKey) []*featureData {
 	r.RLock()
 	defer r.RUnlock()
 
 	m := r.subscribed[key]
 	if m == nil {
-		return []*growthBookData{}
+		return []*featureData{}
 	}
-	result := make([]*growthBookData, len(m))
+	result := make([]*featureData, len(m))
 	i := 0
 	for k := range m {
 		result[i] = k
@@ -418,7 +418,7 @@ func (r *refreshData) addSubscription(gb *GrowthBook) {
 	if subs == nil {
 		subs = make(gbDataSet)
 	}
-	subs[gb.inner] = true
+	subs[gb.features] = true
 	r.subscribed[key] = subs
 }
 
@@ -432,7 +432,7 @@ func (r *refreshData) removeSubscription(gb *GrowthBook) {
 	key := getKey(gb)
 	subs := r.subscribed[key]
 	if subs != nil {
-		delete(subs, gb.inner)
+		delete(subs, gb.features)
 		if len(subs) == 0 {
 			subs = nil
 		}

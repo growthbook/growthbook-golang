@@ -1,9 +1,15 @@
 package growthbook
 
+import "encoding/json"
+
 // Range represents a single bucket range.
 type Range struct {
 	Min float64
 	Max float64
+}
+
+func (r *Range) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]float64{r.Min, r.Max})
 }
 
 func (r *Range) InRange(n float64) bool {

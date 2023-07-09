@@ -36,7 +36,7 @@ func TestSubscriptionsSubscribe(t *testing.T) {
 	gb.Run(exp1)
 	// Change attributes to change experiment result so subscription
 	// gets triggered twice.
-	gb.WithAttributes(Attributes{"id": "3"})
+	gb = gb.WithAttributes(Attributes{"id": "3"})
 	gb.Run(exp1)
 
 	if !reflect.DeepEqual(savedExp, exp1) {
@@ -60,7 +60,7 @@ func TestSubscriptionsUnsubscribe(t *testing.T) {
 	})
 
 	gb.Run(exp1)
-	gb.WithAttributes(Attributes{"id": "3"})
+	gb = gb.WithAttributes(Attributes{"id": "3"})
 	unsubscribe()
 	gb.Run(exp1)
 
@@ -79,7 +79,7 @@ func TestSubscriptionsTrack(t *testing.T) {
 	exp2 := NewExperiment("experiment-2").WithVariations("result3", "result4")
 
 	called := 0
-	context.WithTrackingCallback(func(exp *Experiment, result *Result) {
+	gb.WithTrackingCallback(func(exp *Experiment, result *Result) {
 		called++
 	})
 
@@ -87,7 +87,7 @@ func TestSubscriptionsTrack(t *testing.T) {
 	gb.Run(exp2)
 	gb.Run(exp1)
 	gb.Run(exp2)
-	gb.WithAttributes(Attributes{"id": "3"})
+	gb = gb.WithAttributes(Attributes{"id": "3"})
 	gb.Run(exp1)
 	gb.Run(exp2)
 	gb.Run(exp1)

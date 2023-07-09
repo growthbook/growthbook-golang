@@ -5,6 +5,8 @@ import (
 	"net/url"
 	"regexp"
 	"time"
+
+	"github.com/barkimedes/go-deepcopy"
 )
 
 // ExperimentOverride provides the possibility to temporarily override
@@ -21,27 +23,67 @@ type ExperimentOverride struct {
 	URL       *regexp.Regexp
 }
 
+func (o *ExperimentOverride) Copy() *ExperimentOverride {
+	retval := ExperimentOverride{}
+	if o.Condition != nil {
+		retval.Condition = deepcopy.MustAnything(o.Condition).(Condition)
+	}
+	if o.Weights != nil {
+		retval.Weights = deepcopy.MustAnything(o.Weights).([]float64)
+	}
+	if o.Active != nil {
+		retval.Active = deepcopy.MustAnything(o.Active).(*bool)
+	}
+	if o.Status != nil {
+		retval.Status = deepcopy.MustAnything(o.Status).(*ExperimentStatus)
+	}
+	if o.Force != nil {
+		retval.Force = deepcopy.MustAnything(o.Force).(*int)
+	}
+	if o.Coverage != nil {
+		retval.Coverage = deepcopy.MustAnything(o.Coverage).(*float64)
+	}
+	if o.Groups != nil {
+		retval.Groups = deepcopy.MustAnything(o.Groups).([]string)
+	}
+	if o.Namespace != nil {
+		retval.Namespace = deepcopy.MustAnything(o.Namespace).(*Namespace)
+	}
+	if o.URL != nil {
+		newURL := regexp.Regexp(*o.URL)
+		retval.URL = &newURL
+	}
+	return &retval
+}
+
 type ExperimentOverrides map[string]*ExperimentOverride
+
+func (os ExperimentOverrides) Copy() ExperimentOverrides {
+	retval := map[string]*ExperimentOverride{}
+	for k, v := range os {
+		retval[k] = v.Copy()
+	}
+	return retval
+}
 
 // Context contains the options for creating a new GrowthBook
 // instance.
 type Context struct {
-	Enabled          bool
-	Attributes       Attributes
-	URL              *url.URL
-	Features         FeatureMap
-	ForcedVariations ForcedVariationsMap
-	QAMode           bool
-	DevMode          bool
-	TrackingCallback ExperimentCallback
-	OnFeatureUsage   FeatureUsageCallback
-	UserAttributes   Attributes
-	Groups           map[string]bool
-	APIHost          string
-	ClientKey        string
-	DecryptionKey    string
-	Overrides        ExperimentOverrides
-	CacheTTL         time.Duration
+	enabled          bool
+	attributes       Attributes
+	url              *url.URL
+	features         FeatureMap
+	forcedVariations ForcedVariationsMap
+	qaMode           bool
+	devMode          bool
+	trackingCallback ExperimentCallback
+	onFeatureUsage   FeatureUsageCallback
+	groups           map[string]bool
+	apiHost          string
+	clientKey        string
+	decryptionKey    string
+	overrides        ExperimentOverrides
+	cacheTTL         time.Duration
 }
 
 // ExperimentCallback is a callback function that is executed every
@@ -60,15 +102,28 @@ type FeatureUsageCallback func(key string, result *FeatureResult)
 // all other fields empty.
 func NewContext() *Context {
 	return &Context{
-		Enabled:  true,
-		CacheTTL: 60 * time.Second,
+		enabled:          true,
+		attributes:       Attributes{},
+		features:         FeatureMap{},
+		forcedVariations: ForcedVariationsMap{},
+		groups:           map[string]bool{},
+		overrides:        ExperimentOverrides{},
+		cacheTTL:         60 * time.Second,
 	}
 }
 
+// Enabled returns the current enabled flag.
+func (ctx *Context) Enabled() bool { return ctx.enabled }
+
 // WithEnabled sets the enabled flag for a context.
 func (ctx *Context) WithEnabled(enabled bool) *Context {
-	ctx.Enabled = enabled
+	ctx.enabled = enabled
 	return ctx
+}
+
+// Attributes returns the current attributes for a context.
+func (ctx *Context) Attributes() Attributes {
+	return ctx.attributes
 }
 
 // WithAttributes sets the attributes for a context.
@@ -77,113 +132,185 @@ func (ctx *Context) WithAttributes(attributes Attributes) *Context {
 	for k, v := range attributes {
 		savedAttributes[k] = fixSliceTypes(v)
 	}
-	ctx.Attributes = savedAttributes
+	ctx.attributes = savedAttributes
 	return ctx
 }
 
-// WithUserAttributes sets the user attributes for a context.
-func (ctx *Context) WithUserAttributes(attributes Attributes) *Context {
-	savedAttributes := Attributes{}
-	for k, v := range attributes {
-		savedAttributes[k] = fixSliceTypes(v)
-	}
-	ctx.UserAttributes = savedAttributes
-	return ctx
+// URL returns the URL for a context.
+func (ctx *Context) URL() *url.URL {
+	return ctx.url
 }
 
 // WithURL sets the URL for a context.
 func (ctx *Context) WithURL(url *url.URL) *Context {
-	ctx.URL = url
+	ctx.url = url
 	return ctx
+}
+
+// Features returns the current features for a context (as a value of
+// type FeatureMap, which is a map from feature names to *Feature
+// values).
+func (ctx *Context) Features() FeatureMap {
+	return ctx.features
 }
 
 // WithFeatures sets the features for a context (as a value of type
 // FeatureMap, which is a map from feature names to *Feature values).
 func (ctx *Context) WithFeatures(features FeatureMap) *Context {
-	ctx.Features = features
+	if features == nil {
+		features = FeatureMap{}
+	}
+	ctx.features = features
 	return ctx
+}
+
+// ForcedVariations returns the forced variations for a context (as a
+// value of type ForcedVariationsMap, which is a map from experiment
+// keys to variation indexes).
+func (ctx *Context) ForcedVariations() ForcedVariationsMap {
+	return ctx.forcedVariations
 }
 
 // WithForcedVariations sets the forced variations for a context (as a
 // value of type ForcedVariationsMap, which is a map from experiment
 // keys to variation indexes).
 func (ctx *Context) WithForcedVariations(forcedVariations ForcedVariationsMap) *Context {
-	ctx.ForcedVariations = forcedVariations
+	if forcedVariations == nil {
+		forcedVariations = ForcedVariationsMap{}
+	}
+	ctx.forcedVariations = forcedVariations
 	return ctx
 }
 
+// ForceVariation sets up a forced variation for a feature.
 func (ctx *Context) ForceVariation(key string, variation int) {
-	if ctx.ForcedVariations == nil {
-		ctx.ForcedVariations = ForcedVariationsMap{}
-	}
-	ctx.ForcedVariations[key] = variation
+	ctx.forcedVariations[key] = variation
 }
 
+// UnforceVariation clears a forced variation for a feature.
 func (ctx *Context) UnforceVariation(key string) {
-	delete(ctx.ForcedVariations, key)
+	delete(ctx.forcedVariations, key)
+}
+
+// QAMode returns the current QA mode setting for a context.
+func (ctx *Context) QAMode() bool {
+	return ctx.qaMode
 }
 
 // WithQAMode can be used to enable or disable the QA mode for a
 // context.
 func (ctx *Context) WithQAMode(qaMode bool) *Context {
-	ctx.QAMode = qaMode
+	ctx.qaMode = qaMode
 	return ctx
+}
+
+// DevMode returns the development mode setting for a context.
+func (ctx *Context) DevMode() bool {
+	return ctx.devMode
 }
 
 // WithDevMode can be used to enable or disable the development mode
 // for a context.
 func (ctx *Context) WithDevMode(devMode bool) *Context {
-	ctx.DevMode = devMode
+	ctx.devMode = devMode
 	return ctx
+}
+
+// TrackingCallback return the current tracking callback for a
+// context.
+func (ctx *Context) TrackingCallback() ExperimentCallback {
+	return ctx.trackingCallback
 }
 
 // WithTrackingCallback is used to set a tracking callback for a
 // context.
 func (ctx *Context) WithTrackingCallback(callback ExperimentCallback) *Context {
-	ctx.TrackingCallback = callback
+	ctx.trackingCallback = callback
 	return ctx
+}
+
+// FeatureUsageCallback returns the current feature usage callback for
+// a context.
+func (ctx *Context) FeatureUsageCallback() FeatureUsageCallback {
+	return ctx.onFeatureUsage
 }
 
 // WithFeatureUsageCallback is used to set a feature usage callback
 // for a context.
 func (ctx *Context) WithFeatureUsageCallback(callback FeatureUsageCallback) *Context {
-	ctx.OnFeatureUsage = callback
+	ctx.onFeatureUsage = callback
 	return ctx
+}
+
+// Groups returns the groups map of a context.
+func (ctx *Context) Groups() map[string]bool {
+	return ctx.groups
 }
 
 // WithGroups sets the groups map of a context.
 func (ctx *Context) WithGroups(groups map[string]bool) *Context {
-	ctx.Groups = groups
+	if groups == nil {
+		groups = map[string]bool{}
+	}
+	ctx.groups = groups
 	return ctx
+}
+
+// APIHost returns the API host of a context.
+func (ctx *Context) APIHost() string {
+	return ctx.apiHost
 }
 
 // WithAPIHost sets the API host of a context.
 func (ctx *Context) WithAPIHost(host string) *Context {
-	ctx.APIHost = host
+	ctx.apiHost = host
 	return ctx
 }
 
 // WithClientKey sets the API client key of a context.
 func (ctx *Context) WithClientKey(key string) *Context {
-	ctx.ClientKey = key
+	ctx.clientKey = key
 	return ctx
+}
+
+// ClientKey returns the API client key of a context.
+func (ctx *Context) ClientKey() string {
+	return ctx.clientKey
+}
+
+// DecryptionKey returns the decryption key of a context.
+func (ctx *Context) DecryptionKey() string {
+	return ctx.decryptionKey
 }
 
 // WithDecryptionKey sets the decryption key of a context.
 func (ctx *Context) WithDecryptionKey(key string) *Context {
-	ctx.DecryptionKey = key
+	ctx.decryptionKey = key
 	return ctx
+}
+
+// Overrides returns the experiment overrides of a context.
+func (ctx *Context) Overrides() ExperimentOverrides {
+	return ctx.overrides
 }
 
 // WithOverrides sets the experiment overrides of a context.
 func (ctx *Context) WithOverrides(overrides ExperimentOverrides) *Context {
-	ctx.Overrides = overrides
+	if overrides == nil {
+		overrides = ExperimentOverrides{}
+	}
+	ctx.overrides = overrides
 	return ctx
+}
+
+// CacheTTL returns the TTL for the feature cache.
+func (ctx *Context) CacheTTL() time.Duration {
+	return ctx.cacheTTL
 }
 
 // WithCacheTTL sets the TTL for the feature cache.
 func (ctx *Context) WithCacheTTL(ttl time.Duration) *Context {
-	ctx.CacheTTL = ttl
+	ctx.cacheTTL = ttl
 	return ctx
 }
 
@@ -233,7 +360,7 @@ func BuildContext(dict map[string]interface{}) *Context {
 		case "features":
 			features, ok := v.(map[string]interface{})
 			if ok {
-				context.Features = BuildFeatureMap(features)
+				context.features = BuildFeatureMap(features)
 			} else {
 				logWarn("Invalid 'features' field in JSON context data")
 			}

@@ -11,6 +11,10 @@ type Namespace struct {
 	End   float64
 }
 
+func (namespace *Namespace) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]interface{}{namespace.ID, namespace.Start, namespace.End})
+}
+
 // Determine whether a user's ID lies within a given namespace.
 func (namespace *Namespace) inNamespace(userID string) bool {
 	n := float64(hashFnv32a(userID+"__"+namespace.ID)%1000) / 1000

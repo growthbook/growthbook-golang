@@ -27,10 +27,11 @@ func track() *tracker {
 
 func TestExperimentTracking(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"})
+		WithAttributes(Attributes{"id": "1"})
 
 	tr := track()
-	gb := New(context).WithTrackingCallback(tr.cb)
+	gb := New(context)
+	gb = gb.WithTrackingCallback(tr.cb)
 
 	exp1 := NewExperiment("my-tracked-test").WithVariations(0, 1)
 	exp2 := NewExperiment("my-other-tracked-test").WithVariations(0, 1)
@@ -39,7 +40,7 @@ func TestExperimentTracking(t *testing.T) {
 	gb.Run(exp1)
 	gb.Run(exp1)
 	res4 := gb.Run(exp2)
-	context = context.WithUserAttributes(Attributes{"id": "2"})
+	gb = gb.WithAttributes(Attributes{"id": "2"})
 	res5 := gb.Run(exp2)
 
 	if len(tr.calls) != 3 {
@@ -102,13 +103,13 @@ func TestExperimentCoverageFromOverrides(t *testing.T) {
 
 func TestExperimentDoesNotTrackWhenForcedWithOverrides(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "6"})
+		WithAttributes(Attributes{"id": "6"})
 	tr := track()
 	gb := New(context).WithTrackingCallback(tr.cb)
 	exp := NewExperiment("forced-test").WithVariations(0, 1)
 
 	forceVal := 1
-	context = context.WithOverrides(ExperimentOverrides{
+	gb.WithOverrides(ExperimentOverrides{
 		"forced-test": &ExperimentOverride{Force: &forceVal},
 	})
 
@@ -122,7 +123,7 @@ func TestExperimentDoesNotTrackWhenForcedWithOverrides(t *testing.T) {
 func TestExperimentURLFromOverrides(t *testing.T) {
 	urlRe := regexp.MustCompile(`^\/path`)
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"}).
+		WithAttributes(Attributes{"id": "1"}).
 		WithOverrides(ExperimentOverrides{
 			"my-test": &ExperimentOverride{URL: urlRe},
 		})
@@ -135,7 +136,7 @@ func TestExperimentURLFromOverrides(t *testing.T) {
 
 func TestExperimentFiltersUserGroups(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "123"}).
+		WithAttributes(Attributes{"id": "123"}).
 		WithGroups(map[string]bool{
 			"alpha":    true,
 			"beta":     true,
@@ -179,7 +180,7 @@ func TestExperimentSetsAttributes(t *testing.T) {
 
 func TestExperimentCustomIncludeCallback(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"})
+		WithAttributes(Attributes{"id": "1"})
 	gb := New(context)
 
 	exp := NewExperiment("my-test").
@@ -193,7 +194,7 @@ func TestExperimentCustomIncludeCallback(t *testing.T) {
 
 func TestExperimentTrackingSkippedWhenContextDisabled(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"}).
+		WithAttributes(Attributes{"id": "1"}).
 		WithEnabled(false)
 	tr := track()
 	gb := New(context).WithTrackingCallback(tr.cb)
@@ -207,7 +208,7 @@ func TestExperimentTrackingSkippedWhenContextDisabled(t *testing.T) {
 
 func TestExperimentQuerystringForceDisablsTracking(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"}).
+		WithAttributes(Attributes{"id": "1"}).
 		WithURL(mustParseUrl("http://example.com?forced-test-qs=1"))
 	tr := track()
 	gb := New(context).WithTrackingCallback(tr.cb)
@@ -221,7 +222,7 @@ func TestExperimentQuerystringForceDisablsTracking(t *testing.T) {
 
 func TestExperimentURLTargeting(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"}).
+		WithAttributes(Attributes{"id": "1"}).
 		WithURL(mustParseUrl("http://example.com"))
 	gb := New(context)
 
@@ -243,7 +244,7 @@ func TestExperimentURLTargeting(t *testing.T) {
 
 	check(1, exp, false, 0)
 
-	context = context.WithURL(mustParseUrl("http://example.com/post/123"))
+	gb.WithURL(mustParseUrl("http://example.com/post/123"))
 	check(2, exp, true, 1)
 
 	exp.URL = regexp.MustCompile("http://example.com/post/[0-9]+")
@@ -252,7 +253,7 @@ func TestExperimentURLTargeting(t *testing.T) {
 
 func TestExperimentIgnoresDraftExperiments(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"})
+		WithAttributes(Attributes{"id": "1"})
 	gb := New(context)
 
 	exp := NewExperiment("my-test").
@@ -260,7 +261,7 @@ func TestExperimentIgnoresDraftExperiments(t *testing.T) {
 		WithVariations(0, 1)
 
 	res1 := gb.Run(exp)
-	context = context.WithURL(mustParseUrl("http://example.com/?my-test=1"))
+	gb.WithURL(mustParseUrl("http://example.com/?my-test=1"))
 	res2 := gb.Run(exp)
 
 	if res1.InExperiment != false {
@@ -286,7 +287,7 @@ func TestExperimentIgnoresDraftExperiments(t *testing.T) {
 
 func TestExperimentIgnoresStoppedExperimentsUnlessForced(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"})
+		WithAttributes(Attributes{"id": "1"})
 	gb := New(context)
 
 	expLose := NewExperiment("my-test").
@@ -332,7 +333,7 @@ func TestExperimentDoesEvenWeighting(t *testing.T) {
 		"1":  0,
 		"-1": 0,
 	}
-	countVariations(t, context, gb, exp, 1000, variations)
+	countVariations(t, gb, exp, 1000, variations)
 	if variations["0"] != 503 {
 		t.Errorf("1: expected variations[\"0\"] to be 503, got %v", variations["0"])
 	}
@@ -344,7 +345,7 @@ func TestExperimentDoesEvenWeighting(t *testing.T) {
 		"1":  0,
 		"-1": 0,
 	}
-	countVariations(t, context, gb, exp, 10000, variations)
+	countVariations(t, gb, exp, 10000, variations)
 	if variations["0"] != 2044 {
 		t.Errorf("2: expected variations[\"0\"] to be 2044, got %v", variations["0"])
 	}
@@ -363,7 +364,7 @@ func TestExperimentDoesEvenWeighting(t *testing.T) {
 		"2":  0,
 		"-1": 0,
 	}
-	countVariations(t, context, gb, exp, 10000, variations)
+	countVariations(t, gb, exp, 10000, variations)
 	expected := map[string]int{
 		"-1": 3913,
 		"0":  2044,
@@ -377,7 +378,7 @@ func TestExperimentDoesEvenWeighting(t *testing.T) {
 
 func TestExperimentForcesMultipleVariationsAtOnce(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"})
+		WithAttributes(Attributes{"id": "1"})
 	gb := New(context)
 
 	exp := NewExperiment("my-test").
@@ -399,7 +400,7 @@ func TestExperimentForcesMultipleVariationsAtOnce(t *testing.T) {
 
 func TestExperimentOnceForcesAllVariationsInQAMode(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"}).
+		WithAttributes(Attributes{"id": "1"}).
 		WithQAMode(true)
 	gb := New(context)
 
@@ -410,7 +411,7 @@ func TestExperimentOnceForcesAllVariationsInQAMode(t *testing.T) {
 	commonCheck(t, 1, res1, false, false, 0)
 
 	// Still works if explicitly forced
-	context = context.WithForcedVariations(ForcedVariationsMap{"my-test": 1})
+	gb.WithForcedVariations(ForcedVariationsMap{"my-test": 1})
 	res2 := gb.Run(exp)
 	commonCheck(t, 2, res2, true, false, 1)
 
@@ -422,7 +423,7 @@ func TestExperimentOnceForcesAllVariationsInQAMode(t *testing.T) {
 
 func TestExperimentFiresSubscriptionsCorrectly(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"})
+		WithAttributes(Attributes{"id": "1"})
 	gb := New(context)
 
 	fired := false
@@ -457,7 +458,7 @@ func TestExperimentFiresSubscriptionsCorrectly(t *testing.T) {
 
 func TestExperimentStoresAssignedVariations(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"})
+		WithAttributes(Attributes{"id": "1"})
 	gb := New(context)
 	gb.Run(NewExperiment("my-test").WithVariations(0, 1))
 	gb.Run(NewExperiment("my-test-3").WithVariations(0, 1))
@@ -479,7 +480,7 @@ func TestExperimentStoresAssignedVariations(t *testing.T) {
 
 func TestExperimentDoesNotHaveBiasWhenUsingNamespaces(t *testing.T) {
 	context := NewContext().
-		WithUserAttributes(Attributes{"id": "1"})
+		WithAttributes(Attributes{"id": "1"})
 	gb := New(context)
 
 	variations := map[string]int{
@@ -491,7 +492,7 @@ func TestExperimentDoesNotHaveBiasWhenUsingNamespaces(t *testing.T) {
 	exp := NewExperiment("my-test").
 		WithVariations(0, 1).
 		WithNamespace(&Namespace{"namespace", 0.0, 0.5})
-	countVariations(t, context, gb, exp, 10000, variations)
+	countVariations(t, gb, exp, 10000, variations)
 
 	expected := map[string]int{
 		"-1": 4973,
@@ -516,10 +517,10 @@ func commonCheck(t *testing.T, icase int, res *Result,
 	}
 }
 
-func countVariations(t *testing.T, context *Context, gb *GrowthBook,
+func countVariations(t *testing.T, gb *GrowthBook,
 	exp *Experiment, runs int, variations map[string]int) {
 	for i := 0; i < runs; i++ {
-		context = context.WithUserAttributes(Attributes{"id": fmt.Sprint(i)})
+		gb = gb.WithAttributes(Attributes{"id": fmt.Sprint(i)})
 		res := gb.Run(exp)
 		v := -1
 		ok := false

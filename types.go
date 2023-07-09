@@ -1,6 +1,10 @@
 package growthbook
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/barkimedes/go-deepcopy"
+)
 
 // Attributes is an arbitrary JSON object containing user and request
 // attributes.
@@ -40,6 +44,10 @@ func BuildFeatureMap(dict map[string]interface{}) FeatureMap {
 // Keys are the experiment key, values are the array index of the
 // variation.
 type ForcedVariationsMap map[string]int
+
+func (fv ForcedVariationsMap) Copy() ForcedVariationsMap {
+	return deepcopy.MustAnything(fv).(ForcedVariationsMap)
+}
 
 // URL matching supports regular expressions or simple string matches.
 type URLTargetType uint

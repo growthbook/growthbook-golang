@@ -3,9 +3,9 @@ package growthbook
 // VariationMeta represents meta-information that can be passed
 // through to tracking callbacks.
 type VariationMeta struct {
-	Passthrough bool
-	Key         string
-	Name        string
+	Passthrough bool   `json:"passthrough,omitempty"`
+	Key         string `json:"key,omitempty"`
+	Name        string `json:"name,omitempty"`
 }
 
 func jsonVariationMeta(v interface{}, typeName string, fieldName string) *VariationMeta {
