@@ -3,8 +3,10 @@
 package growthbook
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"reflect"
 	"regexp"
@@ -47,6 +49,7 @@ type sharedData struct {
 	clientKey           string
 	overrides           ExperimentOverrides
 	cacheTTL            time.Duration
+	httpClient          *http.Client
 	forcedFeatureValues map[string]interface{}
 	attributeOverrides  Attributes
 	trackedFeatures     map[string]interface{}
@@ -66,7 +69,13 @@ type featureData struct {
 }
 
 // New creates a new GrowthBook instance.
-func New(context *Context) *GrowthBook {
+func New(c *Context) *GrowthBook {
+	return NewWithContext(context.Background(), c)
+}
+
+// NewWithContext creates a new GrowthBook instance using an explicit
+// Go context.
+func NewWithContext(ctx context.Context, context *Context) *GrowthBook {
 	// There is a little complexity here. The feature auto-refresh code
 	// needs to keep track of some information about GrowthBook
 	// instances to update them with new feature information, but we
@@ -140,6 +149,7 @@ func New(context *Context) *GrowthBook {
 		clientKey:           context.clientKey,
 		overrides:           context.overrides.Copy(),
 		cacheTTL:            context.cacheTTL,
+		httpClient:          context.httpClient,
 		forcedFeatureValues: make(map[string]interface{}),
 		attributeOverrides:  make(Attributes),
 		trackedFeatures:     make(map[string]interface{}),
@@ -156,7 +166,7 @@ func New(context *Context) *GrowthBook {
 
 	runtime.SetFinalizer(gb, func(gb *GrowthBook) { repoUnsubscribe(gb) })
 	if context.clientKey != "" {
-		go gb.refresh(nil, true, false)
+		go gb.refresh(ctx, nil, true, false)
 	}
 	return gb
 }
@@ -299,7 +309,7 @@ func (feats *featureData) withDecryptionKey(key string) {
 	feats.decryptionKey = key
 }
 
-// Features returns the features in a GrowthBook's context.
+// Features returns the current features for a GrowthBook instance.
 func (gb *GrowthBook) Features() FeatureMap {
 	return gb.features.getFeatures()
 }
@@ -310,8 +320,8 @@ func (feats *featureData) getFeatures() FeatureMap {
 	return feats.features
 }
 
-// WithEncryptedFeatures updates the features in a GrowthBook's
-// context from encrypted data.
+// WithEncryptedFeatures updates the features in a GrowthBook instance
+// from encrypted data.
 func (gb *GrowthBook) WithEncryptedFeatures(encrypted string, key string) (*GrowthBook, error) {
 	err := gb.features.withEncryptedFeatures(encrypted, key)
 	return gb, err
@@ -340,8 +350,8 @@ func (feats *featureData) withEncryptedFeatures(encrypted string, key string) er
 	return err
 }
 
-// WithForcedVariations sets the forced variations in a GrowthBook's
-// context.
+// WithForcedVariations sets the forced variations in a GrowthBook
+// instance.
 func (gb *GrowthBook) WithForcedVariations(forcedVariations ForcedVariationsMap) *GrowthBook {
 	if forcedVariations == nil {
 		forcedVariations = ForcedVariationsMap{}
@@ -359,34 +369,34 @@ func (gb *GrowthBook) UnforceVariation(key string) {
 }
 
 // WithQAMode can be used to enable or disable the QA mode for a
-// context.
+// GrowthBook instance.
 func (gb *GrowthBook) WithQAMode(qaMode bool) *GrowthBook {
 	gb.data.qaMode = qaMode
 	return gb
 }
 
 // WithDevMode can be used to enable or disable the development mode
-// for a context.
+// for a GrowthBook instance.
 func (gb *GrowthBook) WithDevMode(devMode bool) *GrowthBook {
 	gb.data.devMode = devMode
 	return gb
 }
 
 // WithTrackingCallback is used to set a tracking callback for a
-// context.
+// GrowthBook instance.
 func (gb *GrowthBook) WithTrackingCallback(callback ExperimentCallback) *GrowthBook {
 	gb.data.trackingCallback = callback
 	return gb
 }
 
 // WithFeatureUsageCallback is used to set a feature usage callback
-// for a context.
+// for a GrowthBook instance.
 func (gb *GrowthBook) WithFeatureUsageCallback(callback FeatureUsageCallback) *GrowthBook {
 	gb.data.onFeatureUsage = callback
 	return gb
 }
 
-// WithGroups sets the groups map of a context.
+// WithGroups sets the groups map of a GrowthBook instance.
 func (gb *GrowthBook) WithGroups(groups map[string]bool) *GrowthBook {
 	if groups == nil {
 		groups = map[string]bool{}
@@ -395,21 +405,33 @@ func (gb *GrowthBook) WithGroups(groups map[string]bool) *GrowthBook {
 	return gb
 }
 
-// WithAPIHost sets the API host of a context.
+// WithAPIHost sets the API host of a GrowthBook instance.
 func (gb *GrowthBook) WithAPIHost(host string) *GrowthBook {
 	gb.data.apiHost = host
 	return gb
 }
 
-// WithClientKey sets the API client key of a context.
+// WithClientKey sets the API client key of a GrowthBook instance.
 func (gb *GrowthBook) WithClientKey(key string) *GrowthBook {
 	gb.data.clientKey = key
 	return gb
 }
 
-// WithDecryptionKey sets the decryption key of a context.
+// WithDecryptionKey sets the decryption key of a GrowthBook instance.
 func (gb *GrowthBook) WithDecryptionKey(key string) *GrowthBook {
 	gb.features.withDecryptionKey(key)
+	return gb
+}
+
+// HTTPClient retrieves the HTTP client of a GrowthBook instance.
+func (gb *GrowthBook) HTTPClient() *http.Client {
+	return gb.data.httpClient
+}
+
+// WithHTTPClient sets the HTTP client of a GrowthBook instance.
+func (gb *GrowthBook) WithHTTPClient(client *http.Client) *GrowthBook {
+	gb.data.httpClient = client
+	reconnectAutoRefresh()
 	return gb
 }
 
@@ -595,7 +617,11 @@ type FeatureRepoOptions struct {
 }
 
 func (gb *GrowthBook) LoadFeatures(options *FeatureRepoOptions) {
-	gb.refresh(options, true, true)
+	gb.LoadFeaturesWithContext(context.Background(), options)
+}
+
+func (gb *GrowthBook) LoadFeaturesWithContext(ctx context.Context, options *FeatureRepoOptions) {
+	gb.refresh(ctx, options, true, true)
 	if options != nil && options.AutoRefresh {
 		repoSubscribe(gb)
 	}
@@ -606,12 +632,17 @@ func (gb *GrowthBook) LatestFeatureUpdate() *time.Time {
 }
 
 func (gb *GrowthBook) RefreshFeatures(options *FeatureRepoOptions) {
-	gb.refresh(options, false, true)
+	gb.RefreshFeaturesWithContext(context.Background(), options)
+}
+
+func (gb *GrowthBook) RefreshFeaturesWithContext(ctx context.Context, options *FeatureRepoOptions) {
+	gb.refresh(ctx, options, false, true)
 }
 
 //-- PRIVATE FUNCTIONS START HERE ----------------------------------------------
 
 func (gb *GrowthBook) refresh(
+	ctx context.Context,
 	options *FeatureRepoOptions, allowStale bool, updateInstance bool) {
 
 	if gb.data.clientKey == "" {
@@ -625,7 +656,7 @@ func (gb *GrowthBook) refresh(
 		skipCache = skipCache || options.SkipCache
 	}
 	configureCacheStaleTTL(gb.data.cacheTTL)
-	repoRefreshFeatures(gb, timeout, skipCache, allowStale, updateInstance)
+	repoRefreshFeatures(ctx, gb, timeout, skipCache, allowStale, updateInstance)
 }
 
 func (gb *GrowthBook) trackFeatureUsage(key string, res *FeatureResult) {

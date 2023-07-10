@@ -1,7 +1,9 @@
 package growthbook
 
 import (
+	"context"
 	"encoding/json"
+	"net/http"
 	"net/url"
 	"regexp"
 	"time"
@@ -84,6 +86,8 @@ type Context struct {
 	decryptionKey    string
 	overrides        ExperimentOverrides
 	cacheTTL         time.Duration
+	context          context.Context
+	httpClient       *http.Client
 }
 
 // ExperimentCallback is a callback function that is executed every
@@ -109,6 +113,8 @@ func NewContext() *Context {
 		groups:           map[string]bool{},
 		overrides:        ExperimentOverrides{},
 		cacheTTL:         60 * time.Second,
+		context:          context.Background(),
+		httpClient:       http.DefaultClient,
 	}
 }
 
@@ -311,6 +317,28 @@ func (ctx *Context) CacheTTL() time.Duration {
 // WithCacheTTL sets the TTL for the feature cache.
 func (ctx *Context) WithCacheTTL(ttl time.Duration) *Context {
 	ctx.cacheTTL = ttl
+	return ctx
+}
+
+// Context returns the Go context setting for a context.
+func (ctx *Context) Context() context.Context {
+	return ctx.context
+}
+
+// WithContext can be used to set the Go context for a context.
+func (ctx *Context) WithContext(c context.Context) *Context {
+	ctx.context = c
+	return ctx
+}
+
+// HTTPClient returns the HTTP client setting for a context.
+func (ctx *Context) HTTPClient() *http.Client {
+	return ctx.httpClient
+}
+
+// WithHTTPClient can be used to set the HTTP client for a context.
+func (ctx *Context) WithHTTPClient(client *http.Client) *Context {
+	ctx.httpClient = client
 	return ctx
 }
 

@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"context"
 	"encoding/json"
 	"io/ioutil"
 	"math"
@@ -62,9 +63,9 @@ func ConfigureCacheBackgroundSync(bgSync bool) {
 // repoRefreshFeatures fetches features from the GrowthBook API and
 // updates the calling GrowthBook instances as required.
 
-func repoRefreshFeatures(gb *GrowthBook, timeout time.Duration,
+func repoRefreshFeatures(ctx context.Context, gb *GrowthBook, timeout time.Duration,
 	skipCache bool, allowStale bool, updateInstance bool) {
-	data := fetchFeaturesWithCache(gb, timeout, allowStale, skipCache)
+	data := fetchFeaturesWithCache(ctx, gb, timeout, allowStale, skipCache)
 	if updateInstance && data != nil {
 		refreshInstance(gb.features, data)
 	}
@@ -102,7 +103,7 @@ func configureCacheStaleTTL(ttl time.Duration) {
 // starting background refresh goroutines, and timeout management for
 // API request, which is handed off to fetchFeatures.
 
-func fetchFeaturesWithCache(gb *GrowthBook, timeout time.Duration,
+func fetchFeaturesWithCache(ctx context.Context, gb *GrowthBook, timeout time.Duration,
 	allowStale bool, skipCache bool) *FeatureAPIResponse {
 	key := getKey(gb)
 	now := time.Now()
@@ -112,22 +113,22 @@ func fetchFeaturesWithCache(gb *GrowthBook, timeout time.Duration,
 	if existing != nil && !skipCache && (allowStale || existing.StaleAt.After(now)) {
 		if existing.StaleAt.Before(now) {
 			// Reload features in the backgroud if stale
-			go fetchFeatures(gb)
+			go fetchFeatures(ctx, gb)
 		} else {
 			// Otherwise, if we don't need to refresh now, start a
 			// background sync.
-			refresh.runBackgroundRefresh(gb)
+			refresh.runBackgroundRefresh(ctx, gb)
 		}
 		return existing.Data
 	} else {
 		// Perform API request with timeout.
 		if timeout == 0 {
-			return fetchFeatures(gb)
+			return fetchFeatures(ctx, gb)
 		}
 		ch := make(chan *FeatureAPIResponse, 1)
 		timer := time.NewTimer(timeout)
 		go func() {
-			ch <- fetchFeatures(gb)
+			ch <- fetchFeatures(ctx, gb)
 		}()
 		select {
 		case result := <-ch:
@@ -158,7 +159,7 @@ func clearOutstandingRequests() {
 // Retrieve features from the API, ensuring that only one request for
 // any given repository key is in flight at any time.
 
-func fetchFeatures(gb *GrowthBook) *FeatureAPIResponse {
+func fetchFeatures(ctx context.Context, gb *GrowthBook) *FeatureAPIResponse {
 	apiHost, clientKey := gb.GetAPIInfo()
 	key := makeKey(apiHost, clientKey)
 
@@ -171,7 +172,7 @@ func fetchFeatures(gb *GrowthBook) *FeatureAPIResponse {
 	if first {
 		// We were the first request to come in, so perform the API
 		// request, and...
-		apiResponse = doFetchRequest(gb)
+		apiResponse = doFetchRequest(ctx, gb)
 
 		// ...retrieve a list of channels to other goroutines requesting
 		// features for the same repository key, clearing the outstanding
@@ -198,7 +199,7 @@ func fetchFeatures(gb *GrowthBook) *FeatureAPIResponse {
 		// been cleared in the meantime.
 		if apiResponse != nil && selfFound {
 			onNewFeatureData(key, apiResponse)
-			refresh.runBackgroundRefresh(gb)
+			refresh.runBackgroundRefresh(ctx, gb)
 		}
 	} else {
 		// We were a later request, so just wait for the result from the
@@ -252,12 +253,18 @@ func removeRequestChan(key RepositoryKey) []chan *FeatureAPIResponse {
 
 // Actually do the HTTP request to get feature data.
 
-func doFetchRequest(gb *GrowthBook) *FeatureAPIResponse {
+func doFetchRequest(ctx context.Context, gb *GrowthBook) *FeatureAPIResponse {
 	apiHost, clientKey := gb.GetAPIInfo()
 	key := makeKey(apiHost, clientKey)
 	endpoint := apiHost + "/api/features/" + clientKey
 
-	resp, err := http.Get(endpoint)
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
+	if err != nil {
+		logErrorf("Error fetching features: can't create request: error=%v",
+			err)
+		return nil
+	}
+	resp, err := gb.HTTPClient().Do(req)
 	if err != nil {
 		logErrorf("Error fetching features: HTTP error: endpoint=%s error=%v",
 			endpoint, err)
@@ -357,6 +364,9 @@ type refreshData struct {
 	// Channels to shut down SSE refresh goroutines.
 	shutdown map[RepositoryKey]chan struct{}
 
+	// Channels to force reconnect of SSE refresh goroutines.
+	reconnect map[RepositoryKey]chan struct{}
+
 	// Subscribed instances.
 	subscribed map[RepositoryKey]gbDataSet
 }
@@ -365,6 +375,7 @@ func makeRefreshData() *refreshData {
 	return &refreshData{
 		sse:        make(map[RepositoryKey]bool),
 		shutdown:   make(map[RepositoryKey]chan struct{}),
+		reconnect:  make(map[RepositoryKey]chan struct{}),
 		subscribed: make(map[RepositoryKey]gbDataSet),
 	}
 }
@@ -374,6 +385,10 @@ var refresh *refreshData = makeRefreshData()
 func clearAutoRefresh() {
 	refresh.stop()
 	refresh = makeRefreshData()
+}
+
+func reconnectAutoRefresh() {
+	refresh.forceReconnect()
 }
 
 // Safely get list of GrowthBook instance inner data structures for a
@@ -403,6 +418,17 @@ func (r *refreshData) stop() {
 	defer r.Unlock()
 
 	for _, ch := range r.shutdown {
+		ch <- struct{}{}
+	}
+}
+
+// Force reconnect of all SSE data refresh goroutines.
+
+func (r *refreshData) forceReconnect() {
+	r.Lock()
+	defer r.Unlock()
+
+	for _, ch := range r.reconnect {
 		ch <- struct{}{}
 	}
 }
@@ -455,7 +481,7 @@ func (r *refreshData) sseSupported(key RepositoryKey, supported bool) {
 	r.sse[key] = supported
 }
 
-func (r *refreshData) runBackgroundRefresh(gb *GrowthBook) {
+func (r *refreshData) runBackgroundRefresh(ctx context.Context, gb *GrowthBook) {
 	r.Lock()
 	defer r.Unlock()
 
@@ -469,18 +495,20 @@ func (r *refreshData) runBackgroundRefresh(gb *GrowthBook) {
 		return
 	}
 
-	ch := make(chan struct{})
-	refresh.shutdown[key] = ch
-	go refreshFromSSE(gb, ch)
+	shutdown := make(chan struct{})
+	refresh.shutdown[key] = shutdown
+	reconnect := make(chan struct{}, 1)
+	refresh.reconnect[key] = reconnect
+	go refreshFromSSE(ctx, gb, shutdown, reconnect)
 }
 
-func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
+func refreshFromSSE(ctx context.Context, gb *GrowthBook,
+	shutdown chan struct{}, reconnect chan struct{}) {
 	apiHost, clientKey := gb.GetAPIInfo()
 	key := makeKey(apiHost, clientKey)
 
 	var client *sse.Client
 	ch := make(chan *sse.Event)
-	reconnect := make(chan struct{}, 1)
 	reconnect <- struct{}{}
 	var errors int
 
@@ -497,7 +525,7 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 				logErrorf("SSE event stream disconnected: %s", key)
 				reconnect <- struct{}{}
 			})
-			client.SubscribeChan("features", ch)
+			client.SubscribeChanWithContext(ctx, "features", ch)
 
 		case msg := <-ch:
 			if len(msg.Data) == 0 {
