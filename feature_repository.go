@@ -500,11 +500,14 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 			client.SubscribeChan("features", ch)
 
 		case msg := <-ch:
+			if len(msg.Data) == 0 {
+				break
+			}
 			var data FeatureAPIResponse
 			err := json.Unmarshal(msg.Data, &data)
 
 			if err != nil {
-				logErrorf("SSE error: %s", key)
+				logErrorf("SSE error (%s): %v", key, err)
 			}
 			if err != nil && client != nil {
 				errors++
@@ -527,6 +530,7 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 				}
 				continue
 			}
+			logInfo("New feature data from SSE stream")
 			onNewFeatureData(key, &data)
 		}
 	}

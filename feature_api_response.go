@@ -9,6 +9,7 @@ import (
 const dateLayout = "2006-01-02T15:04:05.000Z"
 
 type FeatureAPIResponse struct {
+	Status            int                 `json:"status"`
 	Features          map[string]*Feature `json:"features"`
 	DateUpdated       time.Time           `json:"dateUpdated"`
 	EncryptedFeatures string              `json:"encryptedFeatures"`
@@ -55,6 +56,12 @@ func BuildFeatureAPIResponse(dict map[string]interface{}) *FeatureAPIResponse {
 	apiResponse := FeatureAPIResponse{}
 	for k, v := range dict {
 		switch k {
+		case "status":
+			status, ok := jsonInt(v, "FeatureAPIResponse", "status")
+			if !ok {
+				return nil
+			}
+			apiResponse.Status = status
 		case "features":
 			apiResponse.Features = BuildFeatures(v)
 		case "dateUpdated":

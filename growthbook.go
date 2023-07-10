@@ -474,13 +474,13 @@ func (gb *GrowthBook) EvalFeature(id string) *FeatureResult {
 		// If the rule has a condition and the condition does not pass,
 		// skip this rule.
 		if rule.Condition != nil && !rule.Condition.Eval(gb.Attributes()) {
-			logInfo("Skip rule because of condition", id, rule)
+			logInfo("Skip rule because of condition", id, JSONLog{rule})
 			continue
 		}
 
 		// Apply any filters for who is included (e.g. namespaces).
 		if rule.Filters != nil && gb.isFilteredOut(rule.Filters) {
-			logInfo("Skip rule because of filters", id, rule)
+			logInfo("Skip rule because of filters", id, JSONLog{rule})
 			continue
 		}
 
@@ -498,17 +498,17 @@ func (gb *GrowthBook) EvalFeature(id string) *FeatureResult {
 				rule.Coverage,
 				rule.HashVersion,
 			) {
-				logInfo("Skip rule because user not included in rollout", id, rule)
+				logInfo("Skip rule because user not included in rollout", id, JSONLog{rule})
 				continue
 			}
 
 			// Return forced feature result.
-			logInfo("Force value from rule", id, rule)
+			logInfo("Force value from rule", id, JSONLog{rule})
 			return gb.getFeatureResult(id, rule.Force, ForceResultSource, rule.ID, nil, nil)
 		}
 
 		if rule.Variations == nil {
-			logWarn("Skip invalid rule", id, rule)
+			logWarn("Skip invalid rule", id, JSONLog{rule})
 			continue
 		}
 

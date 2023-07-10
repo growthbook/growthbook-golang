@@ -1,9 +1,11 @@
 package growthbook
 
 import (
+	"encoding/json"
 	"fmt"
-	"os"
 )
+
+type JSONLog struct{ value interface{} }
 
 // Logger is a common interface for logging information and warning
 // messages (errors are returned directly by SDK functions, but there
@@ -39,37 +41,37 @@ var logger Logger
 
 func logError(msg string, args ...interface{}) {
 	if logger != nil {
-		logger.Error(msg, args...)
+		logger.Error(msg, fixJSONArgs(args)...)
 	}
 }
 
 func logErrorf(format string, args ...interface{}) {
 	if logger != nil {
-		logger.Errorf(format, args...)
+		logger.Errorf(format, fixJSONArgs(args)...)
 	}
 }
 
 func logWarn(msg string, args ...interface{}) {
 	if logger != nil {
-		logger.Warn(msg, args...)
+		logger.Warn(msg, fixJSONArgs(args)...)
 	}
 }
 
 func logWarnf(format string, args ...interface{}) {
 	if logger != nil {
-		logger.Warnf(format, args...)
+		logger.Warnf(format, fixJSONArgs(args)...)
 	}
 }
 
 func logInfo(msg string, args ...interface{}) {
 	if logger != nil {
-		logger.Info(msg, args...)
+		logger.Info(msg, fixJSONArgs(args)...)
 	}
 }
 
 func logInfof(format string, args ...interface{}) {
 	if logger != nil {
-		logger.Infof(format, args...)
+		logger.Infof(format, fixJSONArgs(args)...)
 	}
 }
 
@@ -79,38 +81,54 @@ type DevLogger struct{}
 
 func (log *DevLogger) Error(msg string, args ...interface{}) {
 	fmt.Print("[ERROR] ", msg)
-	if len(args) > 0 {
-		fmt.Print(": ")
-		fmt.Println(args...)
-	}
-	os.Exit(1)
+	handlArgs(args)
 }
 
 func (log *DevLogger) Errorf(format string, args ...interface{}) {
-	fmt.Printf("[ERROR] "+format+"\n", args...)
-	os.Exit(1)
+	fmt.Printf("[ERROR] "+format+"\n", fixJSONArgs(args)...)
 }
 
 func (log *DevLogger) Warn(msg string, args ...interface{}) {
 	fmt.Print("[WARNING] ", msg)
-	if len(args) > 0 {
-		fmt.Print(": ")
-		fmt.Println(args...)
-	}
+	handlArgs(args)
 }
 
 func (log *DevLogger) Warnf(format string, args ...interface{}) {
-	fmt.Printf("[WARNING] "+format+"\n", args...)
+	fmt.Printf("[WARNING] "+format+"\n", fixJSONArgs(args)...)
 }
 
 func (log *DevLogger) Info(msg string, args ...interface{}) {
 	fmt.Print("[INFO] ", msg)
-	if len(args) > 0 {
-		fmt.Print(": ")
-		fmt.Println(args...)
-	}
+	handlArgs(args)
 }
 
 func (log *DevLogger) Infof(format string, args ...interface{}) {
-	fmt.Printf("[INFO] "+format+"\n", args...)
+	fmt.Printf("[INFO] "+format+"\n", fixJSONArgs(args)...)
+}
+
+func handlArgs(args []interface{}) {
+	if len(args) == 0 {
+		fmt.Println()
+		return
+	}
+	fmt.Print(": ")
+	fmt.Println(fixJSONArgs(args)...)
+}
+
+func fixJSONArgs(args []interface{}) []interface{} {
+	retargs := make([]interface{}, len(args))
+	for i, v := range args {
+		jsonv, ok := v.(JSONLog)
+		if !ok {
+			retargs[i] = v
+			continue
+		}
+		d, err := json.Marshal(jsonv.value)
+		if err == nil {
+			retargs[i] = string(d)
+		} else {
+			retargs[i] = v
+		}
+	}
+	return retargs
 }
