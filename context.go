@@ -30,29 +30,35 @@ func (o *ExperimentOverride) Copy() *ExperimentOverride {
 		retval.Condition = deepcopy.MustAnything(o.Condition).(Condition)
 	}
 	if o.Weights != nil {
-		retval.Weights = deepcopy.MustAnything(o.Weights).([]float64)
+		retval.Weights = make([]float64, len(o.Weights))
+		copy(retval.Weights, o.Weights)
 	}
 	if o.Active != nil {
-		retval.Active = deepcopy.MustAnything(o.Active).(*bool)
+		tmp := *o.Active
+		retval.Active = &tmp
 	}
 	if o.Status != nil {
-		retval.Status = deepcopy.MustAnything(o.Status).(*ExperimentStatus)
+		tmp := *o.Status
+		retval.Status = &tmp
 	}
 	if o.Force != nil {
-		retval.Force = deepcopy.MustAnything(o.Force).(*int)
+		tmp := *o.Force
+		retval.Force = &tmp
 	}
 	if o.Coverage != nil {
-		retval.Coverage = deepcopy.MustAnything(o.Coverage).(*float64)
+		tmp := *o.Coverage
+		retval.Coverage = &tmp
 	}
 	if o.Groups != nil {
-		retval.Groups = deepcopy.MustAnything(o.Groups).([]string)
+		retval.Groups = make([]string, len(o.Groups))
+		copy(retval.Groups, o.Groups)
 	}
 	if o.Namespace != nil {
-		retval.Namespace = deepcopy.MustAnything(o.Namespace).(*Namespace)
+		retval.Namespace = o.Namespace.Copy()
 	}
 	if o.URL != nil {
-		newURL := regexp.Regexp(*o.URL)
-		retval.URL = &newURL
+		tmp := regexp.Regexp(*o.URL)
+		retval.URL = &tmp
 	}
 	return &retval
 }

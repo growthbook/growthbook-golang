@@ -11,11 +11,7 @@ import (
 // the expected ones, and not miss any unexpected ones.
 
 func handleExpectedWarnings(
-	t *testing.T, test []interface{}, expectedWarnings map[string]int) {
-	name, ok := test[0].(string)
-	if !ok {
-		t.Errorf("can't extract test name!")
-	}
+	t *testing.T, name string, expectedWarnings map[string]int) {
 	warnings, ok := expectedWarnings[name]
 	if ok {
 		if len(testLog.errors) == 0 && len(testLog.warnings) == warnings {

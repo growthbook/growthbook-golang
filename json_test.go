@@ -37,21 +37,22 @@ func TestJSON(t *testing.T) {
 // Condition evaluation tests.
 //
 // Test parameters: name, condition, attributes, result
-func jsonTestEvalCondition(t *testing.T, test []interface{}) {
-	condition, ok1 := test[1].(map[string]interface{})
-	value, ok2 := test[2].(map[string]interface{})
-	expected, ok3 := test[3].(bool)
-	if !ok1 || !ok2 || !ok3 {
-		log.Fatal("unpacking test data")
-	}
+func jsonTestEvalCondition(t *testing.T, test []byte) {
+	d := struct {
+		name      string
+		condition map[string]interface{}
+		value     map[string]interface{}
+		expected  bool
+	}{}
+	unmarshalTest(test, []interface{}{&d.name, &d.condition, &d.value, &d.expected})
 
-	cond := BuildCondition(condition)
+	cond := BuildCondition(d.condition)
 	if cond == nil {
 		log.Fatal(errors.New("failed to build condition"))
 	}
-	attrs := Attributes(value)
+	attrs := Attributes(d.value)
 	result := cond.Eval(attrs)
-	if !reflect.DeepEqual(result, expected) {
+	if !reflect.DeepEqual(result, d.expected) {
 		t.Errorf("unexpected result: %v", result)
 	}
 }
@@ -95,23 +96,17 @@ func jsonTestVersionCompare(t *testing.T, comparison string, test []interface{})
 // Hash function tests.
 //
 // Test parameters: value, hash
-func jsonTestHash(t *testing.T, test []interface{}) {
-	seed, ok0 := test[0].(string)
-	value, ok1 := test[1].(string)
-	version, ok2 := test[2].(float64)
-	expectedValue, ok3 := test[3].(float64)
-	var expected *float64
-	if ok3 {
-		expected = &expectedValue
-	} else {
-		ok3 = test[3] == nil
-	}
-	if !ok0 || !ok1 || !ok2 || !ok3 {
-		log.Fatal("unpacking test data")
-	}
+func jsonTestHash(t *testing.T, test []byte) {
+	d := struct {
+		seed     string
+		value    string
+		version  int
+		expected *float64
+	}{}
+	unmarshalTest(test, []interface{}{&d.seed, &d.value, &d.version, &d.expected})
 
-	result := hash(seed, value, int(version))
-	if expected == nil {
+	result := hash(d.seed, d.value, d.version)
+	if d.expected == nil {
 		if result != nil {
 			t.Errorf("expected nil result, got %v", result)
 		}
@@ -119,7 +114,7 @@ func jsonTestHash(t *testing.T, test []interface{}) {
 		if result == nil {
 			t.Errorf("expected non-nil result, got nil")
 		}
-		if !reflect.DeepEqual(*result, *expected) {
+		if !reflect.DeepEqual(*result, *d.expected) {
 			t.Errorf("unexpected result: %v", *result)
 		}
 	}
@@ -128,53 +123,42 @@ func jsonTestHash(t *testing.T, test []interface{}) {
 // Bucket range tests.
 //
 // Test parameters: name, args ([numVariations, coverage, weights]), result
-func jsonTestGetBucketRange(t *testing.T, test []interface{}) {
-	args, ok1 := test[1].([]interface{})
-	result, ok2 := test[2].([]interface{})
-	if !ok1 || !ok2 {
-		log.Fatal("unpacking test data")
+func jsonTestGetBucketRange(t *testing.T, test []byte) {
+	d := struct {
+		name   string
+		args   json.RawMessage
+		result [][]float64
+	}{}
+	unmarshalTest(test, []interface{}{&d.name, &d.args, &d.result})
+
+	args := struct {
+		numVariations int
+		coverage      float64
+		weights       []float64
+	}{}
+	unmarshalTest(d.args, []interface{}{&args.numVariations, &args.coverage, &args.weights})
+
+	variations := make([]Range, len(d.result))
+	for i, v := range d.result {
+		variations[i] = Range{v[0], v[1]}
 	}
 
-	numVariations, argok0 := args[0].(float64)
-	coverage, argok1 := args[1].(float64)
-	if !argok0 || !argok1 {
-		log.Fatal("unpacking test data")
-	}
-	var weights []float64
-	totalWeights := 0.0
-	if args[2] != nil {
-		wgts, ok := args[2].([]interface{})
-		if !ok {
-			log.Fatal("unpacking test data")
-		}
-		weights = make([]float64, len(wgts))
-		for i, w := range wgts {
-			weights[i] = w.(float64)
-			totalWeights += w.(float64)
-		}
-	}
-
-	variations := make([]Range, len(result))
-	for i, v := range result {
-		vr, ok := v.([]interface{})
-		if !ok || len(vr) != 2 {
-			log.Fatal("unpacking test data")
-		}
-		variations[i] = Range{vr[0].(float64), vr[1].(float64)}
-	}
-
-	ranges := roundRanges(getBucketRanges(int(numVariations), coverage, weights))
+	ranges := roundRanges(getBucketRanges(args.numVariations, args.coverage, args.weights))
 
 	if !reflect.DeepEqual(ranges, variations) {
-		t.Errorf("unexpected value: %v", result)
+		t.Errorf("unexpected value: %v", d.result)
 	}
 
 	// Handle expected warnings.
-	if coverage < 0 || coverage > 1 {
+	if args.coverage < 0 || args.coverage > 1 {
 		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
 			t.Errorf("expected coverage log warning")
 		}
 		testLog.reset()
+	}
+	totalWeights := 0.0
+	for _, w := range args.weights {
+		totalWeights += w
 	}
 	if totalWeights != 1 {
 		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
@@ -182,7 +166,7 @@ func jsonTestGetBucketRange(t *testing.T, test []interface{}) {
 		}
 		testLog.reset()
 	}
-	if len(weights) != len(result) {
+	if len(args.weights) != len(d.result) {
 		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
 			t.Errorf("expected weight length log warning")
 		}
@@ -193,21 +177,22 @@ func jsonTestGetBucketRange(t *testing.T, test []interface{}) {
 // Feature tests.
 //
 // Test parameters: name, context, feature key, result
-func jsonTestFeature(t *testing.T, test []interface{}) {
-	contextDict, ok1 := test[1].(map[string]interface{})
-	featureKey, ok2 := test[2].(string)
-	expectedDict, ok3 := test[3].(map[string]interface{})
-	if !ok1 || !ok2 || !ok3 {
-		log.Fatal("unpacking test data")
-	}
+func jsonTestFeature(t *testing.T, test []byte) {
+	d := struct {
+		name       string
+		context    map[string]interface{}
+		featureKey string
+		expected   map[string]interface{}
+	}{}
+	unmarshalTest(test, []interface{}{&d.name, &d.context, &d.featureKey, &d.expected})
 
-	context := BuildContext(contextDict)
+	context := BuildContext(d.context)
 	growthbook := New(context)
-	expected := BuildFeatureResult(expectedDict)
+	expected := BuildFeatureResult(d.expected)
 	if expected == nil {
 		t.Errorf("unexpected nil from BuildFeatureResult")
 	}
-	retval := growthbook.Feature(featureKey)
+	retval := growthbook.Feature(d.featureKey)
 
 	// fmt.Println("== RESULT ======================================================================")
 	// fmt.Println(retval)
@@ -227,64 +212,66 @@ func jsonTestFeature(t *testing.T, test []interface{}) {
 		"unknown feature key": 1,
 		"ignores empty rules": 1,
 	}
-	handleExpectedWarnings(t, test, expectedWarnings)
+	handleExpectedWarnings(t, d.name, expectedWarnings)
 }
 
 // Experiment tests.
 //
 // Test parameters: name, context, experiment, value, inExperiment
-func jsonTestRun(t *testing.T, test []interface{}) {
-	contextDict, ok1 := test[1].(map[string]interface{})
-	experimentDict, ok2 := test[2].(map[string]interface{})
-	resultValue := test[3]
-	resultInExperiment, ok3 := test[4].(bool)
-	if !ok1 || !ok2 || !ok3 {
-		log.Fatal("unpacking test data")
-	}
+func jsonTestRun(t *testing.T, test []byte) {
+	d := struct {
+		name         string
+		context      map[string]interface{}
+		experiment   map[string]interface{}
+		result       interface{}
+		inExperiment bool
+		hashUsed     bool
+	}{}
+	unmarshalTest(test, []interface{}{&d.name, &d.context, &d.experiment, &d.result, &d.inExperiment, &d.hashUsed})
 
-	context := BuildContext(contextDict)
+	context := BuildContext(d.context)
 	growthbook := New(context)
-	experiment := BuildExperiment(experimentDict)
+	experiment := BuildExperiment(d.experiment)
 	if experiment == nil {
 		t.Errorf("unexpected nil from BuildExperiment")
 	}
 	result := growthbook.Run(experiment)
 
-	if !reflect.DeepEqual(result.Value, resultValue) {
+	if !reflect.DeepEqual(result.Value, d.result) {
 		t.Errorf("unexpected result value: %v", result.Value)
 	}
-	if result.InExperiment != resultInExperiment {
+	if result.InExperiment != d.inExperiment {
 		t.Errorf("unexpected inExperiment value: %v", result.InExperiment)
+	}
+	if result.HashUsed != d.hashUsed {
+		t.Errorf("unexpected hashUsed value: %v", result.HashUsed)
 	}
 
 	expectedWarnings := map[string]int{
 		"single variation": 1,
 	}
-	handleExpectedWarnings(t, test, expectedWarnings)
+	handleExpectedWarnings(t, d.name, expectedWarnings)
 }
 
 // Variation choice tests.
 //
 // Test parameters: name, hash, ranges, result
-func jsonTestChooseVariation(t *testing.T, test []interface{}) {
-	hash, ok1 := test[1].(float64)
-	ranges, ok2 := test[2].([]interface{})
-	result, ok3 := test[3].(float64)
-	if !ok1 || !ok2 || !ok3 {
-		log.Fatal("unpacking test data")
+func jsonTestChooseVariation(t *testing.T, test []byte) {
+	d := struct {
+		name   string
+		hash   float64
+		ranges [][]float64
+		result int
+	}{}
+	unmarshalTest(test, []interface{}{&d.name, &d.hash, &d.ranges, &d.result})
+
+	variations := make([]Range, len(d.ranges))
+	for i, v := range d.ranges {
+		variations[i] = Range{v[0], v[1]}
 	}
 
-	variations := make([]Range, len(ranges))
-	for i, v := range ranges {
-		vr, ok := v.([]interface{})
-		if !ok || len(vr) != 2 {
-			log.Fatal("unpacking test data")
-		}
-		variations[i] = Range{vr[0].(float64), vr[1].(float64)}
-	}
-
-	variation := chooseVariation(hash, variations)
-	if variation != int(result) {
+	variation := chooseVariation(d.hash, variations)
+	if variation != int(d.result) {
 		t.Errorf("unexpected result: %d", variation)
 	}
 }
@@ -292,26 +279,22 @@ func jsonTestChooseVariation(t *testing.T, test []interface{}) {
 // Query string override tests
 //
 // Test parameters: name, experiment key, url, numVariations, result
-func jsonTestQueryStringOverride(t *testing.T, test []interface{}) {
-	key, ok1 := test[1].(string)
-	rawURL, ok2 := test[2].(string)
-	numVariations, ok3 := test[3].(float64)
-	result := test[4]
-	var expected *int
-	if result != nil {
-		tmp := int(result.(float64))
-		expected = &tmp
-	}
-	if !ok1 || !ok2 || !ok3 {
-		log.Fatal("unpacking test data")
-	}
-	url, err := url.Parse(rawURL)
+func jsonTestQueryStringOverride(t *testing.T, test []byte) {
+	d := struct {
+		name          string
+		key           string
+		rawURL        string
+		numVariations int
+		expected      *int
+	}{}
+	unmarshalTest(test, []interface{}{&d.name, &d.key, &d.rawURL, &d.numVariations, &d.expected})
+	url, err := url.Parse(d.rawURL)
 	if err != nil {
 		log.Fatal("invalid URL")
 	}
 
-	override := getQueryStringOverride(key, url, int(numVariations))
-	if !reflect.DeepEqual(override, expected) {
+	override := getQueryStringOverride(d.key, url, d.numVariations)
+	if !reflect.DeepEqual(override, d.expected) {
 		t.Errorf("unexpected result: %v", override)
 	}
 }
@@ -319,17 +302,18 @@ func jsonTestQueryStringOverride(t *testing.T, test []interface{}) {
 // Namespace inclusion tests
 //
 // Test parameters: name, id, namespace, result
-func jsonTestInNamespace(t *testing.T, test []interface{}) {
-	id, ok1 := test[1].(string)
-	ns, ok2 := test[2].([]interface{})
-	expected, ok3 := test[3].(bool)
-	if !ok1 || !ok2 || !ok3 {
-		log.Fatal("unpacking test data")
-	}
 
-	namespace := BuildNamespace(ns)
-	result := namespace.inNamespace(id)
-	if result != expected {
+func jsonTestInNamespace(t *testing.T, test []byte) {
+	d := struct {
+		name      string
+		id        string
+		namespace *Namespace
+		expected  bool
+	}{}
+	unmarshalTest(test, []interface{}{&d.name, &d.id, &d.namespace, &d.expected})
+
+	result := d.namespace.inNamespace(d.id)
+	if result != d.expected {
 		t.Errorf("unexpected result: %v", result)
 	}
 }
@@ -337,20 +321,15 @@ func jsonTestInNamespace(t *testing.T, test []interface{}) {
 // Equal weight calculation tests.
 //
 // Test parameters: numVariations, result
-func jsonTestGetEqualWeights(t *testing.T, test []interface{}) {
-	numVariations, ok0 := test[0].(float64)
-	exp, ok1 := test[1].([]interface{})
-	if !ok0 || !ok1 {
-		log.Fatal("unpacking test data")
-	}
+func jsonTestGetEqualWeights(t *testing.T, test []byte) {
+	d := struct {
+		numVariations int
+		expected      []float64
+	}{}
+	unmarshalTest(test, []interface{}{&d.numVariations, &d.expected})
 
-	expected := make([]float64, len(exp))
-	for i, e := range exp {
-		expected[i] = e.(float64)
-	}
-
-	result := getEqualWeights(int(numVariations))
-	if !reflect.DeepEqual(round(result), round(expected)) {
+	result := getEqualWeights(d.numVariations)
+	if !reflect.DeepEqual(round(result), round(d.expected)) {
 		t.Errorf("unexpected value: %v", result)
 	}
 }
@@ -358,33 +337,27 @@ func jsonTestGetEqualWeights(t *testing.T, test []interface{}) {
 // Decryption function tests.
 //
 // Test parameters: name, encryptedString, key, expected
-func jsonTestDecrypt(t *testing.T, test []interface{}) {
-	encryptedString, ok1 := test[1].(string)
-	key, ok2 := test[2].(string)
-	if !ok1 || !ok2 {
-		log.Fatal("unpacking test data")
-	}
-	nilExpected := test[3] == nil
-	expected := ""
-	if !nilExpected {
-		expected, ok2 = test[3].(string)
-		if !ok2 {
-			log.Fatal("unpacking test data")
-		}
-	}
+func jsonTestDecrypt(t *testing.T, test []byte) {
+	d := struct {
+		name      string
+		encrypted string
+		key       string
+		expected  *string
+	}{}
+	unmarshalTest(test, []interface{}{&d.name, &d.encrypted, &d.key, &d.expected})
 
-	result, err := decrypt(encryptedString, key)
-	if nilExpected {
+	result, err := decrypt(d.encrypted, d.key)
+	if d.expected == nil {
 		if err == nil {
 			t.Errorf("expected error return")
 		}
 	} else {
 		if err != nil {
 			t.Errorf("error in decrypt: %v", err)
-		} else if !reflect.DeepEqual(result, expected) {
+		} else if !reflect.DeepEqual(result, *d.expected) {
 			t.Errorf("unexpected result: %v", result)
-			fmt.Printf("expected: '%s' (%d)\n", expected, len(expected))
-			fmt.Println([]byte(expected))
+			fmt.Printf("expected: '%s' (%d)\n", *d.expected, len(*d.expected))
+			fmt.Println([]byte(*d.expected))
 			fmt.Printf("     got: '%s' (%d)\n", result, len(result))
 			fmt.Println([]byte(result))
 		}
@@ -399,7 +372,7 @@ func jsonTestDecrypt(t *testing.T, test []interface{}) {
 // Run a set of JSON test cases provided as a JSON array.
 
 func jsonTest(t *testing.T, label string,
-	fn func(t *testing.T, test []interface{})) {
+	fn func(t *testing.T, test []byte)) {
 	content, err := ioutil.ReadFile("cases.json")
 	if err != nil {
 		log.Fatal(err)
@@ -437,7 +410,11 @@ func jsonTest(t *testing.T, label string,
 				// trigger warnings, but these are handled within the test
 				// themselves).
 				testLog.reset()
-				fn(t, test)
+				jsonTest, err := json.Marshal(test)
+				if err != nil {
+					t.Errorf("CAN'T CONVERT TEST BACK TO JSON!")
+				}
+				fn(t, jsonTest)
 				if len(testLog.errors) != 0 {
 					t.Errorf("test log has errors: %s", testLog.allErrors())
 				}
@@ -499,4 +476,14 @@ func jsonMapTest(t *testing.T, label string,
 			itest++
 		}
 	})
+}
+
+func unmarshalTest(in []byte, d []interface{}) {
+	okLen := len(d)
+	if err := json.Unmarshal(in, &d); err != nil {
+		log.Fatal("unpacking test data:", err)
+	}
+	if len(d) != okLen {
+		log.Fatal("unpacking test data: wrong length")
+	}
 }

@@ -1,6 +1,9 @@
 package growthbook
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // Namespace specifies what part of a namespace an experiment
 // includes. If two experiments are in the same namespace and their
@@ -11,14 +14,34 @@ type Namespace struct {
 	End   float64
 }
 
-func (namespace *Namespace) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]interface{}{namespace.ID, namespace.Start, namespace.End})
+func (ns *Namespace) Copy() *Namespace {
+	return &Namespace{
+		ID:    ns.ID,
+		Start: ns.Start,
+		End:   ns.End,
+	}
+}
+
+func (ns *Namespace) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]interface{}{ns.ID, ns.Start, ns.End})
+}
+
+func (ns *Namespace) UnmarshalJSON(b []byte) error {
+	tmp := []interface{}{&ns.ID, &ns.Start, &ns.End}
+	okLen := len(tmp)
+	if err := json.Unmarshal(b, &tmp); err != nil {
+		return err
+	}
+	if len(tmp) != okLen {
+		return errors.New("Wrong number of JSON fields for namespace")
+	}
+	return nil
 }
 
 // Determine whether a user's ID lies within a given namespace.
-func (namespace *Namespace) inNamespace(userID string) bool {
-	n := float64(hashFnv32a(userID+"__"+namespace.ID)%1000) / 1000
-	return n >= namespace.Start && n < namespace.End
+func (ns *Namespace) inNamespace(userID string) bool {
+	n := float64(hashFnv32a(userID+"__"+ns.ID)%1000) / 1000
+	return n >= ns.Start && n < ns.End
 }
 
 // ParseNamespace creates a Namespace value from raw JSON input.
