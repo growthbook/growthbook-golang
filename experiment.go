@@ -42,13 +42,13 @@ type Experiment struct {
 // field to true.
 func (exp *Experiment) UnmarshalJSON(data []byte) error {
 	type alias Experiment
-	val := &alias{Active: true}
+	val := alias{Active: true}
 
 	err := json.Unmarshal(data, &val)
 	if err != nil {
 		return err
 	}
-	*exp = Experiment(*val)
+	*exp = Experiment(val)
 	return nil
 }
 

@@ -169,25 +169,17 @@ func jsonTestGetBucketRange(t *testing.T, test []byte) {
 func jsonTestFeature(t *testing.T, test []byte) {
 	d := struct {
 		name       string
-		context    map[string]interface{}
+		context    *testContext
 		featureKey string
 		expected   FeatureResult
 	}{}
 	unmarshalTest(test, []interface{}{&d.name, &d.context, &d.featureKey, &d.expected})
-
-	context := BuildContext(d.context)
+	context := NewContext().
+		WithAttributes(d.context.Attributes).
+		WithFeatures(d.context.Features).
+		WithForcedVariations(d.context.ForcedVariations)
 	growthbook := New(context)
 	retval := growthbook.Feature(d.featureKey)
-
-	// fmt.Println("== RESULT ======================================================================")
-	// fmt.Println(retval)
-	// fmt.Println(retval.Experiment)
-	// fmt.Println(retval.ExperimentResult)
-	// fmt.Println("--------------------------------------------------------------------------------")
-	// fmt.Println(expected)
-	// fmt.Println(expected.Experiment)
-	// fmt.Println(expected.ExperimentResult)
-	// fmt.Println("== EXPECTED ====================================================================")
 
 	if !reflect.DeepEqual(retval, &d.expected) {
 		t.Errorf("unexpected value: %v", retval)
@@ -206,7 +198,7 @@ func jsonTestFeature(t *testing.T, test []byte) {
 func jsonTestRun(t *testing.T, test []byte) {
 	d := struct {
 		name         string
-		context      map[string]interface{}
+		context      *testContext
 		experiment   *Experiment
 		result       interface{}
 		inExperiment bool
@@ -214,12 +206,24 @@ func jsonTestRun(t *testing.T, test []byte) {
 	}{}
 	unmarshalTest(test, []interface{}{&d.name, &d.context, &d.experiment, &d.result, &d.inExperiment, &d.hashUsed})
 
-	context := BuildContext(d.context)
+	context := NewContext().
+		WithEnabled(d.context.Enabled).
+		WithAttributes(d.context.Attributes).
+		WithFeatures(d.context.Features).
+		WithForcedVariations(d.context.ForcedVariations).
+		WithQAMode(d.context.QAMode)
+	if d.context.URL != "" {
+		url, err := url.Parse(d.context.URL)
+		if err != nil {
+			t.Errorf("invalid URL")
+		}
+		context = context.WithURL(url)
+	}
 	growthbook := New(context)
 	result := growthbook.Run(d.experiment)
 
 	if !reflect.DeepEqual(result.Value, d.result) {
-		t.Errorf("unexpected result value: %v", result.Value)
+		t.Errorf("unexpected result value: %v (should be %v)", result.Value, d.result)
 	}
 	if result.InExperiment != d.inExperiment {
 		t.Errorf("unexpected inExperiment value: %v", result.InExperiment)
@@ -463,6 +467,26 @@ func jsonMapTest(t *testing.T, label string,
 			itest++
 		}
 	})
+}
+
+type testContext struct {
+	Enabled          bool                `json:"enabled"`
+	URL              string              `json:"url"`
+	QAMode           bool                `json:"qaMode"`
+	Attributes       Attributes          `json:"attributes"`
+	Features         FeatureMap          `json:"features"`
+	ForcedVariations ForcedVariationsMap `json:"forcedVariations"`
+}
+
+func (ctx *testContext) UnmarshalJSON(data []byte) error {
+	type alias testContext
+	val := alias{Enabled: true}
+	err := json.Unmarshal(data, &val)
+	if err != nil {
+		return err
+	}
+	*ctx = testContext(val)
+	return nil
 }
 
 func unmarshalTest(in []byte, d []interface{}) {

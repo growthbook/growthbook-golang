@@ -130,26 +130,26 @@ func NewWithContext(ctx context.Context, context *Context) *GrowthBook {
 
 	// Feature tracking information.
 	features := &featureData{
-		features:      context.features,
-		decryptionKey: context.decryptionKey,
-		ready:         len(context.features) != 0,
+		features:      context.Features,
+		decryptionKey: context.DecryptionKey,
+		ready:         len(context.Features) != 0,
 	}
 
 	// data shared between GrowthBook instances.
 	shared := &sharedData{
-		enabled:             context.enabled,
-		url:                 context.url,
-		forcedVariations:    context.forcedVariations.Copy(),
-		qaMode:              context.qaMode,
-		devMode:             context.devMode,
-		trackingCallback:    context.trackingCallback,
-		onFeatureUsage:      context.onFeatureUsage,
-		groups:              context.groups,
-		apiHost:             context.apiHost,
-		clientKey:           context.clientKey,
-		overrides:           context.overrides.Copy(),
-		cacheTTL:            context.cacheTTL,
-		httpClient:          context.httpClient,
+		enabled:             context.Enabled,
+		url:                 context.URL,
+		forcedVariations:    context.ForcedVariations.Copy(),
+		qaMode:              context.QAMode,
+		devMode:             context.DevMode,
+		trackingCallback:    context.TrackingCallback,
+		onFeatureUsage:      context.OnFeatureUsage,
+		groups:              context.Groups,
+		apiHost:             context.APIHost,
+		clientKey:           context.ClientKey,
+		overrides:           context.Overrides.Copy(),
+		cacheTTL:            context.CacheTTL,
+		httpClient:          context.HTTPClient,
 		forcedFeatureValues: make(map[string]interface{}),
 		attributeOverrides:  make(Attributes),
 		trackedFeatures:     make(map[string]interface{}),
@@ -161,11 +161,11 @@ func NewWithContext(ctx context.Context, context *Context) *GrowthBook {
 	gb := &GrowthBook{
 		data:     shared,
 		features: features,
-		attrs:    context.attributes,
+		attrs:    context.Attributes,
 	}
 
 	runtime.SetFinalizer(gb, func(gb *GrowthBook) { repoUnsubscribe(gb) })
-	if context.clientKey != "" {
+	if context.ClientKey != "" {
 		go gb.refresh(ctx, nil, true, false)
 	}
 	return gb

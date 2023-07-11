@@ -6,37 +6,6 @@ import (
 	"testing"
 )
 
-func TestContextMalformedJSON(t *testing.T) {
-	SetLogger(&testLog)
-
-	contextJSON := []string{
-		`{"enabled": 1}`,
-		`{"attributes": 1}`,
-		`{"url": 1}`,
-		`{"features": 1}`,
-		`{"forcedVariations": 1}`,
-		`{"forcedVariations": {"abc": 1, "def": "bad"}}`,
-		`{"qaMode": 1}`,
-		`{"devMode": 1}`,
-		`{"userAttributes": 1}`,
-		`{"groups": 1}`,
-		`{"groups": {"abc": true, "def": "bad"}}`,
-		`{"apiHost": 1}`,
-		`{"clientKey": 1}`,
-		`{"decryptionKey": 1}`,
-		`{"overrides": 1}`,
-		`{"unknownKey": "some data"}`,
-	}
-
-	for _, json := range contextJSON {
-		testLog.reset()
-		ParseContext([]byte(json)) // discarding result...
-		if len(testLog.warnings) != 1 {
-			t.Errorf("expected warning from Context JSON parser for: %s", json)
-		}
-	}
-}
-
 func TestFeaturesCanSetFeatures(t *testing.T) {
 	context := NewContext().
 		WithAttributes(Attributes{"id": "123"})

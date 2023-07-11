@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"encoding/json"
+	"regexp"
 
 	"github.com/barkimedes/go-deepcopy"
 )
@@ -87,4 +88,67 @@ func (s *FeatureResultSource) UnmarshalJSON(data []byte) error {
 		*s = UnknownResultSource
 	}
 	return nil
+}
+
+// ExperimentOverride provides the possibility to temporarily override
+// some experiment settings.
+type ExperimentOverride struct {
+	Condition *Condition        `json:"condition,omitempty"`
+	Weights   []float64         `json:"weights,omitempty"`
+	Active    *bool             `json:"active,omitempty"`
+	Status    *ExperimentStatus `json:"status,omitempty"`
+	Force     *int              `json:"force,omitempty"`
+	Coverage  *float64          `json:"coverage,omitempty"`
+	Groups    []string          `json:"groups,omitempty"`
+	Namespace *Namespace        `json:"namespace,omitempty"`
+	URL       *regexp.Regexp    `json:"url,omitempty"`
+}
+
+func (o *ExperimentOverride) Copy() *ExperimentOverride {
+	retval := ExperimentOverride{}
+	if o.Condition != nil {
+		retval.Condition = deepcopy.MustAnything(o.Condition).(*Condition)
+	}
+	if o.Weights != nil {
+		retval.Weights = make([]float64, len(o.Weights))
+		copy(retval.Weights, o.Weights)
+	}
+	if o.Active != nil {
+		tmp := *o.Active
+		retval.Active = &tmp
+	}
+	if o.Status != nil {
+		tmp := *o.Status
+		retval.Status = &tmp
+	}
+	if o.Force != nil {
+		tmp := *o.Force
+		retval.Force = &tmp
+	}
+	if o.Coverage != nil {
+		tmp := *o.Coverage
+		retval.Coverage = &tmp
+	}
+	if o.Groups != nil {
+		retval.Groups = make([]string, len(o.Groups))
+		copy(retval.Groups, o.Groups)
+	}
+	if o.Namespace != nil {
+		retval.Namespace = o.Namespace.Copy()
+	}
+	if o.URL != nil {
+		tmp := regexp.Regexp(*o.URL)
+		retval.URL = &tmp
+	}
+	return &retval
+}
+
+type ExperimentOverrides map[string]*ExperimentOverride
+
+func (os ExperimentOverrides) Copy() ExperimentOverrides {
+	retval := map[string]*ExperimentOverride{}
+	for k, v := range os {
+		retval[k] = v.Copy()
+	}
+	return retval
 }
