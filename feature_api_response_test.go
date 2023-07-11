@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 )
 
@@ -111,5 +112,24 @@ func TestAPIResponseParsing(t *testing.T) {
 	err := json.Unmarshal([]byte(jsonData), &apiResponse)
 	if err != nil {
 		t.Errorf("failed to parse API response data")
+	}
+	roundTrip, err := json.Marshal(&apiResponse)
+	if err != nil {
+		t.Error("failed to format API response data")
+	}
+
+	check1 := map[string]interface{}{}
+	err = json.Unmarshal([]byte(jsonData), &check1)
+	if err != nil {
+		t.Error("failed to parse API response data for checking")
+	}
+	check2 := map[string]interface{}{}
+	err = json.Unmarshal(roundTrip, &check2)
+	if err != nil {
+		t.Error("failed to parse API response data for checking")
+	}
+
+	if !reflect.DeepEqual(check1, check2) {
+		t.Error("API response data round trip check failed")
 	}
 }

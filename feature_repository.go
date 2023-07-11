@@ -289,8 +289,9 @@ func doFetchRequest(ctx context.Context, gb *GrowthBook) *FeatureAPIResponse {
 		return nil
 	}
 
-	apiResponse := ParseFeatureAPIResponse(body)
-	if apiResponse == nil {
+	apiResponse := FeatureAPIResponse{}
+	err = json.Unmarshal(body, &apiResponse)
+	if err != nil {
 		logErrorf("Error fetching features: parsing response: %v", err)
 		return nil
 	}
@@ -299,7 +300,7 @@ func doFetchRequest(ctx context.Context, gb *GrowthBook) *FeatureAPIResponse {
 	sse, ok := resp.Header["X-Sse-Support"]
 	refresh.sseSupported(key, ok && sse[0] == "enabled")
 
-	return apiResponse
+	return &apiResponse
 }
 
 // Update values on the inner growthBookData data structures of

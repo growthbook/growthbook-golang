@@ -2,7 +2,6 @@ package growthbook
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -40,18 +39,14 @@ func TestJSON(t *testing.T) {
 func jsonTestEvalCondition(t *testing.T, test []byte) {
 	d := struct {
 		name      string
-		condition map[string]interface{}
+		condition *Condition
 		value     map[string]interface{}
 		expected  bool
 	}{}
 	unmarshalTest(test, []interface{}{&d.name, &d.condition, &d.value, &d.expected})
 
-	cond := BuildCondition(d.condition)
-	if cond == nil {
-		log.Fatal(errors.New("failed to build condition"))
-	}
 	attrs := Attributes(d.value)
-	result := cond.Eval(attrs)
+	result := d.condition.Eval(attrs)
 	if !reflect.DeepEqual(result, d.expected) {
 		t.Errorf("unexpected result: %v", result)
 	}
@@ -60,35 +55,29 @@ func jsonTestEvalCondition(t *testing.T, test []byte) {
 // Version comparison tests.
 //
 // Test parameters: ...
-func jsonTestVersionCompare(t *testing.T, comparison string, test []interface{}) {
-	for _, oneTest := range test {
-		testData, ok := oneTest.([]interface{})
-		if !ok || len(testData) != 3 {
-			log.Fatal("unpacking test data")
-		}
-		v1, ok1 := testData[0].(string)
-		v2, ok2 := testData[1].(string)
-		expected, ok3 := testData[2].(bool)
-		if !ok1 || !ok2 || !ok3 {
-			log.Fatal("unpacking test data")
-		}
+func jsonTestVersionCompare(t *testing.T, comparison string, test []byte) {
+	d := struct {
+		v1       string
+		v2       string
+		expected bool
+	}{}
+	unmarshalTest(test, []interface{}{&d.v1, &d.v2, &d.expected})
 
-		pv1 := paddedVersionString(v1)
-		pv2 := paddedVersionString(v2)
+	pv1 := paddedVersionString(d.v1)
+	pv2 := paddedVersionString(d.v2)
 
-		switch comparison {
-		case "eq":
-			if (pv1 == pv2) != expected {
-				t.Errorf("unexpected result: '%s' eq '%s' => %v", v1, v2, pv1 == pv2)
-			}
-		case "gt":
-			if (pv1 > pv2) != expected {
-				t.Errorf("unexpected result: '%s' gt '%s' => %v", v1, v2, pv1 == pv2)
-			}
-		case "lt":
-			if (pv1 < pv2) != expected {
-				t.Errorf("unexpected result: '%s' lt '%s' => %v", v1, v2, pv1 == pv2)
-			}
+	switch comparison {
+	case "eq":
+		if (pv1 == pv2) != d.expected {
+			t.Errorf("unexpected result: '%s' eq '%s' => %v", d.v1, d.v2, pv1 == pv2)
+		}
+	case "gt":
+		if (pv1 > pv2) != d.expected {
+			t.Errorf("unexpected result: '%s' gt '%s' => %v", d.v1, d.v2, pv1 == pv2)
+		}
+	case "lt":
+		if (pv1 < pv2) != d.expected {
+			t.Errorf("unexpected result: '%s' lt '%s' => %v", d.v1, d.v2, pv1 == pv2)
 		}
 	}
 }
@@ -182,16 +171,12 @@ func jsonTestFeature(t *testing.T, test []byte) {
 		name       string
 		context    map[string]interface{}
 		featureKey string
-		expected   map[string]interface{}
+		expected   FeatureResult
 	}{}
 	unmarshalTest(test, []interface{}{&d.name, &d.context, &d.featureKey, &d.expected})
 
 	context := BuildContext(d.context)
 	growthbook := New(context)
-	expected := BuildFeatureResult(d.expected)
-	if expected == nil {
-		t.Errorf("unexpected nil from BuildFeatureResult")
-	}
 	retval := growthbook.Feature(d.featureKey)
 
 	// fmt.Println("== RESULT ======================================================================")
@@ -204,7 +189,7 @@ func jsonTestFeature(t *testing.T, test []byte) {
 	// fmt.Println(expected.ExperimentResult)
 	// fmt.Println("== EXPECTED ====================================================================")
 
-	if !reflect.DeepEqual(retval, expected) {
+	if !reflect.DeepEqual(retval, &d.expected) {
 		t.Errorf("unexpected value: %v", retval)
 	}
 
@@ -222,7 +207,7 @@ func jsonTestRun(t *testing.T, test []byte) {
 	d := struct {
 		name         string
 		context      map[string]interface{}
-		experiment   map[string]interface{}
+		experiment   *Experiment
 		result       interface{}
 		inExperiment bool
 		hashUsed     bool
@@ -231,11 +216,7 @@ func jsonTestRun(t *testing.T, test []byte) {
 
 	context := BuildContext(d.context)
 	growthbook := New(context)
-	experiment := BuildExperiment(d.experiment)
-	if experiment == nil {
-		t.Errorf("unexpected nil from BuildExperiment")
-	}
-	result := growthbook.Run(experiment)
+	result := growthbook.Run(d.experiment)
 
 	if !reflect.DeepEqual(result.Value, d.result) {
 		t.Errorf("unexpected result value: %v", result.Value)
@@ -429,7 +410,7 @@ func jsonTest(t *testing.T, label string,
 // Run a set of JSON test cases provided as a JSON map.
 
 func jsonMapTest(t *testing.T, label string,
-	fn func(t *testing.T, label string, test []interface{})) {
+	fn func(t *testing.T, label string, test []byte)) {
 	content, err := ioutil.ReadFile("cases.json")
 	if err != nil {
 		log.Fatal(err)
@@ -453,7 +434,7 @@ func jsonMapTest(t *testing.T, label string,
 		// entries depends on the test type.
 		itest := 1
 		for name, gtest := range cases {
-			test, ok := gtest.([]interface{})
+			tests, ok := gtest.([]interface{})
 			if !ok {
 				log.Fatal("unpacking JSON test data")
 			}
@@ -465,7 +446,13 @@ func jsonMapTest(t *testing.T, label string,
 				// trigger warnings, but these are handled within the test
 				// themselves).
 				testLog.reset()
-				fn(t, name, test)
+				for _, test := range tests {
+					jsonTest, err := json.Marshal(test)
+					if err != nil {
+						t.Errorf("CAN'T CONVERT TEST BACK TO JSON!")
+					}
+					fn(t, name, jsonTest)
+				}
 				if len(testLog.errors) != 0 {
 					t.Errorf("test log has errors: %s", testLog.allErrors())
 				}

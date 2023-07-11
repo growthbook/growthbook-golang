@@ -8,127 +8,221 @@ import (
 )
 
 // Condition represents conditions used to target features/experiments
-// to specific users.
-type Condition interface {
-	Eval(attrs Attributes) bool
-	Unbuild() map[string]interface{}
+// to specific users. Wraps condition interface to allow for JSON
+// marshalling.
+type Condition struct {
+	c cond
+}
+
+// Eval evaluates a condition on a set of attributes.
+func (c Condition) Eval(attrs Attributes) bool {
+	return c.c.eval(attrs)
+}
+
+// MarshalJSON for conditions.
+func (c Condition) MarshalJSON() ([]byte, error) {
+	return c.c.MarshalJSON()
+}
+
+// UnmarshalJSON for conditions: mostly hands off to concrete
+// unmarshallers for subconditions.
+func (c *Condition) UnmarshalJSON(data []byte) error {
+	topLevel := make(map[string]json.RawMessage)
+	err := json.Unmarshal(data, &topLevel)
+	if err != nil {
+		return err
+	}
+
+	subCond := func(key string, maker func() cond) (bool, error) {
+		sub, ok := topLevel[key]
+		if !ok {
+			// Not present, no error.
+			return false, nil
+		}
+		// Make subcondition value.
+		tmp := maker()
+		err = json.Unmarshal(sub, tmp)
+		if err != nil {
+			// Present, error.
+			return true, err
+		}
+		c.c = tmp
+		// Present, no error.
+		return true, nil
+	}
+
+	used, err := subCond("$or", func() cond { return &orCond{} })
+	if used {
+		return err
+	}
+	used, err = subCond("$nor", func() cond { return &norCond{} })
+	if used {
+		return err
+	}
+	used, err = subCond("$and", func() cond { return &andCond{} })
+	if used {
+		return err
+	}
+	used, err = subCond("$not", func() cond { return &notCond{} })
+	if used {
+		return err
+	}
+
+	tmp := baseCond{}
+	err = json.Unmarshal(data, &tmp)
+	if err != nil {
+		return err
+	}
+	c.c = &tmp
+	return nil
+}
+
+// Internal condition interface.
+type cond interface {
+	json.Marshaler
+	eval(attrs Attributes) bool
 }
 
 // Concrete condition representing ORing together a list of
 // conditions.
-type orCondition struct {
-	conds []Condition
-}
-
-// Concrete condition representing NORing together a list of
-// conditions.
-type norCondition struct {
-	conds []Condition
-}
-
-// Concrete condition representing ANDing together a list of
-// conditions.
-type andCondition struct {
-	conds []Condition
-}
-
-// Concrete condition representing the complement of another
-// condition.
-type notCondition struct {
-	cond Condition
-}
-
-// Concrete condition representing the base condition case of a set of
-// keys and values or subsidiary conditions.
-type baseCondition struct {
-	// This is represented in this dynamically typed form to make lax
-	// error handling easier.
-	values map[string]interface{}
+type orCond struct {
+	conds []cond
 }
 
 // Evaluate ORed list of conditions.
-func (cond orCondition) Eval(attrs Attributes) bool {
-	if len(cond.conds) == 0 {
+func (c orCond) eval(attrs Attributes) bool {
+	if len(c.conds) == 0 {
 		return true
 	}
-	for i := range cond.conds {
-		if cond.conds[i].Eval(attrs) {
+	for i := range c.conds {
+		if c.conds[i].eval(attrs) {
 			return true
 		}
 	}
 	return false
 }
 
-func (cond orCondition) Unbuild() map[string]interface{} {
-	conds := make([]interface{}, len(cond.conds))
-	for i, c := range cond.conds {
-		conds[i] = c.Unbuild()
-	}
-	return map[string]interface{}{"$or": conds}
+// MarshalJSON serializes OR conditions to JSON.
+func (c orCond) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string][]cond{"$or": c.conds})
 }
 
-func (cond orCondition) MarshalJSON() ([]byte, error) {
-	return json.Marshal(cond.Unbuild())
+// UnmarshalJSON deserializes OR conditions from JSON.
+func (c *orCond) UnmarshalJSON(data []byte) error {
+	tmp := []Condition{}
+	err := json.Unmarshal(data, &tmp)
+	if err == nil {
+		c.conds = make([]cond, len(tmp))
+		for i := range tmp {
+			c.conds[i] = tmp[i].c
+		}
+	}
+	return err
+}
+
+// Concrete condition representing NORing together a list of
+// conditions.
+type norCond struct {
+	conds []cond
 }
 
 // Evaluate NORed list of conditions.
-func (cond norCondition) Eval(attrs Attributes) bool {
-	or := orCondition{cond.conds}
-	return !or.Eval(attrs)
+func (c norCond) eval(attrs Attributes) bool {
+	or := orCond{c.conds}
+	return !or.eval(attrs)
 }
 
-func (cond norCondition) Unbuild() map[string]interface{} {
-	conds := make([]interface{}, len(cond.conds))
-	for i, c := range cond.conds {
-		conds[i] = c.Unbuild()
+// MarshalJSON serializes NOR conditions to JSON.
+func (c norCond) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string][]cond{"$nor": c.conds})
+}
+
+// UnmarshalJSON deserializes NOR conditions from JSON.
+func (c *norCond) UnmarshalJSON(data []byte) error {
+	tmp := []Condition{}
+	err := json.Unmarshal(data, &tmp)
+	if err == nil {
+		c.conds = make([]cond, len(tmp))
+		for i := range tmp {
+			c.conds[i] = tmp[i].c
+		}
 	}
-	return map[string]interface{}{"$nor": conds}
+	return err
 }
 
-func (cond norCondition) MarshalJSON() ([]byte, error) {
-	return json.Marshal(cond.Unbuild())
+// Concrete condition representing ANDing together a list of
+// conditions.
+type andCond struct {
+	conds []cond
 }
 
 // Evaluate ANDed list of conditions.
-func (cond andCondition) Eval(attrs Attributes) bool {
-	for i := range cond.conds {
-		if !cond.conds[i].Eval(attrs) {
+func (c andCond) eval(attrs Attributes) bool {
+	for i := range c.conds {
+		if !c.conds[i].eval(attrs) {
 			return false
 		}
 	}
 	return true
 }
 
-func (cond andCondition) Unbuild() map[string]interface{} {
-	conds := make([]interface{}, len(cond.conds))
-	for i, c := range cond.conds {
-		conds[i] = c.Unbuild()
-	}
-	return map[string]interface{}{"$and": conds}
+// MarshalJSON serializes AND conditions to JSON.
+func (c andCond) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string][]cond{"$and": c.conds})
 }
 
-func (cond andCondition) MarshalJSON() ([]byte, error) {
-	return json.Marshal(cond.Unbuild())
+// UnmarshalJSON deserializes AND conditions from JSON.
+func (c *andCond) UnmarshalJSON(data []byte) error {
+	tmp := []Condition{}
+	err := json.Unmarshal(data, &tmp)
+	if err == nil {
+		c.conds = make([]cond, len(tmp))
+		for i := range tmp {
+			c.conds[i] = tmp[i].c
+		}
+	}
+	return err
+}
+
+// Concrete condition representing the complement of another
+// condition.
+type notCond struct {
+	cond cond
 }
 
 // Evaluate complemented condition.
-func (cond notCondition) Eval(attrs Attributes) bool {
-	return !cond.cond.Eval(attrs)
+func (c notCond) eval(attrs Attributes) bool {
+	return !c.cond.eval(attrs)
 }
 
-func (cond notCondition) Unbuild() map[string]interface{} {
-	return map[string]interface{}{"$not": cond.cond.Unbuild()}
+// MarshalJSON serializes NOT conditions to JSON.
+func (c notCond) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]cond{"$not": c.cond})
 }
 
-func (cond notCondition) MarshalJSON() ([]byte, error) {
-	return json.Marshal(cond.Unbuild())
+// UnmarshalJSON deserializes NOT conditions from JSON.
+func (c *notCond) UnmarshalJSON(data []byte) error {
+	tmp := Condition{}
+	err := json.Unmarshal(data, &tmp)
+	if err == nil {
+		c.cond = tmp.c
+	}
+	return err
+}
+
+// Concrete condition representing the base condition case of a set of
+// keys and values or subsidiary conditions.
+type baseCond struct {
+	// This is represented in this dynamically typed form to make lax
+	// error handling easier.
+	values map[string]interface{}
 }
 
 // Evaluate base Condition case by iterating over keys and performing
 // evaluation for each one (either a simple comparison, or an operator
 // evaluation).
-func (cond baseCondition) Eval(attrs Attributes) bool {
-	for k, v := range cond.values {
+func (c baseCond) eval(attrs Attributes) bool {
+	for k, v := range c.values {
 		if !evalConditionValue(v, getPath(attrs, k)) {
 			return false
 		}
@@ -136,67 +230,19 @@ func (cond baseCondition) Eval(attrs Attributes) bool {
 	return true
 }
 
-func (cond baseCondition) Unbuild() map[string]interface{} {
-	return cond.values
+// MarshalJSON serializes base conditions to JSON.
+func (c baseCond) MarshalJSON() ([]byte, error) {
+	return json.Marshal(c.values)
 }
 
-func (cond baseCondition) MarshalJSON() ([]byte, error) {
-	return json.Marshal(cond.Unbuild())
-}
-
-// ParseCondition creates a Condition value from raw JSON input.
-func ParseCondition(data []byte) Condition {
-	topLevel := make(map[string]interface{})
-	err := json.Unmarshal(data, &topLevel)
-	if err != nil {
-		logError("Failed parsing JSON input", "Condition")
-		return nil
+// UnmarshalJSON deserializes base conditions from JSON.
+func (c *baseCond) UnmarshalJSON(data []byte) error {
+	tmp := map[string]interface{}{}
+	err := json.Unmarshal(data, &tmp)
+	if err == nil {
+		c.values = tmp
 	}
-
-	return BuildCondition(topLevel)
-}
-
-// BuildCondition creates a Condition value from a JSON object
-// represented as a Go map.
-func BuildCondition(cond map[string]interface{}) Condition {
-	if or, ok := cond["$or"]; ok {
-		conds := buildSeq(or)
-		if conds == nil {
-			return nil
-		}
-		return orCondition{conds}
-	}
-
-	if nor, ok := cond["$nor"]; ok {
-		conds := buildSeq(nor)
-		if conds == nil {
-			return nil
-		}
-		return norCondition{conds}
-	}
-
-	if and, ok := cond["$and"]; ok {
-		conds := buildSeq(and)
-		if conds == nil {
-			return nil
-		}
-		return andCondition{conds}
-	}
-
-	if not, ok := cond["$not"]; ok {
-		subcond, ok := not.(map[string]interface{})
-		if !ok {
-			logError("Invalid $not in JSON condition data")
-			return nil
-		}
-		cond := BuildCondition(subcond)
-		if cond == nil {
-			return nil
-		}
-		return notCondition{cond}
-	}
-
-	return baseCondition{cond}
+	return err
 }
 
 //-- PRIVATE FUNCTIONS START HERE ----------------------------------------------
@@ -218,32 +264,6 @@ func getPath(attrs Attributes, path string) interface{} {
 		}
 	}
 	return current
-}
-
-// Process a sequence of JSON values into an array of Conditions.
-func buildSeq(seq interface{}) []Condition {
-	// The input should be a JSON array.
-	conds, ok := seq.([]interface{})
-	if !ok {
-		logError("Something wrong in condition sequence")
-		return nil
-	}
-
-	retval := make([]Condition, len(conds))
-	for i := range conds {
-		// Each condition in the sequence should be a JSON object.
-		condmap, ok := conds[i].(map[string]interface{})
-		if !ok {
-			logError("Something wrong in condition sequence element")
-			return nil
-		}
-		cond := BuildCondition(condmap)
-		if cond == nil {
-			return nil
-		}
-		retval[i] = cond
-	}
-	return retval
 }
 
 // Evaluate one element of a base condition. If the condition value is
@@ -479,12 +499,17 @@ func elemMatch(attrVal interface{}, condVal interface{}) bool {
 	if !ok {
 		return false
 	}
+	conddata, err := json.Marshal(condmap)
+	if err != nil {
+		return false
+	}
 
 	// Decide on the type of check to perform on the attribute values.
 	check := func(v interface{}) bool { return evalConditionValue(condVal, v) }
 	if !isOperatorObject(condmap) {
-		cond := BuildCondition(condmap)
-		if cond == nil {
+		cond := Condition{}
+		err := json.Unmarshal(conddata, &cond)
+		if err != nil {
 			return false
 		}
 

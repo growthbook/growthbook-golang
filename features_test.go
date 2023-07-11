@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -73,7 +74,12 @@ func TestFeaturesCanSetEncryptedFeatures(t *testing.T) {
       "rules": [{"condition": { "id": "1234" }, "force": false}]
     }
   }`
-	expected := ParseFeatureMap([]byte(expectedJson))
+	expected := FeatureMap{}
+	err = json.Unmarshal([]byte(expectedJson), &expected)
+	if err != nil {
+		t.Errorf("failed to parse expected JSON: %s", expectedJson)
+	}
+
 	actual := gb.Features()
 
 	if !reflect.DeepEqual(actual, expected) {
@@ -111,8 +117,12 @@ func TestFeaturesReturnsRuleID(t *testing.T) {
 	featuresJson := `{
     "feature": {"defaultValue": 0, "rules": [{"force": 1, "id": "foo"}]}
   }`
-	gb := New(nil).
-		WithFeatures(ParseFeatureMap([]byte(featuresJson)))
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(featuresJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse expected JSON: %s", featuresJson)
+	}
+	gb := New(nil).WithFeatures(features)
 	result := gb.EvalFeature("feature")
 	if result.RuleID != "foo" {
 		t.Errorf("expected rule ID to be foo, got: %v", result.RuleID)
@@ -173,8 +183,13 @@ func TestFeaturesUsesForcedFeatureValues(t *testing.T) {
     "feature1": {"defaultValue": 0},
     "feature2": {"defaultValue": 0}
   }`
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(featuresJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse expected JSON: %s", featuresJson)
+	}
 	gb := New(nil).
-		WithFeatures(ParseFeatureMap([]byte(featuresJson))).
+		WithFeatures(features).
 		WithForcedFeatures(map[string]interface{}{
 			"feature2": 1.0,
 			"feature3": 1.0,
@@ -201,7 +216,11 @@ func TestFeaturesUsesForcedFeatureValues(t *testing.T) {
 
 func TestFeaturesGetsFeatures(t *testing.T) {
 	featuresJson := `{ "feature1": { "defaultValue": 0 } }`
-	features := ParseFeatureMap([]byte(featuresJson))
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(featuresJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse expected JSON: %s", featuresJson)
+	}
 	gb := New(nil).WithFeatures(features)
 
 	if !reflect.DeepEqual(gb.Features(), features) {
@@ -216,9 +235,14 @@ func TestFeaturesFeatureUsageWhenAssignedValueChanges(t *testing.T) {
       "rules": [{"condition": {"color": "blue"}, "force": 1}]
     }
   }`
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(featuresJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse expected JSON: %s", featuresJson)
+	}
 	context := NewContext().
 		WithAttributes(Attributes{"color": "green"}).
-		WithFeatures(ParseFeatureMap([]byte(featuresJson)))
+		WithFeatures(features)
 
 	type featureCall struct {
 		key    string
@@ -256,8 +280,13 @@ func TestFeaturesFeatureUsageWhenAssignedValueChanges(t *testing.T) {
 }
 
 func TestFeaturesUsesFallbacksForGetFeatureValue(t *testing.T) {
-	gb := New(nil).WithFeatures(ParseFeatureMap(
-		[]byte(`{"feature": {"defaultValue": "blue"}}`)))
+	featuresJson := `{"feature": {"defaultValue": "blue"}}`
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(featuresJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse expected JSON: %s", featuresJson)
+	}
+	gb := New(nil).WithFeatures(features)
 
 	res := gb.GetFeatureValue("feature", "green")
 	if res != "blue" {

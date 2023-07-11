@@ -661,7 +661,11 @@ func TestRepoDecryptsFeatures(t *testing.T) {
       "rules": [{"condition": { "id": "1234" }, "force": false}]
     }
   }`
-	expected := ParseFeatureMap([]byte(expectedJson))
+	expected := FeatureMap{}
+	err := json.Unmarshal([]byte(expectedJson), &expected)
+	if err != nil {
+		t.Errorf("failed to parse expected JSON: %s", expectedJson)
+	}
 	actual := gb.Features()
 
 	if !reflect.DeepEqual(actual, expected) {

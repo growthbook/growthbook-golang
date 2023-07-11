@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -112,7 +113,11 @@ func TestIssue1(t *testing.T) {
 		"dietaryRestrictions": []string{"gluten_free"},
 	}
 
-	features := ParseFeatureMap([]byte(issue1FeaturesJson))
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(issue1FeaturesJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse features JSON: %s", issue1FeaturesJson)
+	}
 
 	context := NewContext().
 		WithFeatures(features).
@@ -142,7 +147,11 @@ func TestIssue5(t *testing.T) {
 		"dietaryRestrictions": [1]string{"gluten_free"},
 	}
 
-	features := ParseFeatureMap([]byte(issue1FeaturesJson))
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(issue1FeaturesJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse features JSON: %s", issue1FeaturesJson)
+	}
 
 	context := NewContext().
 		WithFeatures(features).
@@ -200,7 +209,11 @@ const numericComparisonsJson = `{
 `
 
 func TestNumericComparisons(t *testing.T) {
-	features := ParseFeatureMap([]byte(numericComparisonsJson))
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(numericComparisonsJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse features JSON: %s", numericComparisonsJson)
+	}
 
 	attrs := Attributes{"bonus_scheme": 2}
 

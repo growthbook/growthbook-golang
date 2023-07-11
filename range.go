@@ -1,6 +1,9 @@
 package growthbook
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+)
 
 // Range represents a single bucket range.
 type Range struct {
@@ -8,11 +11,25 @@ type Range struct {
 	Max float64
 }
 
-func (r *Range) MarshalJSON() ([]byte, error) {
+func (r Range) MarshalJSON() ([]byte, error) {
 	return json.Marshal([]float64{r.Min, r.Max})
 }
 
-func (r *Range) InRange(n float64) bool {
+func (r *Range) UnmarshalJSON(data []byte) error {
+	tmp := []float64{}
+	err := json.Unmarshal(data, &tmp)
+	if err != nil {
+		return err
+	}
+	if len(tmp) != 2 {
+		return errors.New("invalid array for range")
+	}
+	r.Min = tmp[0]
+	r.Max = tmp[1]
+	return nil
+}
+
+func (r Range) InRange(n float64) bool {
 	return n >= r.Min && n < r.Max
 }
 
@@ -67,30 +84,4 @@ func chooseVariation(n float64, ranges []Range) int {
 		}
 	}
 	return -1
-}
-
-func jsonRange(v interface{}, typeName string, fieldName string) (*Range, bool) {
-	vals, ok := jsonFloatArray(v, typeName, fieldName)
-	if !ok || vals == nil || len(vals) != 2 {
-		logError("Invalid JSON data type", typeName, fieldName)
-		return nil, false
-	}
-	return &Range{vals[0], vals[1]}, true
-}
-
-func jsonRangeArray(v interface{}, typeName string, fieldName string) ([]Range, bool) {
-	vals, ok := v.([]interface{})
-	if !ok {
-		logError("Invalid JSON data type", typeName, fieldName)
-		return nil, false
-	}
-	ranges := make([]Range, len(vals))
-	for i := range vals {
-		tmp, ok := jsonRange(vals[i], typeName, fieldName)
-		if !ok || tmp == nil {
-			return nil, false
-		}
-		ranges[i] = *tmp
-	}
-	return ranges, true
 }

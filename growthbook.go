@@ -4,6 +4,7 @@ package growthbook
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -11,7 +12,6 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -338,8 +338,8 @@ func (feats *featureData) withEncryptedFeatures(encrypted string, key string) er
 	featuresJson, err := decrypt(encrypted, key)
 	var features FeatureMap
 	if err == nil {
-		features = ParseFeatureMap([]byte(featuresJson))
-		if features != nil {
+		err = json.Unmarshal([]byte(featuresJson), &features)
+		if err == nil {
 			feats.features = features
 			feats.ready = true
 		}
@@ -950,8 +950,8 @@ func (gb *GrowthBook) track(exp *Experiment, result *Result) {
 
 	// Make sure tracking callback is only fired once per unique
 	// experiment.
-	key := result.HashAttribute + result.HashValue +
-		exp.Key + strconv.Itoa(result.VariationID)
+	key := fmt.Sprintf("%s%v%s%d", result.HashAttribute, result.HashValue,
+		exp.Key, result.VariationID)
 	if _, exists := gb.data.trackedExperiments[key]; exists {
 		return
 	}

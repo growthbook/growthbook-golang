@@ -13,21 +13,21 @@ import (
 // ExperimentOverride provides the possibility to temporarily override
 // some experiment settings.
 type ExperimentOverride struct {
-	Condition Condition
-	Weights   []float64
-	Active    *bool
-	Status    *ExperimentStatus
-	Force     *int
-	Coverage  *float64
-	Groups    []string
-	Namespace *Namespace
-	URL       *regexp.Regexp
+	Condition *Condition        `json:"condition,omitempty"`
+	Weights   []float64         `json:"weights,omitempty"`
+	Active    *bool             `json:"active,omitempty"`
+	Status    *ExperimentStatus `json:"status,omitempty"`
+	Force     *int              `json:"force,omitempty"`
+	Coverage  *float64          `json:"coverage,omitempty"`
+	Groups    []string          `json:"groups,omitempty"`
+	Namespace *Namespace        `json:"namespace,omitempty"`
+	URL       *regexp.Regexp    `json:"url,omitempty"`
 }
 
 func (o *ExperimentOverride) Copy() *ExperimentOverride {
 	retval := ExperimentOverride{}
 	if o.Condition != nil {
-		retval.Condition = deepcopy.MustAnything(o.Condition).(Condition)
+		retval.Condition = deepcopy.MustAnything(o.Condition).(*Condition)
 	}
 	if o.Weights != nil {
 		retval.Weights = make([]float64, len(o.Weights))
@@ -380,7 +380,15 @@ func BuildContext(dict map[string]interface{}) *Context {
 		case "features":
 			features, ok := v.(map[string]interface{})
 			if ok {
-				context.features = BuildFeatureMap(features)
+				tmp, err := json.Marshal(features)
+				if err != nil {
+					logWarn("Invalid 'features' field in JSON context data")
+				} else {
+					err = json.Unmarshal(tmp, &context.features)
+					if err != nil {
+						logWarn("Invalid 'features' field in JSON context data")
+					}
+				}
 			} else {
 				logWarn("Invalid 'features' field in JSON context data")
 			}

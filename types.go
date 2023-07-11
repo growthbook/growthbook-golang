@@ -14,30 +14,6 @@ type Attributes map[string]interface{}
 // IDs.
 type FeatureMap map[string]*Feature
 
-// ParseFeatureMap creates a FeatureMap value from raw JSON input.
-func ParseFeatureMap(data []byte) FeatureMap {
-	dict := map[string]interface{}{}
-	err := json.Unmarshal(data, &dict)
-	if err != nil {
-		logError("Failed parsing JSON input", "FeatureMap")
-		return nil
-	}
-	return BuildFeatureMap(dict)
-}
-
-// BuildFeatureMap creates a FeatureMap value from a JSON object
-// represented as a Go map.
-func BuildFeatureMap(dict map[string]interface{}) FeatureMap {
-	fmap := FeatureMap{}
-	for k, v := range dict {
-		feature := BuildFeature(v)
-		if feature != nil {
-			fmap[k] = feature
-		}
-	}
-	return fmap
-}
-
 // ForcedVariationsMap is a map that forces an Experiment to always
 // assign a specific variation. Useful for QA.
 //
@@ -77,19 +53,38 @@ const (
 	OverrideResultSource
 )
 
-// ParseFeatureResultSource creates a FeatureResultSource value from
-// its string representation.
-func ParseFeatureResultSource(source string) FeatureResultSource {
-	switch source {
-	case "", "defaultValue":
-		return DefaultValueResultSource
-	case "force":
-		return ForceResultSource
-	case "experiment":
-		return ExperimentResultSource
-	case "override":
-		return OverrideResultSource
+func (s FeatureResultSource) MarshalJSON() ([]byte, error) {
+	switch s {
+	case DefaultValueResultSource:
+		return []byte("defaultValue"), nil
+	case ForceResultSource:
+		return []byte("force"), nil
+	case ExperimentResultSource:
+		return []byte("experiment"), nil
+	case OverrideResultSource:
+		return []byte("override"), nil
 	default:
-		return UnknownResultSource
+		return []byte("unknown"), nil
 	}
+}
+
+func (s *FeatureResultSource) UnmarshalJSON(data []byte) error {
+	val := ""
+	err := json.Unmarshal(data, &val)
+	if err != nil {
+		return err
+	}
+	switch val {
+	case "", "defaultValue":
+		*s = DefaultValueResultSource
+	case "force":
+		*s = ForceResultSource
+	case "experiment":
+		*s = ExperimentResultSource
+	case "override":
+		*s = OverrideResultSource
+	default:
+		*s = UnknownResultSource
+	}
+	return nil
 }
