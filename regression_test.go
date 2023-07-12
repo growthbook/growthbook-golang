@@ -119,13 +119,9 @@ func TestIssue1(t *testing.T) {
 		t.Errorf("failed to parse features JSON: %s", issue1FeaturesJson)
 	}
 
-	context := NewContext().
-		WithFeatures(features).
-		WithAttributes(attrs)
+	client := NewClient(nil).WithFeatures(features)
 
-	gb := New(context)
-
-	value := gb.Feature("meal_overrides_gluten_free").Value
+	value := client.EvalFeature("meal_overrides_gluten_free", attrs).Value
 
 	expectedValue := map[string]interface{}{
 		"meal_type": "gf",
@@ -153,13 +149,9 @@ func TestIssue5(t *testing.T) {
 		t.Errorf("failed to parse features JSON: %s", issue1FeaturesJson)
 	}
 
-	context := NewContext().
-		WithFeatures(features).
-		WithAttributes(attrs)
+	client := NewClient(nil).WithFeatures(features)
 
-	gb := New(context)
-
-	value := gb.Feature("meal_overrides_gluten_free").Value
+	value := client.EvalFeature("meal_overrides_gluten_free", attrs).Value
 
 	expectedValue := map[string]interface{}{
 		"meal_type": "gf",
@@ -168,16 +160,6 @@ func TestIssue5(t *testing.T) {
 
 	if !reflect.DeepEqual(value, expectedValue) {
 		t.Errorf("unexpected value: %v", value)
-	}
-}
-
-func TestNilContext(t *testing.T) {
-	// Check that there's no problem using a nil context.
-	var nilContext *Context
-	gbTest := New(nilContext)
-
-	if !gbTest.Enabled() {
-		t.Errorf("expected gbTest.enabled to be true")
 	}
 }
 
@@ -217,17 +199,13 @@ func TestNumericComparisons(t *testing.T) {
 
 	attrs := Attributes{"bonus_scheme": 2}
 
-	context := NewContext().
-		WithFeatures(features).
-		WithAttributes(attrs)
+	client := NewClient(nil).WithFeatures(features)
 
-	gb := New(context)
-
-	value1 := gb.Feature("donut_price").Value
+	value1 := client.EvalFeature("donut_price", attrs).Value
 	if value1 != 1.0 {
 		t.Errorf("unexpected value: %v", value1)
 	}
-	value2 := gb.Feature("donut_rating").Value
+	value2 := client.EvalFeature("donut_rating", attrs).Value
 	if value2 != 4.0 {
 		t.Errorf("unexpected value: %v", value2)
 	}

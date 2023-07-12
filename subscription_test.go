@@ -6,19 +6,18 @@ import (
 )
 
 func TestSubscriptionsSubscribe(t *testing.T) {
-	context := NewContext().WithAttributes(Attributes{"id": "1"})
-	gb := New(context)
+	client := NewClient(nil)
 	exp1 := NewExperiment("experiment-1").WithVariations("result1", "result2")
 
 	var savedExp *Experiment
 	called := 0
-	gb.Subscribe(func(exp *Experiment, result *Result) {
+	client.Subscribe(func(exp *Experiment, result *Result) {
 		savedExp = exp
 		called++
 	})
 
-	gb.Run(exp1)
-	gb.Run(exp1)
+	client.Run(exp1, Attributes{"id": "1"})
+	client.Run(exp1, Attributes{"id": "1"})
 
 	if !reflect.DeepEqual(savedExp, exp1) {
 		t.Errorf("unexpected experiment value: %v", savedExp)
@@ -32,12 +31,11 @@ func TestSubscriptionsSubscribe(t *testing.T) {
 	savedExp = nil
 	called = 0
 
-	gb.ClearSavedResults()
-	gb.Run(exp1)
+	client.ClearSavedResults()
+	client.Run(exp1, Attributes{"id": "1"})
 	// Change attributes to change experiment result so subscription
 	// gets triggered twice.
-	gb = gb.WithAttributes(Attributes{"id": "3"})
-	gb.Run(exp1)
+	client.Run(exp1, Attributes{"id": "3"})
 
 	if !reflect.DeepEqual(savedExp, exp1) {
 		t.Errorf("unexpected experiment value: %v", savedExp)
@@ -48,21 +46,19 @@ func TestSubscriptionsSubscribe(t *testing.T) {
 }
 
 func TestSubscriptionsUnsubscribe(t *testing.T) {
-	context := NewContext().WithAttributes(Attributes{"id": "1"})
-	gb := New(context)
+	client := NewClient(nil)
 	exp1 := NewExperiment("experiment-1").WithVariations("result1", "result2")
 
 	var savedExp *Experiment
 	called := 0
-	unsubscribe := gb.Subscribe(func(exp *Experiment, result *Result) {
+	unsubscribe := client.Subscribe(func(exp *Experiment, result *Result) {
 		savedExp = exp
 		called++
 	})
 
-	gb.Run(exp1)
-	gb = gb.WithAttributes(Attributes{"id": "3"})
+	client.Run(exp1, Attributes{"id": "1"})
 	unsubscribe()
-	gb.Run(exp1)
+	client.Run(exp1, Attributes{"id": "3"})
 
 	if !reflect.DeepEqual(savedExp, exp1) {
 		t.Errorf("unexpected experiment value: %v", savedExp)
@@ -73,39 +69,37 @@ func TestSubscriptionsUnsubscribe(t *testing.T) {
 }
 
 func TestSubscriptionsTrack(t *testing.T) {
-	context := NewContext().WithAttributes(Attributes{"id": "1"})
-	gb := New(context)
+	called := 0
+	options := Options{
+		TrackingCallback: func(exp *Experiment, result *Result) {
+			called++
+		},
+	}
+	client := NewClient(&options)
 	exp1 := NewExperiment("experiment-1").WithVariations("result1", "result2")
 	exp2 := NewExperiment("experiment-2").WithVariations("result3", "result4")
 
-	called := 0
-	gb.WithTrackingCallback(func(exp *Experiment, result *Result) {
-		called++
-	})
-
-	gb.Run(exp1)
-	gb.Run(exp2)
-	gb.Run(exp1)
-	gb.Run(exp2)
-	gb = gb.WithAttributes(Attributes{"id": "3"})
-	gb.Run(exp1)
-	gb.Run(exp2)
-	gb.Run(exp1)
-	gb.Run(exp2)
+	client.Run(exp1, Attributes{"id": "1"})
+	client.Run(exp2, Attributes{"id": "1"})
+	client.Run(exp1, Attributes{"id": "1"})
+	client.Run(exp2, Attributes{"id": "1"})
+	client.Run(exp1, Attributes{"id": "3"})
+	client.Run(exp2, Attributes{"id": "3"})
+	client.Run(exp1, Attributes{"id": "3"})
+	client.Run(exp2, Attributes{"id": "3"})
 	if called != 4 {
 		t.Errorf("expected called = 4, got called = %d", called)
 	}
 }
 
 func TestSubscriptionsRetrieve(t *testing.T) {
-	context := NewContext().WithAttributes(Attributes{"id": "1"})
-	gb := New(context)
+	client := NewClient(nil)
 	exp1 := NewExperiment("experiment-1").WithVariations("result1", "result2")
 	exp2 := NewExperiment("experiment-2").WithVariations("result3", "result4")
 
-	gb.Run(exp1)
-	gb.Run(exp2)
-	resultsLen := len(gb.GetAllResults())
+	client.Run(exp1, Attributes{"id": "1"})
+	client.Run(exp2, Attributes{"id": "1"})
+	resultsLen := len(client.GetAllResults())
 	if resultsLen != 2 {
 		t.Errorf("expected results length = 2, got length = %d", resultsLen)
 	}

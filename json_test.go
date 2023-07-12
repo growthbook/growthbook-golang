@@ -174,12 +174,11 @@ func jsonTestFeature(t *testing.T, test []byte) {
 		expected   FeatureResult
 	}{}
 	unmarshalTest(test, []interface{}{&d.name, &d.context, &d.featureKey, &d.expected})
-	context := NewContext().
-		WithAttributes(d.context.Attributes).
+	client := NewClient(nil).
 		WithFeatures(d.context.Features).
 		WithForcedVariations(d.context.ForcedVariations)
-	growthbook := New(context)
-	retval := growthbook.Feature(d.featureKey)
+
+	retval := client.EvalFeature(d.featureKey, d.context.Attributes)
 
 	if !reflect.DeepEqual(retval, &d.expected) {
 		t.Errorf("unexpected value: %v", retval)
@@ -206,21 +205,18 @@ func jsonTestRun(t *testing.T, test []byte) {
 	}{}
 	unmarshalTest(test, []interface{}{&d.name, &d.context, &d.experiment, &d.result, &d.inExperiment, &d.hashUsed})
 
-	context := NewContext().
-		WithEnabled(d.context.Enabled).
-		WithAttributes(d.context.Attributes).
-		WithFeatures(d.context.Features).
-		WithForcedVariations(d.context.ForcedVariations).
-		WithQAMode(d.context.QAMode)
+	opt := Options{Disabled: !d.context.Enabled, QAMode: d.context.QAMode}
 	if d.context.URL != "" {
 		url, err := url.Parse(d.context.URL)
 		if err != nil {
 			t.Errorf("invalid URL")
 		}
-		context = context.WithURL(url)
+		opt.URL = url
 	}
-	growthbook := New(context)
-	result := growthbook.Run(d.experiment)
+	client := NewClient(&opt).
+		WithFeatures(d.context.Features).
+		WithForcedVariations(d.context.ForcedVariations)
+	result := client.Run(d.experiment, d.context.Attributes)
 
 	if !reflect.DeepEqual(result.Value, d.result) {
 		t.Errorf("unexpected result value: %v (should be %v)", result.Value, d.result)

@@ -11,6 +11,14 @@ import (
 // attributes.
 type Attributes map[string]interface{}
 
+func (attrs Attributes) fixSliceTypes() Attributes {
+	fixed := Attributes{}
+	for k, v := range attrs {
+		fixed[k] = fixSliceTypes(v)
+	}
+	return fixed
+}
+
 // FeatureMap is a map of feature objects, keyed by string feature
 // IDs.
 type FeatureMap map[string]*Feature

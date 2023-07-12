@@ -7,12 +7,10 @@ import (
 )
 
 func TestFeaturesCanSetFeatures(t *testing.T) {
-	context := NewContext().
-		WithAttributes(Attributes{"id": "123"})
-	gb := New(context).
+	client := NewClient(nil).
 		WithFeatures(FeatureMap{"feature": &Feature{DefaultValue: 0}})
 
-	result := gb.Feature("feature")
+	result := client.EvalFeature("feature", Attributes{"id": "123"})
 	expected := FeatureResult{
 		Value:  0,
 		On:     false,
@@ -26,13 +24,13 @@ func TestFeaturesCanSetFeatures(t *testing.T) {
 }
 
 func TestFeaturesCanSetEncryptedFeatures(t *testing.T) {
-	gb := New(nil)
+	client := NewClient(nil)
 
 	keyString := "Ns04T5n9+59rl2x3SlNHtQ=="
 	encrypedFeatures :=
 		"vMSg2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
 
-	_, err := gb.WithEncryptedFeatures(encrypedFeatures, keyString)
+	_, err := client.WithEncryptedFeatures(encrypedFeatures, keyString)
 	if err != nil {
 		t.Error("unexpected error: ", err)
 	}
@@ -49,7 +47,7 @@ func TestFeaturesCanSetEncryptedFeatures(t *testing.T) {
 		t.Errorf("failed to parse expected JSON: %s", expectedJson)
 	}
 
-	actual := gb.Features()
+	actual := client.Features()
 
 	if !reflect.DeepEqual(actual, expected) {
 		t.Error("unexpected features value: ", actual)
@@ -57,26 +55,26 @@ func TestFeaturesCanSetEncryptedFeatures(t *testing.T) {
 }
 
 func TestFeaturesDecryptFeaturesWithInvalidKey(t *testing.T) {
-	gb := New(nil)
+	client := NewClient(nil)
 
 	keyString := "fakeT5n9+59rl2x3SlNHtQ=="
 	encrypedFeatures :=
 		"vMSg2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
 
-	_, err := gb.WithEncryptedFeatures(encrypedFeatures, keyString)
+	_, err := client.WithEncryptedFeatures(encrypedFeatures, keyString)
 	if err == nil {
 		t.Error("unexpected lack of error")
 	}
 }
 
 func TestFeaturesDecryptFeaturesWithInvalidCiphertext(t *testing.T) {
-	gb := New(nil)
+	client := NewClient(nil)
 
 	keyString := "Ns04T5n9+59rl2x3SlNHtQ=="
 	encrypedFeatures :=
 		"FAKE2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
 
-	_, err := gb.WithEncryptedFeatures(encrypedFeatures, keyString)
+	_, err := client.WithEncryptedFeatures(encrypedFeatures, keyString)
 	if err == nil {
 		t.Error("unexpected lack of error")
 	}
@@ -91,57 +89,28 @@ func TestFeaturesReturnsRuleID(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to parse expected JSON: %s", featuresJson)
 	}
-	gb := New(nil).WithFeatures(features)
-	result := gb.EvalFeature("feature")
+	client := NewClient(nil).
+		WithFeatures(features)
+	result := client.EvalFeature("feature", Attributes{})
 	if result.RuleID != "foo" {
 		t.Errorf("expected rule ID to be foo, got: %v", result.RuleID)
 	}
 }
 
-func TestFeaturesUpdatesAttributes(t *testing.T) {
-	context := NewContext().
-		WithAttributes(Attributes{"foo": 1, "bar": 2})
-	gb := New(context).
-		WithAttributes(Attributes{"foo": 2, "baz": 3})
-
-	result := gb.Attributes()
-	expected := Attributes{"foo": 2, "baz": 3}
-
-	if !reflect.DeepEqual(result, expected) {
-		t.Errorf("unexpected result: %v", result)
-	}
-	if !reflect.DeepEqual(gb.Attributes(), expected) {
-		t.Errorf("unexpected result: %v", result)
-	}
-}
-
 func TestFeaturesUsesAttributeOverrides(t *testing.T) {
-	context := NewContext().
-		WithAttributes(Attributes{"id": "123", "foo": "bar"})
-	gb := New(context).
+	attrs := Attributes{"id": "123", "foo": "bar"}
+	client := NewClient(nil).
 		WithAttributeOverrides(Attributes{"foo": "baz"})
 
-	if !reflect.DeepEqual(gb.Attributes(),
-		Attributes{"id": "123", "foo": "baz"}) {
-		t.Errorf("unexpected value for gb.Attributes(): %v\n",
-			gb.Attributes())
-	}
-
 	exp1 := NewExperiment("my-test").WithVariations(0, 1).WithHashAttribute("foo")
-	result := gb.Run(exp1)
+	result := client.Run(exp1, attrs)
 	if result.HashValue != "baz" {
 		t.Errorf("unexpected experiment result: %v\n", result.HashValue)
 	}
 
-	gb = gb.WithAttributeOverrides(nil)
+	client = client.WithAttributeOverrides(nil)
 
-	if !reflect.DeepEqual(gb.Attributes(),
-		Attributes{"id": "123", "foo": "bar"}) {
-		t.Errorf("unexpected value for gb.Attributes(): %v\n",
-			gb.Attributes())
-	}
-
-	result = gb.Run(exp1)
+	result = client.Run(exp1, attrs)
 	if result.HashValue != "bar" {
 		t.Errorf("unexpected experiment result: %v\n", result.HashValue)
 	}
@@ -157,7 +126,7 @@ func TestFeaturesUsesForcedFeatureValues(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to parse expected JSON: %s", featuresJson)
 	}
-	gb := New(nil).
+	client := NewClient(nil).
 		WithFeatures(features).
 		WithForcedFeatures(map[string]interface{}{
 			"feature2": 1.0,
@@ -165,7 +134,7 @@ func TestFeaturesUsesForcedFeatureValues(t *testing.T) {
 		})
 
 	check := func(icase int, feature string, value interface{}) {
-		result := gb.EvalFeature(feature)
+		result := client.EvalFeature(feature, nil)
 		if !reflect.DeepEqual(result.Value, value) {
 			t.Errorf("%d: result from EvalFeature: expected %v, got %v",
 				icase, value, result.Value)
@@ -176,7 +145,7 @@ func TestFeaturesUsesForcedFeatureValues(t *testing.T) {
 	check(2, "feature2", 1.0)
 	check(3, "feature3", 1.0)
 
-	gb = gb.WithForcedFeatures(nil)
+	client = client.WithForcedFeatures(nil)
 
 	check(4, "feature1", 0.0)
 	check(5, "feature2", 0.0)
@@ -190,9 +159,9 @@ func TestFeaturesGetsFeatures(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to parse expected JSON: %s", featuresJson)
 	}
-	gb := New(nil).WithFeatures(features)
+	client := NewClient(nil).WithFeatures(features)
 
-	if !reflect.DeepEqual(gb.Features(), features) {
+	if !reflect.DeepEqual(client.Features(), features) {
 		t.Error("expected features to match")
 	}
 }
@@ -209,9 +178,6 @@ func TestFeaturesFeatureUsageWhenAssignedValueChanges(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to parse expected JSON: %s", featuresJson)
 	}
-	context := NewContext().
-		WithAttributes(Attributes{"color": "green"}).
-		WithFeatures(features)
 
 	type featureCall struct {
 		key    string
@@ -221,17 +187,17 @@ func TestFeaturesFeatureUsageWhenAssignedValueChanges(t *testing.T) {
 	callback := func(key string, result *FeatureResult) {
 		calls = append(calls, featureCall{key, result})
 	}
-	gb := New(context).WithFeatureUsageCallback(callback)
+	client := NewClient(&Options{OnFeatureUsage: callback}).
+		WithFeatures(features)
 
 	// Fires for regular features
-	res1 := gb.EvalFeature("feature")
+	res1 := client.EvalFeature("feature", Attributes{"color": "green"})
 	if res1.Value != 0.0 {
 		t.Errorf("expected value 0, got %#v", res1.Value)
 	}
 
 	// Fires when the assigned value changes
-	gb = gb.WithAttributes(Attributes{"color": "blue"})
-	res2 := gb.EvalFeature("feature")
+	res2 := client.EvalFeature("feature", Attributes{"color": "blue"})
 	if res2.Value != 1.0 {
 		t.Errorf("expected value 1, got %#v", res2.Value)
 	}
@@ -255,17 +221,17 @@ func TestFeaturesUsesFallbacksForGetFeatureValue(t *testing.T) {
 	if err != nil {
 		t.Errorf("failed to parse expected JSON: %s", featuresJson)
 	}
-	gb := New(nil).WithFeatures(features)
+	client := NewClient(nil).WithFeatures(features)
 
-	res := gb.GetFeatureValue("feature", "green")
+	res := client.GetFeatureValue("feature", nil, "green")
 	if res != "blue" {
 		t.Error("1: unexpected return from GetFeatureValue: ", res)
 	}
-	res = gb.GetFeatureValue("unknown", "green")
+	res = client.GetFeatureValue("unknown", nil, "green")
 	if res != "green" {
 		t.Error("2: unexpected return from GetFeatureValue: ", res)
 	}
-	res = gb.GetFeatureValue("testing", nil)
+	res = client.GetFeatureValue("testing", nil, nil)
 	if res != nil {
 		t.Error("3: unexpected return from GetFeatureValue: ", res)
 	}
@@ -277,13 +243,10 @@ func TestFeaturesUsageTracking(t *testing.T) {
 		called = true
 	}
 
-	context := NewContext().
-		WithAttributes(Attributes{"id": "123"}).
-		WithFeatureUsageCallback(cb)
-	gb := New(context).
+	client := NewClient(&Options{OnFeatureUsage: cb}).
 		WithFeatures(FeatureMap{"feature": &Feature{DefaultValue: 0}})
 
-	result := gb.Feature("feature")
+	result := client.EvalFeature("feature", Attributes{"id": "123"})
 	expected := FeatureResult{
 		Value:  0,
 		On:     false,
