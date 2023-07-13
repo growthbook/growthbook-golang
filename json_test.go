@@ -37,17 +37,15 @@ func TestJSON(t *testing.T) {
 //
 // Test parameters: name, condition, attributes, result
 func jsonTestEvalCondition(t *testing.T, test []byte) {
-	d := struct {
-		name      string
-		condition *Condition
-		value     map[string]interface{}
-		expected  bool
-	}{}
-	unmarshalTest(test, []interface{}{&d.name, &d.condition, &d.value, &d.expected})
+	var name string
+	var condition *Condition
+	var value map[string]interface{}
+	var expected bool
+	unmarshalTest(test, []interface{}{&name, &condition, &value, &expected})
 
-	attrs := Attributes(d.value)
-	result := d.condition.Eval(attrs)
-	if !reflect.DeepEqual(result, d.expected) {
+	attrs := Attributes(value)
+	result := condition.Eval(attrs)
+	if !reflect.DeepEqual(result, expected) {
 		t.Errorf("unexpected result: %v", result)
 	}
 }
@@ -56,28 +54,26 @@ func jsonTestEvalCondition(t *testing.T, test []byte) {
 //
 // Test parameters: ...
 func jsonTestVersionCompare(t *testing.T, comparison string, test []byte) {
-	d := struct {
-		v1       string
-		v2       string
-		expected bool
-	}{}
-	unmarshalTest(test, []interface{}{&d.v1, &d.v2, &d.expected})
+	var v1 string
+	var v2 string
+	var expected bool
+	unmarshalTest(test, []interface{}{&v1, &v2, &expected})
 
-	pv1 := paddedVersionString(d.v1)
-	pv2 := paddedVersionString(d.v2)
+	pv1 := paddedVersionString(v1)
+	pv2 := paddedVersionString(v2)
 
 	switch comparison {
 	case "eq":
-		if (pv1 == pv2) != d.expected {
-			t.Errorf("unexpected result: '%s' eq '%s' => %v", d.v1, d.v2, pv1 == pv2)
+		if (pv1 == pv2) != expected {
+			t.Errorf("unexpected result: '%s' eq '%s' => %v", v1, v2, pv1 == pv2)
 		}
 	case "gt":
-		if (pv1 > pv2) != d.expected {
-			t.Errorf("unexpected result: '%s' gt '%s' => %v", d.v1, d.v2, pv1 == pv2)
+		if (pv1 > pv2) != expected {
+			t.Errorf("unexpected result: '%s' gt '%s' => %v", v1, v2, pv1 == pv2)
 		}
 	case "lt":
-		if (pv1 < pv2) != d.expected {
-			t.Errorf("unexpected result: '%s' lt '%s' => %v", d.v1, d.v2, pv1 == pv2)
+		if (pv1 < pv2) != expected {
+			t.Errorf("unexpected result: '%s' lt '%s' => %v", v1, v2, pv1 == pv2)
 		}
 	}
 }
@@ -86,16 +82,14 @@ func jsonTestVersionCompare(t *testing.T, comparison string, test []byte) {
 //
 // Test parameters: value, hash
 func jsonTestHash(t *testing.T, test []byte) {
-	d := struct {
-		seed     string
-		value    string
-		version  int
-		expected *float64
-	}{}
-	unmarshalTest(test, []interface{}{&d.seed, &d.value, &d.version, &d.expected})
+	var seed string
+	var value string
+	var version int
+	var expected *float64
+	unmarshalTest(test, []interface{}{&seed, &value, &version, &expected})
 
-	result := hash(d.seed, d.value, d.version)
-	if d.expected == nil {
+	result := hash(seed, value, version)
+	if expected == nil {
 		if result != nil {
 			t.Errorf("expected nil result, got %v", result)
 		}
@@ -103,7 +97,7 @@ func jsonTestHash(t *testing.T, test []byte) {
 		if result == nil {
 			t.Errorf("expected non-nil result, got nil")
 		}
-		if !reflect.DeepEqual(*result, *d.expected) {
+		if !reflect.DeepEqual(*result, *expected) {
 			t.Errorf("unexpected result: %v", *result)
 		}
 	}
@@ -113,40 +107,36 @@ func jsonTestHash(t *testing.T, test []byte) {
 //
 // Test parameters: name, args ([numVariations, coverage, weights]), result
 func jsonTestGetBucketRange(t *testing.T, test []byte) {
-	d := struct {
-		name   string
-		args   json.RawMessage
-		result [][]float64
-	}{}
-	unmarshalTest(test, []interface{}{&d.name, &d.args, &d.result})
+	var name string
+	var args json.RawMessage
+	var result [][]float64
+	unmarshalTest(test, []interface{}{&name, &args, &result})
 
-	args := struct {
-		numVariations int
-		coverage      float64
-		weights       []float64
-	}{}
-	unmarshalTest(d.args, []interface{}{&args.numVariations, &args.coverage, &args.weights})
+	var numVariations int
+	var coverage float64
+	var weights []float64
+	unmarshalTest(args, []interface{}{&numVariations, &coverage, &weights})
 
-	variations := make([]Range, len(d.result))
-	for i, v := range d.result {
+	variations := make([]Range, len(result))
+	for i, v := range result {
 		variations[i] = Range{v[0], v[1]}
 	}
 
-	ranges := roundRanges(getBucketRanges(args.numVariations, args.coverage, args.weights))
+	ranges := roundRanges(getBucketRanges(numVariations, coverage, weights))
 
 	if !reflect.DeepEqual(ranges, variations) {
-		t.Errorf("unexpected value: %v", d.result)
+		t.Errorf("unexpected value: %v", result)
 	}
 
 	// Handle expected warnings.
-	if args.coverage < 0 || args.coverage > 1 {
+	if coverage < 0 || coverage > 1 {
 		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
 			t.Errorf("expected coverage log warning")
 		}
 		testLog.reset()
 	}
 	totalWeights := 0.0
-	for _, w := range args.weights {
+	for _, w := range weights {
 		totalWeights += w
 	}
 	if totalWeights != 1 {
@@ -155,7 +145,7 @@ func jsonTestGetBucketRange(t *testing.T, test []byte) {
 		}
 		testLog.reset()
 	}
-	if len(args.weights) != len(d.result) {
+	if len(weights) != len(result) {
 		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
 			t.Errorf("expected weight length log warning")
 		}
@@ -167,20 +157,18 @@ func jsonTestGetBucketRange(t *testing.T, test []byte) {
 //
 // Test parameters: name, context, feature key, result
 func jsonTestFeature(t *testing.T, test []byte) {
-	d := struct {
-		name       string
-		context    *testContext
-		featureKey string
-		expected   FeatureResult
-	}{}
-	unmarshalTest(test, []interface{}{&d.name, &d.context, &d.featureKey, &d.expected})
+	var name string
+	var context *testContext
+	var featureKey string
+	var expected FeatureResult
+	unmarshalTest(test, []interface{}{&name, &context, &featureKey, &expected})
 	client := NewClient(nil).
-		WithFeatures(d.context.Features).
-		WithForcedVariations(d.context.ForcedVariations)
+		WithFeatures(context.Features).
+		WithForcedVariations(context.ForcedVariations)
 
-	retval := client.EvalFeature(d.featureKey, d.context.Attributes)
+	retval := client.EvalFeature(featureKey, context.Attributes)
 
-	if !reflect.DeepEqual(retval, &d.expected) {
+	if !reflect.DeepEqual(retval, &expected) {
 		t.Errorf("unexpected value: %v", retval)
 	}
 
@@ -188,71 +176,67 @@ func jsonTestFeature(t *testing.T, test []byte) {
 		"unknown feature key": 1,
 		"ignores empty rules": 1,
 	}
-	handleExpectedWarnings(t, d.name, expectedWarnings)
+	handleExpectedWarnings(t, name, expectedWarnings)
 }
 
 // Experiment tests.
 //
 // Test parameters: name, context, experiment, value, inExperiment
 func jsonTestRun(t *testing.T, test []byte) {
-	d := struct {
-		name         string
-		context      *testContext
-		experiment   *Experiment
-		result       interface{}
-		inExperiment bool
-		hashUsed     bool
-	}{}
-	unmarshalTest(test, []interface{}{&d.name, &d.context, &d.experiment, &d.result, &d.inExperiment, &d.hashUsed})
+	var name string
+	var context *testContext
+	var experiment *Experiment
+	var result interface{}
+	var inExperiment bool
+	var hashUsed bool
+	unmarshalTest(test, []interface{}{&name, &context, &experiment, &result, &inExperiment, &hashUsed})
 
-	opt := Options{Disabled: !d.context.Enabled, QAMode: d.context.QAMode}
-	if d.context.URL != "" {
-		url, err := url.Parse(d.context.URL)
+	opt := Options{Disabled: !context.Enabled, QAMode: context.QAMode}
+	if context.URL != "" {
+		url, err := url.Parse(context.URL)
 		if err != nil {
 			t.Errorf("invalid URL")
 		}
 		opt.URL = url
 	}
 	client := NewClient(&opt).
-		WithFeatures(d.context.Features).
-		WithForcedVariations(d.context.ForcedVariations)
-	result := client.Run(d.experiment, d.context.Attributes)
+		WithFeatures(context.Features).
+		WithForcedVariations(context.ForcedVariations)
+	r := client.Run(experiment, context.Attributes)
 
-	if !reflect.DeepEqual(result.Value, d.result) {
-		t.Errorf("unexpected result value: %v (should be %v)", result.Value, d.result)
+	if !reflect.DeepEqual(r.Value, result) {
+		t.Errorf("unexpected result value: %v (should be %v)", r.Value, result)
 	}
-	if result.InExperiment != d.inExperiment {
-		t.Errorf("unexpected inExperiment value: %v", result.InExperiment)
+	if r.InExperiment != inExperiment {
+		t.Errorf("unexpected inExperiment value: %v", r.InExperiment)
 	}
-	if result.HashUsed != d.hashUsed {
-		t.Errorf("unexpected hashUsed value: %v", result.HashUsed)
+	if r.HashUsed != hashUsed {
+		t.Errorf("unexpected hashUsed value: %v", r.HashUsed)
 	}
 
 	expectedWarnings := map[string]int{
 		"single variation": 1,
 	}
-	handleExpectedWarnings(t, d.name, expectedWarnings)
+	handleExpectedWarnings(t, name, expectedWarnings)
 }
 
 // Variation choice tests.
 //
 // Test parameters: name, hash, ranges, result
 func jsonTestChooseVariation(t *testing.T, test []byte) {
-	d := struct {
-		name   string
-		hash   float64
-		ranges [][]float64
-		result int
-	}{}
-	unmarshalTest(test, []interface{}{&d.name, &d.hash, &d.ranges, &d.result})
+	var name string
+	var hash float64
+	var ranges [][]float64
+	var result int
+	unmarshalTest(test, []interface{}{&name, &hash, &ranges, &result})
 
-	variations := make([]Range, len(d.ranges))
-	for i, v := range d.ranges {
+	variations := make([]Range, len(ranges))
+	for i, v := range ranges {
 		variations[i] = Range{v[0], v[1]}
 	}
 
-	variation := chooseVariation(d.hash, variations)
-	if variation != int(d.result) {
+	variation := chooseVariation(hash, variations)
+	if variation != int(result) {
 		t.Errorf("unexpected result: %d", variation)
 	}
 }
@@ -261,21 +245,19 @@ func jsonTestChooseVariation(t *testing.T, test []byte) {
 //
 // Test parameters: name, experiment key, url, numVariations, result
 func jsonTestQueryStringOverride(t *testing.T, test []byte) {
-	d := struct {
-		name          string
-		key           string
-		rawURL        string
-		numVariations int
-		expected      *int
-	}{}
-	unmarshalTest(test, []interface{}{&d.name, &d.key, &d.rawURL, &d.numVariations, &d.expected})
-	url, err := url.Parse(d.rawURL)
+	var name string
+	var key string
+	var rawURL string
+	var numVariations int
+	var expected *int
+	unmarshalTest(test, []interface{}{&name, &key, &rawURL, &numVariations, &expected})
+	url, err := url.Parse(rawURL)
 	if err != nil {
 		log.Fatal("invalid URL")
 	}
 
-	override := getQueryStringOverride(d.key, url, d.numVariations)
-	if !reflect.DeepEqual(override, d.expected) {
+	override := getQueryStringOverride(key, url, numVariations)
+	if !reflect.DeepEqual(override, expected) {
 		t.Errorf("unexpected result: %v", override)
 	}
 }
@@ -285,16 +267,14 @@ func jsonTestQueryStringOverride(t *testing.T, test []byte) {
 // Test parameters: name, id, namespace, result
 
 func jsonTestInNamespace(t *testing.T, test []byte) {
-	d := struct {
-		name      string
-		id        string
-		namespace *Namespace
-		expected  bool
-	}{}
-	unmarshalTest(test, []interface{}{&d.name, &d.id, &d.namespace, &d.expected})
+	var name string
+	var id string
+	var namespace *Namespace
+	var expected bool
+	unmarshalTest(test, []interface{}{&name, &id, &namespace, &expected})
 
-	result := d.namespace.inNamespace(d.id)
-	if result != d.expected {
+	result := namespace.inNamespace(id)
+	if result != expected {
 		t.Errorf("unexpected result: %v", result)
 	}
 }
@@ -303,14 +283,12 @@ func jsonTestInNamespace(t *testing.T, test []byte) {
 //
 // Test parameters: numVariations, result
 func jsonTestGetEqualWeights(t *testing.T, test []byte) {
-	d := struct {
-		numVariations int
-		expected      []float64
-	}{}
-	unmarshalTest(test, []interface{}{&d.numVariations, &d.expected})
+	var numVariations int
+	var expected []float64
+	unmarshalTest(test, []interface{}{&numVariations, &expected})
 
-	result := getEqualWeights(d.numVariations)
-	if !reflect.DeepEqual(round(result), round(d.expected)) {
+	result := getEqualWeights(numVariations)
+	if !reflect.DeepEqual(round(result), round(expected)) {
 		t.Errorf("unexpected value: %v", result)
 	}
 }
@@ -319,26 +297,24 @@ func jsonTestGetEqualWeights(t *testing.T, test []byte) {
 //
 // Test parameters: name, encryptedString, key, expected
 func jsonTestDecrypt(t *testing.T, test []byte) {
-	d := struct {
-		name      string
-		encrypted string
-		key       string
-		expected  *string
-	}{}
-	unmarshalTest(test, []interface{}{&d.name, &d.encrypted, &d.key, &d.expected})
+	var name string
+	var encrypted string
+	var key string
+	var expected *string
+	unmarshalTest(test, []interface{}{&name, &encrypted, &key, &expected})
 
-	result, err := decrypt(d.encrypted, d.key)
-	if d.expected == nil {
+	result, err := decrypt(encrypted, key)
+	if expected == nil {
 		if err == nil {
 			t.Errorf("expected error return")
 		}
 	} else {
 		if err != nil {
 			t.Errorf("error in decrypt: %v", err)
-		} else if !reflect.DeepEqual(result, *d.expected) {
+		} else if !reflect.DeepEqual(result, *expected) {
 			t.Errorf("unexpected result: %v", result)
-			fmt.Printf("expected: '%s' (%d)\n", *d.expected, len(*d.expected))
-			fmt.Println([]byte(*d.expected))
+			fmt.Printf("expected: '%s' (%d)\n", *expected, len(*expected))
+			fmt.Println([]byte(*expected))
 			fmt.Printf("     got: '%s' (%d)\n", result, len(result))
 			fmt.Println([]byte(result))
 		}
