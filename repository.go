@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"math"
 	"math/rand"
@@ -64,11 +65,12 @@ func ConfigureCacheBackgroundSync(bgSync bool) {
 // updates the calling GrowthBook instances as required.
 
 func repoRefreshFeatures(ctx context.Context, c *Client, timeout time.Duration,
-	skipCache bool, allowStale bool, updateInstance bool) {
-	data := fetchFeaturesWithCache(ctx, c, timeout, allowStale, skipCache)
+	skipCache bool, allowStale bool, updateInstance bool) error {
+	data, err := fetchFeaturesWithCache(ctx, c, timeout, allowStale, skipCache)
 	if updateInstance && data != nil {
 		refreshInstance(c.features, data)
 	}
+	return err
 }
 
 func repoLatestUpdate(c *Client) *time.Time {
@@ -92,12 +94,13 @@ func repoSubscribe(c *Client) { refresh.addSubscription(c) }
 
 func repoUnsubscribe(c *Client) { refresh.removeSubscription(c) }
 
-// configureCacheStaleTTL sets the time-to-live duration for cache
-// entries.
+// ConfigureCacheStaleTTL sets the time-to-live duration for feature
+// cache entries.
 
-// !!! IMMUTABILITY !!!
-
-func configureCacheStaleTTL(ttl time.Duration) {
+func ConfigureCacheStaleTTL(ttl time.Duration) {
+	if ttl == 0 {
+		ttl = 60 * time.Second
+	}
 	cacheStaleTTL = ttl
 }
 
@@ -106,7 +109,7 @@ func configureCacheStaleTTL(ttl time.Duration) {
 // API request, which is handed off to fetchFeatures.
 
 func fetchFeaturesWithCache(ctx context.Context, c *Client, timeout time.Duration,
-	allowStale bool, skipCache bool) *FeatureAPIResponse {
+	allowStale bool, skipCache bool) (*FeatureAPIResponse, error) {
 	key := getKey(c)
 	now := time.Now()
 	cache.Initialize()
@@ -121,22 +124,27 @@ func fetchFeaturesWithCache(ctx context.Context, c *Client, timeout time.Duratio
 			// background sync.
 			refresh.runBackgroundRefresh(ctx, c)
 		}
-		return existing.Data
+		return existing.Data, nil
 	} else {
 		// Perform API request with timeout.
 		if timeout == 0 {
 			return fetchFeatures(ctx, c)
 		}
-		ch := make(chan *FeatureAPIResponse, 1)
+		type response struct {
+			result *FeatureAPIResponse
+			err    error
+		}
+		ch := make(chan *response, 1)
 		timer := time.NewTimer(timeout)
 		go func() {
-			ch <- fetchFeatures(ctx, c)
+			result, err := fetchFeatures(ctx, c)
+			ch <- &response{result, err}
 		}()
 		select {
 		case result := <-ch:
-			return result
+			return result.result, result.err
 		case <-timer.C:
-			return nil
+			return nil, nil
 		}
 	}
 }
@@ -161,7 +169,7 @@ func clearOutstandingRequests() {
 // Retrieve features from the API, ensuring that only one request for
 // any given repository key is in flight at any time.
 
-func fetchFeatures(ctx context.Context, c *Client) *FeatureAPIResponse {
+func fetchFeatures(ctx context.Context, c *Client) (*FeatureAPIResponse, error) {
 	apiHost, clientKey := c.GetAPIInfo()
 	key := makeKey(apiHost, clientKey)
 
@@ -171,10 +179,11 @@ func fetchFeatures(ctx context.Context, c *Client) *FeatureAPIResponse {
 
 	// Either:
 	var apiResponse *FeatureAPIResponse
+	var err error
 	if first {
 		// We were the first request to come in, so perform the API
 		// request, and...
-		apiResponse = doFetchRequest(ctx, c)
+		apiResponse, err = doFetchRequest(ctx, c)
 
 		// ...retrieve a list of channels to other goroutines requesting
 		// features for the same repository key, clearing the outstanding
@@ -211,10 +220,10 @@ func fetchFeatures(ctx context.Context, c *Client) *FeatureAPIResponse {
 
 	// If something went wrong, we return an empty response, rather than
 	// nil.
-	if apiResponse == nil {
+	if err != nil || apiResponse == nil {
 		apiResponse = &FeatureAPIResponse{}
 	}
-	return apiResponse
+	return apiResponse, err
 }
 
 // The first request for a given repository key will put a nil channel
@@ -255,22 +264,21 @@ func removeRequestChan(key RepositoryKey) []chan *FeatureAPIResponse {
 
 // Actually do the HTTP request to get feature data.
 
-func doFetchRequest(ctx context.Context, c *Client) *FeatureAPIResponse {
+func doFetchRequest(ctx context.Context, c *Client) (*FeatureAPIResponse, error) {
 	apiHost, clientKey := c.GetAPIInfo()
 	key := makeKey(apiHost, clientKey)
 	endpoint := apiHost + "/api/features/" + clientKey
 
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
-		logErrorf("Error fetching features: can't create request: error=%v",
-			err)
-		return nil
+		err = fmt.Errorf("Error fetching features: can't create request: [%w]", err)
+		return nil, err
 	}
 	resp, err := c.opt.HTTPClient.Do(req)
 	if err != nil {
-		logErrorf("Error fetching features: HTTP error: endpoint=%s error=%v",
+		err = fmt.Errorf("Error fetching features (endpoint=%s): HTTP error [%w]",
 			endpoint, err)
-		return nil
+		return nil, err
 	}
 	if resp.Body != nil {
 		defer resp.Body.Close()
@@ -280,29 +288,29 @@ func doFetchRequest(ctx context.Context, c *Client) *FeatureAPIResponse {
 		if err != nil || len(body) == 0 {
 			body = []byte("<none>")
 		}
-		logErrorf("Error fetching features: HTTP error: endpoint=%s status=%d body=%s",
+		err = fmt.Errorf("Error fetching features (endpoint=%s): HTTP error: status=%d body=%s",
 			endpoint, resp.StatusCode, string(body))
-		return nil
+		return nil, err
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		logErrorf("Error fetching features: reading response body: %v", err)
-		return nil
+		err = fmt.Errorf("Error fetching features: reading response body: [%w]", err)
+		return nil, err
 	}
 
 	apiResponse := FeatureAPIResponse{}
 	err = json.Unmarshal(body, &apiResponse)
 	if err != nil {
-		logErrorf("Error fetching features: parsing response: %v", err)
-		return nil
+		err = fmt.Errorf("Error fetching features: parsing response: [%w]", err)
+		return nil, err
 	}
 
 	// Record whether this endpoint supports SSE updates.
 	sse, ok := resp.Header["X-Sse-Support"]
 	refresh.sseSupported(key, ok && sse[0] == "enabled")
 
-	return &apiResponse
+	return &apiResponse, nil
 }
 
 // Update values on the inner featureData data structures of

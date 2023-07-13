@@ -166,7 +166,10 @@ func jsonTestFeature(t *testing.T, test []byte) {
 		WithFeatures(context.Features).
 		WithForcedVariations(context.ForcedVariations)
 
-	retval := client.EvalFeature(featureKey, context.Attributes)
+	retval, err := client.EvalFeature(featureKey, context.Attributes)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	if !reflect.DeepEqual(retval, &expected) {
 		t.Errorf("unexpected value: %v", retval)
@@ -202,7 +205,10 @@ func jsonTestRun(t *testing.T, test []byte) {
 	client := NewClient(&opt).
 		WithFeatures(context.Features).
 		WithForcedVariations(context.ForcedVariations)
-	r := client.Run(experiment, context.Attributes)
+	r, err := client.Run(experiment, context.Attributes)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	if !reflect.DeepEqual(r.Value, result) {
 		t.Errorf("unexpected result value: %v (should be %v)", r.Value, result)

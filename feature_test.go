@@ -10,7 +10,10 @@ func TestFeaturesCanSetFeatures(t *testing.T) {
 	client := NewClient(nil).
 		WithFeatures(FeatureMap{"feature": &Feature{DefaultValue: 0}})
 
-	result := client.EvalFeature("feature", Attributes{"id": "123"})
+	result, err := client.EvalFeature("feature", Attributes{"id": "123"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	expected := FeatureResult{
 		Value:  0,
 		On:     false,
@@ -91,7 +94,10 @@ func TestFeaturesReturnsRuleID(t *testing.T) {
 	}
 	client := NewClient(nil).
 		WithFeatures(features)
-	result := client.EvalFeature("feature", Attributes{})
+	result, err := client.EvalFeature("feature", Attributes{})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	if result.RuleID != "foo" {
 		t.Errorf("expected rule ID to be foo, got: %v", result.RuleID)
 	}
@@ -103,14 +109,20 @@ func TestFeaturesUsesAttributeOverrides(t *testing.T) {
 		WithAttributeOverrides(Attributes{"foo": "baz"})
 
 	exp1 := NewExperiment("my-test").WithVariations(0, 1).WithHashAttribute("foo")
-	result := client.Run(exp1, attrs)
+	result, err := client.Run(exp1, attrs)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	if result.HashValue != "baz" {
 		t.Errorf("unexpected experiment result: %v\n", result.HashValue)
 	}
 
 	client = client.WithAttributeOverrides(nil)
 
-	result = client.Run(exp1, attrs)
+	result, err = client.Run(exp1, attrs)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	if result.HashValue != "bar" {
 		t.Errorf("unexpected experiment result: %v\n", result.HashValue)
 	}
@@ -134,7 +146,10 @@ func TestFeaturesUsesForcedFeatureValues(t *testing.T) {
 		})
 
 	check := func(icase int, feature string, value interface{}) {
-		result := client.EvalFeature(feature, nil)
+		result, err := client.EvalFeature(feature, nil)
+		if err != nil {
+			t.Error("unexpected error:", err)
+		}
 		if !reflect.DeepEqual(result.Value, value) {
 			t.Errorf("%d: result from EvalFeature: expected %v, got %v",
 				icase, value, result.Value)
@@ -191,13 +206,19 @@ func TestFeaturesFeatureUsageWhenAssignedValueChanges(t *testing.T) {
 		WithFeatures(features)
 
 	// Fires for regular features
-	res1 := client.EvalFeature("feature", Attributes{"color": "green"})
+	res1, err := client.EvalFeature("feature", Attributes{"color": "green"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	if res1.Value != 0.0 {
 		t.Errorf("expected value 0, got %#v", res1.Value)
 	}
 
 	// Fires when the assigned value changes
-	res2 := client.EvalFeature("feature", Attributes{"color": "blue"})
+	res2, err := client.EvalFeature("feature", Attributes{"color": "blue"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	if res2.Value != 1.0 {
 		t.Errorf("expected value 1, got %#v", res2.Value)
 	}
@@ -223,15 +244,24 @@ func TestFeaturesUsesFallbacksForGetFeatureValue(t *testing.T) {
 	}
 	client := NewClient(nil).WithFeatures(features)
 
-	res := client.GetFeatureValue("feature", nil, "green")
+	res, err := client.GetFeatureValue("feature", nil, "green")
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	if res != "blue" {
 		t.Error("1: unexpected return from GetFeatureValue: ", res)
 	}
-	res = client.GetFeatureValue("unknown", nil, "green")
+	res, err = client.GetFeatureValue("unknown", nil, "green")
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	if res != "green" {
 		t.Error("2: unexpected return from GetFeatureValue: ", res)
 	}
-	res = client.GetFeatureValue("testing", nil, nil)
+	res, err = client.GetFeatureValue("testing", nil, nil)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	if res != nil {
 		t.Error("3: unexpected return from GetFeatureValue: ", res)
 	}
@@ -246,7 +276,10 @@ func TestFeaturesUsageTracking(t *testing.T) {
 	client := NewClient(&Options{OnFeatureUsage: cb}).
 		WithFeatures(FeatureMap{"feature": &Feature{DefaultValue: 0}})
 
-	result := client.EvalFeature("feature", Attributes{"id": "123"})
+	result, err := client.EvalFeature("feature", Attributes{"id": "123"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	expected := FeatureResult{
 		Value:  0,
 		On:     false,

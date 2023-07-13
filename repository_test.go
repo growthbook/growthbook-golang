@@ -105,21 +105,20 @@ func setupWithDelay(provideSSE bool, delay time.Duration, encryptedFeatures stri
 	return &env
 }
 
-func makeClient(apiHost string, clientKey string, ttl time.Duration) *Client {
-	opt := Options{
+func makeClient(apiHost string, clientKey string) *Client {
+	return NewClient(&Options{
 		APIHost:   apiHost,
 		ClientKey: clientKey,
-	}
-	if ttl != 0 {
-		opt.CacheTTL = ttl
-	}
-	return NewClient(&opt)
+	})
 }
 
 func checkFeature(t *testing.T, client *Client, feature string, expected interface{}) {
-	value := client.EvalFeature(feature, nil).Value
-	if value != expected {
-		t.Errorf("feature value, expected %v, got %v", expected, value)
+	value, err := client.EvalFeature(feature, nil)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	if value.Value != expected {
+		t.Errorf("feature value, expected %v, got %v", expected, value.Value)
 	}
 }
 
@@ -192,13 +191,22 @@ func TestRepoDebounceFetchRequests(t *testing.T) {
 
 	cache.Clear()
 
-	client1 := makeClient(env.server.URL, "qwerty1234", 0)
-	client2 := makeClient(env.server.URL, "other", 0)
-	client3 := makeClient(env.server.URL, "qwerty1234", 0)
+	client1 := makeClient(env.server.URL, "qwerty1234")
+	client2 := makeClient(env.server.URL, "other")
+	client3 := makeClient(env.server.URL, "qwerty1234")
 
-	client1.LoadFeatures(nil)
-	client2.LoadFeatures(nil)
-	client3.LoadFeatures(nil)
+	err := client1.LoadFeatures(nil)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	err = client2.LoadFeatures(nil)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	err = client3.LoadFeatures(nil)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	env.checkCalls(t, 2)
 	if env.urls["/api/features/other"] != 1 ||
@@ -219,8 +227,12 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 
 	cache.Clear()
 
-	// Set cache TTL short so we can test expiry.
-	client := makeClient(env.server.URL, "qwerty1234", 100*time.Millisecond)
+	// Set cache TTL short so we can test expiry and reset it to the
+	// default when we're done.
+	ConfigureCacheStaleTTL(100 * time.Millisecond)
+	defer ConfigureCacheStaleTTL(0)
+
+	client := makeClient(env.server.URL, "qwerty1234")
 	time.Sleep(20 * time.Millisecond)
 
 	// Initial value of feature should be null.
@@ -237,14 +249,14 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	*env.featureValue = "changed"
 
 	// New instances should get cached value
-	client2 := makeClient(env.server.URL, "qwerty1234", 100*time.Millisecond)
+	client2 := makeClient(env.server.URL, "qwerty1234")
 	checkFeature(t, client2, "foo", nil)
 	knownWarnings(t, 1)
 	client2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 	checkFeature(t, client2, "foo", "initial")
 
 	// Instance without autoRefresh.
-	client3 := makeClient(env.server.URL, "qwerty1234", 100*time.Millisecond)
+	client3 := makeClient(env.server.URL, "qwerty1234")
 	checkFeature(t, client3, "foo", nil)
 	knownWarnings(t, 1)
 	client3.LoadFeatures(nil)
@@ -276,7 +288,7 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	checkFeature(t, client3, "foo", "initial")
 
 	// New instances should get the new value
-	client4 := makeClient(env.server.URL, "qwerty1234", 100*time.Millisecond)
+	client4 := makeClient(env.server.URL, "qwerty1234")
 	checkFeature(t, client4, "foo", nil)
 	knownWarnings(t, 1)
 	client4.LoadFeatures(nil)
@@ -293,7 +305,7 @@ func TestRepoUpdatesFeaturesBasedOnSSE1(t *testing.T) {
 
 	cache.Clear()
 
-	client := makeClient(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
 
 	// Load features and check API calls.
 	client.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
@@ -322,8 +334,8 @@ func TestRepoUpdatesFeaturesBasedOnSSE2(t *testing.T) {
 
 	cache.Clear()
 
-	client := makeClient(env.server.URL, "qwerty1234", 0)
-	client2 := makeClient(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
+	client2 := makeClient(env.server.URL, "qwerty1234")
 
 	// Load features and check API calls.
 	client.LoadFeatures(nil)
@@ -356,7 +368,7 @@ func TestRepoExposesAReadyFlag(t *testing.T) {
 	cache.Clear()
 	*env.featureValue = "api"
 
-	client := makeClient(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
 
 	if client.Ready() {
 		t.Error("expected ready flag to be false")
@@ -367,7 +379,7 @@ func TestRepoExposesAReadyFlag(t *testing.T) {
 		t.Error("expected ready flag to be true")
 	}
 
-	client2 := makeClient(env.server.URL, "qwerty1234", 0)
+	client2 := makeClient(env.server.URL, "qwerty1234")
 	if client2.Ready() {
 		t.Error("expected ready flag to be false")
 	}
@@ -386,23 +398,27 @@ func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
 	cache.Clear()
 	env.fetchFails = true
 
-	client := makeClient(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
 	checkReady(t, client, false)
-	client.LoadFeatures(nil)
+	err := client.LoadFeatures(nil)
+	if err == nil {
+		t.Error("expected error, but didn't get one")
+	}
 
 	// Attempts network request, logs the error.
 	env.checkCalls(t, 1)
-	knownErrors(t, "Error fetching features")
 
 	// Ready state changes to true
 	checkReady(t, client, true)
 	checkEmptyFeatures(t, client)
 
 	// Logs the error, doesn't cache result.
-	client.RefreshFeatures(nil)
+	err = client.RefreshFeatures(nil)
+	if err == nil {
+		t.Error("expected error, but didn't get one")
+	}
 	checkEmptyFeatures(t, client)
 	env.checkCalls(t, 2)
-	knownErrors(t, "Error fetching features")
 
 	checkLogs(t)
 }
@@ -416,7 +432,7 @@ func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
 	cache.Clear()
 	*env.featureValue = "api"
 
-	client := makeClient(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
 	checkReady(t, client, false)
 
 	// Doesn't throw errors.
@@ -445,7 +461,7 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 
 	cache.Clear()
 
-	client := makeClient(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
 
 	client.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 	env.checkCalls(t, 1)
@@ -486,6 +502,10 @@ func TestRepoComplexSSEScenario(t *testing.T) {
 
 	var wg sync.WaitGroup
 
+	// For collecting errors during tests.
+	testErrors := []error{}
+	errCh := make(chan error)
+
 	// Test function to run in a goroutine: evaluates features at
 	// randomly spaced intervals, storing the results and the sample
 	// times, until told to stop.
@@ -499,7 +519,12 @@ func TestRepoComplexSSEScenario(t *testing.T) {
 				return
 
 			case <-tick.C:
-				f, _ := client.EvalFeature("foo", nil).Value.(string)
+				res, err := client.EvalFeature("foo", nil)
+				if err != nil {
+					errCh <- err
+					continue
+				}
+				f, _ := res.Value.(string)
 				*vals = append(*vals, &record{f, time.Now()})
 			}
 		}
@@ -509,10 +534,25 @@ func TestRepoComplexSSEScenario(t *testing.T) {
 	// instance, cancellation channel and result storage.
 	clients := make([]*Client, 10)
 	doneChs := make([]chan struct{}, 10)
+	errDoneCh := make(chan struct{})
 	vals := make([][]*record, 10)
-	wg.Add(10)
+	wg.Add(11)
+
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case <-errDoneCh:
+				return
+
+			case err := <-errCh:
+				testErrors = append(testErrors, err)
+			}
+		}
+	}()
+
 	for i := 0; i < 10; i++ {
-		clients[i] = makeClient(env.server.URL, "qwerty1234", 0)
+		clients[i] = makeClient(env.server.URL, "qwerty1234")
 		doneChs[i] = make(chan struct{})
 		vals[i] = []*record{}
 		go tester(clients[i], doneChs[i], &vals[i])
@@ -556,7 +596,12 @@ func TestRepoComplexSSEScenario(t *testing.T) {
 		doneChs[i] <- struct{}{}
 		clients[i] = nil
 	}
+	errDoneCh <- struct{}{}
 	wg.Wait()
+
+	if len(testErrors) > 0 {
+		t.Error("unexpected errors:", testErrors)
+	}
 
 	// Check the results from the test goroutines by finding the
 	// relevant times in the command history. Allow some slack for small
@@ -614,8 +659,8 @@ func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
 	ConfigureCacheBackgroundSync(false)
 	defer ConfigureCacheBackgroundSync(true)
 
-	client := makeClient(env.server.URL, "qwerty1234", 0)
-	client2 := makeClient(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
+	client2 := makeClient(env.server.URL, "qwerty1234")
 
 	client.LoadFeatures(nil)
 	client2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})

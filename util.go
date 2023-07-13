@@ -159,19 +159,22 @@ func fixSliceTypes(vin interface{}) interface{} {
 	return rv
 }
 
-func isURLTargeted(url *url.URL, targets []URLTarget) bool {
+func isURLTargeted(url *url.URL, targets []URLTarget) (bool, error) {
 	if len(targets) == 0 {
-		return false
+		return false, nil
 	}
 
 	hasIncludeRules := false
 	isIncluded := false
 
 	for _, t := range targets {
-		match := evalURLTarget(url, t.Type, t.Pattern)
+		match, err := evalURLTarget(url, t.Type, t.Pattern)
+		if err != nil {
+			return false, err
+		}
 		if !t.Include {
 			if match {
-				return false
+				return false, nil
 			}
 		} else {
 			hasIncludeRules = true
@@ -181,20 +184,23 @@ func isURLTargeted(url *url.URL, targets []URLTarget) bool {
 		}
 	}
 
-	return isIncluded || !hasIncludeRules
+	return isIncluded || !hasIncludeRules, nil
 }
 
-func evalURLTarget(url *url.URL, typ URLTargetType, pattern string) bool {
+func evalURLTarget(url *url.URL, typ URLTargetType, pattern string) (bool, error) {
 	if typ == RegexURLTarget {
-		regex := getURLRegexp(pattern)
-		if regex == nil {
-			return false
+		regex, err := getURLRegexp(pattern)
+		if err != nil {
+			return false, err
 		}
-		return regex.MatchString(url.String()) || regex.MatchString(url.Path)
+		if regex == nil {
+			return false, nil
+		}
+		return regex.MatchString(url.String()) || regex.MatchString(url.Path), nil
 	} else if typ == SimpleURLTarget {
 		return evalSimpleURLTarget(url, pattern)
 	}
-	return false
+	return false, nil
 }
 
 type comp struct {
@@ -203,7 +209,7 @@ type comp struct {
 	isPath   bool
 }
 
-func evalSimpleURLTarget(actual *url.URL, pattern string) bool {
+func evalSimpleURLTarget(actual *url.URL, pattern string) (bool, error) {
 	// If a protocol is missing, but a host is specified, add `https://`
 	// to the front. Use "_____" as the wildcard since `*` is not a valid
 	// hostname in some browsers
@@ -213,8 +219,7 @@ func evalSimpleURLTarget(actual *url.URL, pattern string) bool {
 	pattern = wildcardRe.ReplaceAllLiteralString(pattern, "_____")
 	expected, err := url.Parse(pattern)
 	if err != nil {
-		logError("Failed to parse URL pattern: ", pattern)
-		return false
+		return false, errors.New("Failed to parse URL pattern: " + pattern)
 	}
 	if expected.Host == "" {
 		expected.Host = "_____"
@@ -232,13 +237,11 @@ func evalSimpleURLTarget(actual *url.URL, pattern string) bool {
 
 	actualParams, err := url.ParseQuery(actual.RawQuery)
 	if err != nil {
-		logError("Failed to parse actual URL query parameters: ", actual.RawQuery)
-		return false
+		return false, errors.New("Failed to parse actual URL query parameters: " + actual.RawQuery)
 	}
 	expectedParams, err := url.ParseQuery(expected.RawQuery)
 	if err != nil {
-		logError("Failed to parse expected URL query parameters: ", expected.RawQuery)
-		return false
+		return false, errors.New("Failed to parse expected URL query parameters: " + expected.RawQuery)
 	}
 	for param, expectedValue := range expectedParams {
 		actualValue := ""
@@ -250,14 +253,18 @@ func evalSimpleURLTarget(actual *url.URL, pattern string) bool {
 
 	// If any comparisons fail, the whole thing fails
 	for _, comp := range comps {
-		if !evalSimpleURLPart(comp.actual, comp.expected, comp.isPath) {
-			return false
+		eval, err := evalSimpleURLPart(comp.actual, comp.expected, comp.isPath)
+		if err != nil {
+			return false, err
+		}
+		if !eval {
+			return false, nil
 		}
 	}
-	return true
+	return true, nil
 }
 
-func evalSimpleURLPart(actual string, pattern string, isPath bool) bool {
+func evalSimpleURLPart(actual string, pattern string, isPath bool) (bool, error) {
 	// Escape special regex characters.
 	specialRe := regexp.MustCompile(`([*.+?^${}()|[\]\\])`)
 	escaped := specialRe.ReplaceAllString(pattern, "\\$1")
@@ -273,82 +280,17 @@ func evalSimpleURLPart(actual string, pattern string, isPath bool) bool {
 	escaped = "(?i)^" + escaped + "$"
 	regex, err := regexp.Compile(escaped)
 	if err != nil {
-		logError("Failed to compile regexp: ", escaped)
-		return false
+		return false, errors.New("Failed to compile regexp: " + escaped)
 	}
-	return regex.MatchString(actual)
+	return regex.MatchString(actual), nil
 }
 
-func getURLRegexp(regexString string) *regexp.Regexp {
+func getURLRegexp(regexString string) (*regexp.Regexp, error) {
 	retval, err := regexp.Compile(regexString)
 	if err == nil {
-		return retval
+		return retval, nil
 	}
-	logError("Failed to compile URL regexp:", err)
-	return nil
-}
-
-func jsonString(v interface{}, typeName string, fieldName string) (string, bool) {
-	tmp, ok := v.(string)
-	if ok {
-		return tmp, true
-	}
-	logError("Invalid JSON data type", typeName, fieldName)
-	return "", false
-}
-
-func jsonBool(v interface{}, typeName string, fieldName string) (bool, bool) {
-	tmp, ok := v.(bool)
-	if ok {
-		return tmp, true
-	}
-	logError("Invalid JSON data type", typeName, fieldName)
-	return false, false
-}
-
-func jsonInt(v interface{}, typeName string, fieldName string) (int, bool) {
-	tmp, ok := v.(float64)
-	if ok {
-		return int(tmp), true
-	}
-	logError("Invalid JSON data type", typeName, fieldName)
-	return 0, false
-}
-
-func jsonFloat(v interface{}, typeName string, fieldName string) (float64, bool) {
-	tmp, ok := v.(float64)
-	if ok {
-		return tmp, true
-	}
-	logError("Invalid JSON data type", typeName, fieldName)
-	return 0.0, false
-}
-
-func jsonMaybeFloat(v interface{}, typeName string, fieldName string) (*float64, bool) {
-	tmp, ok := v.(float64)
-	if ok {
-		return &tmp, true
-	}
-	logError("Invalid JSON data type", typeName, fieldName)
-	return nil, false
-}
-
-func jsonFloatArray(v interface{}, typeName string, fieldName string) ([]float64, bool) {
-	vals, ok := v.([]interface{})
-	if !ok {
-		logError("Invalid JSON data type", typeName, fieldName)
-		return nil, false
-	}
-	fvals := make([]float64, len(vals))
-	for i := range vals {
-		tmp, ok := vals[i].(float64)
-		if !ok {
-			logError("Invalid JSON data type", typeName, fieldName)
-			return nil, false
-		}
-		fvals[i] = tmp
-	}
-	return fvals, true
+	return nil, errors.New("Failed to compile URL regexp:" + err.Error())
 }
 
 var (

@@ -121,15 +121,18 @@ func TestIssue1(t *testing.T) {
 
 	client := NewClient(nil).WithFeatures(features)
 
-	value := client.EvalFeature("meal_overrides_gluten_free", attrs).Value
+	value, err := client.EvalFeature("meal_overrides_gluten_free", attrs)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	expectedValue := map[string]interface{}{
 		"meal_type": "gf",
 		"dessert":   "French Vanilla Ice Cream",
 	}
 
-	if !reflect.DeepEqual(value, expectedValue) {
-		t.Errorf("unexpected value: %v", value)
+	if !reflect.DeepEqual(value.Value, expectedValue) {
+		t.Errorf("unexpected value: %v", value.Value)
 	}
 }
 
@@ -151,15 +154,18 @@ func TestIssue5(t *testing.T) {
 
 	client := NewClient(nil).WithFeatures(features)
 
-	value := client.EvalFeature("meal_overrides_gluten_free", attrs).Value
+	value, err := client.EvalFeature("meal_overrides_gluten_free", attrs)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	expectedValue := map[string]interface{}{
 		"meal_type": "gf",
 		"dessert":   "French Vanilla Ice Cream",
 	}
 
-	if !reflect.DeepEqual(value, expectedValue) {
-		t.Errorf("unexpected value: %v", value)
+	if !reflect.DeepEqual(value.Value, expectedValue) {
+		t.Errorf("unexpected value: %v", value.Value)
 	}
 }
 
@@ -201,12 +207,18 @@ func TestNumericComparisons(t *testing.T) {
 
 	client := NewClient(nil).WithFeatures(features)
 
-	value1 := client.EvalFeature("donut_price", attrs).Value
-	if value1 != 1.0 {
-		t.Errorf("unexpected value: %v", value1)
+	value1, err := client.EvalFeature("donut_price", attrs)
+	if err != nil {
+		t.Error("unexpected error:", err)
 	}
-	value2 := client.EvalFeature("donut_rating", attrs).Value
-	if value2 != 4.0 {
-		t.Errorf("unexpected value: %v", value2)
+	if value1.Value != 1.0 {
+		t.Errorf("unexpected value: %v", value1.Value)
+	}
+	value2, err := client.EvalFeature("donut_rating", attrs)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	if value2.Value != 4.0 {
+		t.Errorf("unexpected value: %v", value2.Value)
 	}
 }

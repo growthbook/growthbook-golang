@@ -32,11 +32,26 @@ func TestExperimentTracking(t *testing.T) {
 	exp1 := NewExperiment("my-tracked-test").WithVariations(0, 1)
 	exp2 := NewExperiment("my-other-tracked-test").WithVariations(0, 1)
 
-	res1 := client.Run(exp1, Attributes{"id": "1"})
-	client.Run(exp1, Attributes{"id": "1"})
-	client.Run(exp1, Attributes{"id": "1"})
-	res4 := client.Run(exp2, Attributes{"id": "1"})
-	res5 := client.Run(exp2, Attributes{"id": "2"})
+	res1, err := client.Run(exp1, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	_, err = client.Run(exp1, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	_, err = client.Run(exp1, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	res4, err := client.Run(exp2, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	res5, err := client.Run(exp2, Attributes{"id": "2"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	if len(tr.calls) != 3 {
 		t.Errorf("expected 3 calls to tracking callback, got %d", len(tr.calls))
@@ -61,8 +76,11 @@ func TestExperimentForcesVariationFromOverrides(t *testing.T) {
 				Force: &forceVal,
 			}})
 
-	res := client.Run(NewExperiment("forced-test").WithVariations(0, 1),
+	res, err := client.Run(NewExperiment("forced-test").WithVariations(0, 1),
 		Attributes{"id": "6"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	if res.VariationID != 1 {
 		t.Error("expected variation ID 1, got", res.VariationID)
@@ -83,7 +101,10 @@ func TestExperimentCoverageFromOverrides(t *testing.T) {
 				Coverage: &overrideVal,
 			}})
 
-	res := client.Run(NewExperiment("my-test").WithVariations(0, 1), Attributes{"id": "1"})
+	res, err := client.Run(NewExperiment("my-test").WithVariations(0, 1), Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	if res.VariationID != 0 {
 		t.Error("expected variation ID 0, got", res.VariationID)
@@ -117,8 +138,12 @@ func TestExperimentURLFromOverrides(t *testing.T) {
 			"my-test": &ExperimentOverride{URL: urlRe},
 		})
 
-	if client.Run(NewExperiment("my-test").WithVariations(0, 1),
-		Attributes{"id": "1"}).InExperiment != false {
+	res, err := client.Run(NewExperiment("my-test").WithVariations(0, 1),
+		Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	if res.InExperiment != false {
 		t.Error("expected InExperiment to be false")
 	}
 }
@@ -136,20 +161,32 @@ func TestExperimentFiltersUserGroups(t *testing.T) {
 	exp := NewExperiment("my-test").
 		WithVariations(0, 1).
 		WithGroups("internal", "qa")
-	if client.Run(exp, Attributes{"id": "123"}).InExperiment != false {
+	res, err := client.Run(exp, Attributes{"id": "123"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	if res.InExperiment != false {
 		t.Error("1: expected InExperiment to be false")
 	}
 
 	exp = NewExperiment("my-test").
 		WithVariations(0, 1).
 		WithGroups("internal", "qa", "beta")
-	if client.Run(exp, Attributes{"id": "123"}).InExperiment != true {
+	res, err = client.Run(exp, Attributes{"id": "123"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	if res.InExperiment != true {
 		t.Error("2: expected InExperiment to be true")
 	}
 
 	exp = NewExperiment("my-test").
 		WithVariations(0, 1)
-	if client.Run(exp, Attributes{"id": "123"}).InExperiment != true {
+	res, err = client.Run(exp, Attributes{"id": "123"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	if res.InExperiment != true {
 		t.Error("3: expected InExperiment to be true")
 	}
 }
@@ -161,7 +198,11 @@ func TestExperimentCustomIncludeCallback(t *testing.T) {
 		WithVariations(0, 1).
 		WithIncludeFunction(func() bool { return false })
 
-	if client.Run(exp, Attributes{"id": "1"}).InExperiment != false {
+	res, err := client.Run(exp, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	if res.InExperiment != false {
 		t.Error("expected InExperiment to be false")
 	}
 }
@@ -173,8 +214,11 @@ func TestExperimentQuerystringForceDisablsTracking(t *testing.T) {
 		URL:              mustParseUrl("http://example.com?forced-test-qs=1"),
 	})
 
-	client.Run(NewExperiment("forced-test-qs").WithVariations(0, 1),
+	_, err := client.Run(NewExperiment("forced-test-qs").WithVariations(0, 1),
 		Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	if len(tr.calls) != 0 {
 		t.Errorf("expected 0 calls to tracking callback, got %d", len(tr.calls))
@@ -189,7 +233,10 @@ func TestExperimentURLTargeting(t *testing.T) {
 	check := func(icase int, url string, inExperiment bool, value interface{}) {
 		client := NewClient(&Options{URL: mustParseUrl(url)})
 
-		result := client.Run(exp, Attributes{"id": "1"})
+		result, err := client.Run(exp, Attributes{"id": "1"})
+		if err != nil {
+			t.Error("unexpected error:", err)
+		}
 		if result.InExperiment != inExperiment {
 			t.Errorf("%d: expected InExperiment = %v, got %v",
 				icase, inExperiment, result.InExperiment)
@@ -213,11 +260,18 @@ func TestExperimentIgnoresDraftExperiments(t *testing.T) {
 		WithStatus(DraftStatus).
 		WithVariations(0, 1)
 
-	res1 := client.Run(exp, Attributes{"id": "1"})
+	res1, err := client.Run(exp, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+
 	client = NewClient(&Options{
 		URL: mustParseUrl("http://example.com/?my-test=1"),
 	})
-	res2 := client.Run(exp, Attributes{"id": "1"})
+	res2, err := client.Run(exp, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	if res1.InExperiment != false {
 		t.Error("1: expected InExperiment to be false")
@@ -251,8 +305,14 @@ func TestExperimentIgnoresStoppedExperimentsUnlessForced(t *testing.T) {
 		WithVariations(0, 1, 2).
 		WithForce(2)
 
-	res1 := client.Run(expLose, Attributes{"id": "1"})
-	res2 := client.Run(expWin, Attributes{"id": "1"})
+	res1, err := client.Run(expLose, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	res2, err := client.Run(expWin, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	if res1.InExperiment != false {
 		t.Error("1: expected InExperiment to be false")
@@ -334,17 +394,26 @@ func TestExperimentForcesMultipleVariationsAtOnce(t *testing.T) {
 	exp := NewExperiment("my-test").
 		WithVariations(0, 1)
 
-	res1 := client.Run(exp, Attributes{"id": "1"})
+	res1, err := client.Run(exp, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	commonCheck(t, 1, res1, true, true, 1)
 
 	client = client.WithForcedVariations(ForcedVariationsMap{
 		"my-test": 0,
 	})
-	res2 := client.Run(exp, Attributes{"id": "1"})
+	res2, err := client.Run(exp, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	commonCheck(t, 2, res2, true, false, 0)
 
 	client = client.WithForcedVariations(nil)
-	res3 := client.Run(exp, Attributes{"id": "1"})
+	res3, err := client.Run(exp, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	commonCheck(t, 3, res3, true, true, 1)
 }
 
@@ -354,17 +423,26 @@ func TestExperimentOnceForcesAllVariationsInQAMode(t *testing.T) {
 	exp := NewExperiment("my-test").
 		WithVariations(0, 1)
 
-	res1 := client.Run(exp, Attributes{"id": "1"})
+	res1, err := client.Run(exp, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	commonCheck(t, 1, res1, false, false, 0)
 
 	// Still works if explicitly forced
 	client = client.WithForcedVariations(ForcedVariationsMap{"my-test": 1})
-	res2 := client.Run(exp, Attributes{"id": "1"})
+	res2, err := client.Run(exp, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	commonCheck(t, 2, res2, true, false, 1)
 
 	// Works if the experiment itself is forced
 	exp2 := NewExperiment("my-test-2").WithVariations(0, 1).WithForce(1)
-	res3 := client.Run(exp2, Attributes{"id": "1"})
+	res3, err := client.Run(exp2, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	commonCheck(t, 3, res3, true, false, 1)
 }
 
@@ -386,25 +464,40 @@ func TestExperimentFiresSubscriptionsCorrectly(t *testing.T) {
 	exp := NewExperiment("my-test").WithVariations(0, 1)
 
 	// Should fire when user is put in an experiment
-	client.Run(exp, Attributes{"id": "1"})
+	_, err := client.Run(exp, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	checkFired(2, true)
 
 	// Does not fire if nothing has changed
 	fired = false
-	client.Run(exp, Attributes{"id": "1"})
+	_, err = client.Run(exp, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	checkFired(3, false)
 
 	// Does not fire after unsubscribed
 	unsubscriber()
 	exp2 := NewExperiment("other-test").WithVariations(0, 1)
-	client.Run(exp2, Attributes{"id": "1"})
+	_, err = client.Run(exp2, Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 	checkFired(4, false)
 }
 
 func TestExperimentStoresAssignedVariations(t *testing.T) {
 	client := NewClient(nil)
-	client.Run(NewExperiment("my-test").WithVariations(0, 1), Attributes{"id": "1"})
-	client.Run(NewExperiment("my-test-3").WithVariations(0, 1), Attributes{"id": "1"})
+	_, err := client.Run(NewExperiment("my-test").WithVariations(0, 1), Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	_, err = client.Run(NewExperiment("my-test-3").WithVariations(0, 1), Attributes{"id": "1"})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	assignedVars := client.GetAllResults()
 
@@ -461,7 +554,10 @@ func commonCheck(t *testing.T, icase int, res *Result,
 func countVariations(t *testing.T, client *Client,
 	exp *Experiment, runs int, variations map[string]int) {
 	for i := 0; i < runs; i++ {
-		res := client.Run(exp, Attributes{"id": fmt.Sprint(i)})
+		res, err := client.Run(exp, Attributes{"id": fmt.Sprint(i)})
+		if err != nil {
+			t.Error("unexpected error:", err)
+		}
 		v := -1
 		ok := false
 		if res.InExperiment {

@@ -338,23 +338,35 @@ func (fr *FeatureResult) GetValueWithDefault(def FeatureValue) FeatureValue {
 }
 
 // IsOn determines whether a feature is on.
-func (c *Client) IsOn(key string, attrs Attributes) bool {
-	return c.EvalFeature(key, attrs).On
+func (c *Client) IsOn(key string, attrs Attributes) (bool, error) {
+	result, err := c.EvalFeature(key, attrs)
+	if err != nil {
+		return false, err
+	}
+	return result.On, nil
 }
 
 // IsOff determines whether a feature is off.
-func (c *Client) IsOff(key string, attrs Attributes) bool {
-	return c.EvalFeature(key, attrs).Off
+func (c *Client) IsOff(key string, attrs Attributes) (bool, error) {
+	result, err := c.EvalFeature(key, attrs)
+	if err != nil {
+		return false, err
+	}
+	return result.Off, nil
 }
 
 // GetFeatureValue returns the result for a feature identified by a
 // string feature key, with an explicit default.
-func (c *Client) GetFeatureValue(key string, attrs Attributes, defaultValue interface{}) interface{} {
-	featureValue := c.EvalFeature(key, attrs).Value
-	if featureValue != nil {
-		return featureValue
+func (c *Client) GetFeatureValue(key string, attrs Attributes,
+	defaultValue interface{}) (interface{}, error) {
+	featureValue, err := c.EvalFeature(key, attrs)
+	if err != nil {
+		return nil, err
 	}
-	return defaultValue
+	if featureValue.Value != nil {
+		return featureValue.Value, nil
+	}
+	return defaultValue, nil
 }
 
 // EffectiveAttributes returns the attributes in a GrowthBook's
@@ -377,7 +389,7 @@ func (c *Client) EffectiveAttributes(attrs Attributes) Attributes {
 
 // EvalFeature returns the result for a feature identified by a string
 // feature key.
-func (c *Client) EvalFeature(id string, attrs Attributes) *FeatureResult {
+func (c *Client) EvalFeature(id string, attrs Attributes) (*FeatureResult, error) {
 	c.features.RLock()
 	defer c.features.RUnlock()
 
@@ -447,7 +459,10 @@ func (c *Client) EvalFeature(id string, attrs Attributes) *FeatureResult {
 		exp := experimentFromFeatureRule(id, rule)
 
 		// Run the experiment.
-		result := c.doRun(exp, id, attrs)
+		result, err := c.doRun(exp, id, attrs)
+		if err != nil {
+
+		}
 		c.fireSubscriptions(exp, result)
 
 		// Only return a value if the user is part of the experiment.
@@ -464,13 +479,16 @@ func (c *Client) EvalFeature(id string, attrs Attributes) *FeatureResult {
 
 // Run an experiment. (Uses doRun to make wrapping for subscriptions
 // simple.)
-func (c *Client) Run(exp *Experiment, attrs Attributes) *Result {
+func (c *Client) Run(exp *Experiment, attrs Attributes) (*Result, error) {
 	c.features.RLock()
 	defer c.features.RUnlock()
 
-	result := c.doRun(exp, "", attrs)
+	result, err := c.doRun(exp, "", attrs)
+	if err != nil {
+		return nil, err
+	}
 	c.fireSubscriptions(exp, result)
-	return result
+	return result, nil
 }
 
 // Subscribe adds a callback that is called every time GrowthBook.Run
@@ -520,38 +538,41 @@ type FeatureRepoOptions struct {
 	SkipCache   bool
 }
 
-func (c *Client) LoadFeatures(options *FeatureRepoOptions) {
-	c.LoadFeaturesContext(context.Background(), options)
+func (c *Client) LoadFeatures(options *FeatureRepoOptions) error {
+	return c.LoadFeaturesContext(context.Background(), options)
 }
 
-func (c *Client) LoadFeaturesContext(ctx context.Context, options *FeatureRepoOptions) {
-	c.refresh(ctx, options, true, true)
+func (c *Client) LoadFeaturesContext(ctx context.Context, options *FeatureRepoOptions) error {
+	err := c.refresh(ctx, options, true, true)
+	if err != nil {
+		return err
+	}
 	if options != nil && options.AutoRefresh {
 		repoSubscribe(c)
 	}
+	return nil
 }
 
 func (c *Client) LatestFeatureUpdate() *time.Time {
 	return repoLatestUpdate(c)
 }
 
-func (c *Client) RefreshFeatures(options *FeatureRepoOptions) {
-	c.RefreshFeaturesContext(context.Background(), options)
+func (c *Client) RefreshFeatures(options *FeatureRepoOptions) error {
+	return c.RefreshFeaturesContext(context.Background(), options)
 }
 
-func (c *Client) RefreshFeaturesContext(ctx context.Context, options *FeatureRepoOptions) {
-	c.refresh(ctx, options, false, true)
+func (c *Client) RefreshFeaturesContext(ctx context.Context, options *FeatureRepoOptions) error {
+	return c.refresh(ctx, options, false, true)
 }
 
 //-- PRIVATE FUNCTIONS START HERE ----------------------------------------------
 
 func (c *Client) refresh(
 	ctx context.Context,
-	options *FeatureRepoOptions, allowStale bool, updateInstance bool) {
+	options *FeatureRepoOptions, allowStale bool, updateInstance bool) error {
 
 	if c.opt.ClientKey == "" {
-		logError("Missing clientKey")
-		return
+		return errors.New("Missing clientKey")
 	}
 	var timeout time.Duration
 	skipCache := c.opt.DevMode
@@ -559,8 +580,7 @@ func (c *Client) refresh(
 		timeout = options.Timeout
 		skipCache = skipCache || options.SkipCache
 	}
-	configureCacheStaleTTL(c.opt.CacheTTL)
-	repoRefreshFeatures(ctx, c, timeout, skipCache, allowStale, updateInstance)
+	return repoRefreshFeatures(ctx, c, timeout, skipCache, allowStale, updateInstance)
 }
 
 func (c *Client) trackFeatureUsage(key string, res *FeatureResult) {
@@ -587,7 +607,7 @@ func (c *Client) getFeatureResult(
 	source FeatureResultSource,
 	ruleID string,
 	experiment *Experiment,
-	result *Result) *FeatureResult {
+	result *Result) (*FeatureResult, error) {
 	on := truthy(value)
 	off := !on
 	retval := FeatureResult{
@@ -602,12 +622,12 @@ func (c *Client) getFeatureResult(
 
 	c.trackFeatureUsage(key, &retval)
 
-	return &retval
+	return &retval, nil
 }
 
 func (c *Client) getResult(
 	exp *Experiment, attrs Attributes, variationIndex int,
-	hashUsed bool, featureID string, bucket *float64) *Result {
+	hashUsed bool, featureID string, bucket *float64) (*Result, error) {
 	inExperiment := true
 
 	// If assigned variation is not valid, use the baseline and mark the
@@ -656,7 +676,7 @@ func (c *Client) getResult(
 		Bucket:        bucket,
 		Name:          name,
 		Passthrough:   passthrough,
-	}
+	}, nil
 }
 
 func (c *Client) fireSubscriptions(exp *Experiment, result *Result) {
@@ -683,7 +703,7 @@ func (c *Client) fireSubscriptions(exp *Experiment, result *Result) {
 }
 
 // Worker function to run an experiment.
-func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) *Result {
+func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) (*Result, error) {
 	// 1. If experiment has fewer than two variations, return default
 	//    result.
 	if len(exp.Variations) < 2 {
@@ -773,9 +793,15 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) *Res
 	}
 
 	// 8.3. New, more powerful URL targeting
-	if exp.URLPatterns != nil && !isURLTargeted(c.opt.URL, exp.URLPatterns) {
-		logInfo("Skip because of URL targeting", exp.Key)
-		return c.getResult(exp, attrs, -1, false, featureID, nil)
+	if exp.URLPatterns != nil {
+		targeted, err := isURLTargeted(c.opt.URL, exp.URLPatterns)
+		if err != nil {
+			return nil, err
+		}
+		if !targeted {
+			logInfo("Skip because of URL targeting", exp.Key)
+			return c.getResult(exp, attrs, -1, false, featureID, nil)
+		}
 	}
 
 	// 9. Calculate bucket ranges for the variations and choose one.
@@ -825,13 +851,15 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) *Res
 	}
 
 	// 13. Build the result object.
-	result := c.getResult(exp, attrs, assigned, true, featureID, n)
+	result, err := c.getResult(exp, attrs, assigned, true, featureID, n)
 
 	// 14. Fire tracking callback if required.
-	c.track(exp, result)
+	if err == nil {
+		c.track(exp, result)
+	}
 
 	logInfo("In experiment", fmt.Sprintf("%s[%d]", exp.Key, result.VariationID))
-	return result
+	return result, err
 }
 
 func (c *Client) mergeOverrides(exp *Experiment) *Experiment {

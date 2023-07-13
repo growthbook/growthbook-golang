@@ -3,7 +3,6 @@ package growthbook
 import (
 	"net/http"
 	"net/url"
-	"time"
 )
 
 // Options contains the options for creating a new GrowthBook client
@@ -19,7 +18,6 @@ type Options struct {
 	APIHost          string
 	ClientKey        string
 	DecryptionKey    string
-	CacheTTL         time.Duration
 	HTTPClient       *http.Client
 }
 
@@ -43,9 +41,6 @@ func (opt *Options) defaults() {
 	}
 	if opt.APIHost == "" {
 		opt.APIHost = "https://cdn.growthbook.io"
-	}
-	if opt.CacheTTL == 0 {
-		opt.CacheTTL = 60 * time.Second
 	}
 	if opt.HTTPClient == nil {
 		opt.HTTPClient = http.DefaultClient
