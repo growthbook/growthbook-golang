@@ -7,21 +7,49 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/barkimedes/go-deepcopy"
 )
 
-type osubscriptionID uint
+type subscriptionID uint
 
 // Assignment is used for recording subscription information.
 type Assignment struct {
 	Experiment *Experiment
 	Result     *Result
+}
+
+func (a *Assignment) clone() *Assignment {
+	return &Assignment{
+		Experiment: a.Experiment.clone(),
+		Result:     deepcopy.MustAnything(a.Result).(*Result),
+	}
+}
+
+type assignments map[string]*Assignment
+
+func (as assignments) clone() assignments {
+	retval := assignments{}
+	for k, v := range as {
+		retval[k] = v.clone()
+	}
+	return retval
+}
+
+type subscriptions map[subscriptionID]ExperimentCallback
+
+func (s subscriptions) clone() subscriptions {
+	retval := subscriptions{}
+	for id, cb := range s {
+		retval[id] = cb
+	}
+	return retval
 }
 
 // GrowthBook is the main export of the SDK. A GrowthBook instance is
@@ -35,19 +63,30 @@ type Client struct {
 	attributeOverrides  Attributes
 	trackedFeatures     map[string]interface{}
 	trackedExperiments  map[string]bool
-	nextSubscriptionID  osubscriptionID
-	subscriptions       map[osubscriptionID]ExperimentCallback
-	assigned            map[string]*Assignment
-	features            *ofeatureData
+	nextSubscriptionID  subscriptionID
+	subscriptions       subscriptions
+	assigned            assignments
+	features            *featureData
 }
 
 // Feature data, which needs to be held separately to allow sharing
 // with the auto-update code.
-type ofeatureData struct {
+type featureData struct {
 	sync.RWMutex
 	features      FeatureMap
 	decryptionKey string
 	ready         bool
+}
+
+func (feats *featureData) clone() *featureData {
+	feats.RLock()
+	defer feats.RUnlock()
+
+	return &featureData{
+		features:      feats.features.clone(),
+		decryptionKey: feats.decryptionKey,
+		ready:         feats.ready,
+	}
 }
 
 // NewClient creates a new GrowthBook instance.
@@ -110,10 +149,11 @@ func NewClientContext(ctx context.Context, opt *Options) *Client {
 	if opt == nil {
 		opt = &Options{}
 	}
+	opt = opt.clone()
 	opt.defaults()
 
 	// Feature tracking information.
-	features := &ofeatureData{
+	features := &featureData{
 		features:      FeatureMap{},
 		decryptionKey: opt.DecryptionKey,
 		ready:         false,
@@ -122,12 +162,13 @@ func NewClientContext(ctx context.Context, opt *Options) *Client {
 	c := &Client{
 		opt:                 opt,
 		forcedVariations:    ForcedVariationsMap{},
+		overrides:           ExperimentOverrides{},
 		forcedFeatureValues: make(map[string]interface{}),
 		attributeOverrides:  make(Attributes),
 		trackedFeatures:     make(map[string]interface{}),
 		trackedExperiments:  make(map[string]bool),
-		subscriptions:       make(map[osubscriptionID]ExperimentCallback),
-		assigned:            make(map[string]*Assignment),
+		subscriptions:       make(map[subscriptionID]ExperimentCallback),
+		assigned:            make(assignments),
 		features:            features,
 	}
 
@@ -136,6 +177,24 @@ func NewClientContext(ctx context.Context, opt *Options) *Client {
 		go c.refresh(ctx, nil, true, false)
 	}
 	return c
+}
+
+func (c *Client) clone() *Client {
+	c.features.RLock()
+	defer c.features.RUnlock()
+
+	return &Client{
+		opt:                 c.opt.clone(),
+		forcedVariations:    deepcopy.MustAnything(c.forcedVariations).(ForcedVariationsMap),
+		overrides:           c.overrides.clone(),
+		forcedFeatureValues: deepcopy.MustAnything(c.forcedFeatureValues).(map[string]interface{}),
+		attributeOverrides:  deepcopy.MustAnything(c.attributeOverrides).(Attributes),
+		trackedFeatures:     deepcopy.MustAnything(c.trackedFeatures).(map[string]interface{}),
+		trackedExperiments:  deepcopy.MustAnything(c.trackedExperiments).(map[string]bool),
+		subscriptions:       c.subscriptions.clone(),
+		assigned:            c.assigned.clone(),
+		features:            c.features.clone(),
+	}
 }
 
 // Ready returns the ready flag, which indicates that features have
@@ -154,11 +213,10 @@ func (c *Client) WithForcedFeatures(values map[string]interface{}) *Client {
 	if values == nil {
 		values = map[string]interface{}{}
 	}
-	c.forcedFeatureValues = values
-	return c
+	newc := c.clone()
+	newc.forcedFeatureValues = values
+	return newc
 }
-
-// !!! IMMUTABILITY !!!
 
 // AttributeOverrides returns the current attribute overrides.
 func (c *Client) AttributeOverrides() Attributes {
@@ -170,11 +228,10 @@ func (c *Client) WithAttributeOverrides(overrides Attributes) *Client {
 	if overrides == nil {
 		overrides = Attributes{}
 	}
-	c.attributeOverrides = overrides.fixSliceTypes()
-	return c
+	newc := c.clone()
+	newc.attributeOverrides = overrides.fixSliceTypes()
+	return newc
 }
-
-// !!! IMMUTABILITY !!!
 
 // Overrides returns the current experiment overrides.
 func (c *Client) Overrides() ExperimentOverrides {
@@ -186,29 +243,19 @@ func (c *Client) WithOverrides(overrides ExperimentOverrides) *Client {
 	if overrides == nil {
 		overrides = ExperimentOverrides{}
 	}
-	c.overrides = overrides
-	return c
+	newc := c.clone()
+	newc.overrides = overrides
+	return newc
 }
-
-// CacheTTL returns the current TTL for the feature cache.
-func (c *Client) CacheTTL() time.Duration {
-	return c.opt.CacheTTL
-}
-
-// URL returns the current matching URL.
-func (c *Client) URL() *url.URL {
-	return c.opt.URL
-}
-
-// !!! IMMUTABILITY !!!
 
 // WithFeatures explicitly updates the current features.
 func (c *Client) WithFeatures(features FeatureMap) *Client {
-	c.features.withFeatures(features)
-	return c
+	newc := c.clone()
+	newc.features.withFeatures(features)
+	return newc
 }
 
-func (feats *ofeatureData) withFeatures(features FeatureMap) {
+func (feats *featureData) withFeatures(features FeatureMap) {
 	feats.Lock()
 	defer feats.Unlock()
 	ready := true
@@ -220,39 +267,26 @@ func (feats *ofeatureData) withFeatures(features FeatureMap) {
 	feats.ready = ready
 }
 
-func (feats *ofeatureData) DecryptionKey() string {
-	feats.RLock()
-	defer feats.RUnlock()
-	return feats.decryptionKey
-}
-
-func (feats *ofeatureData) withDecryptionKey(key string) {
-	feats.Lock()
-	defer feats.Unlock()
-	feats.decryptionKey = key
-}
-
 // Features returns the current features for a GrowthBook instance.
 func (c *Client) Features() FeatureMap {
 	return c.features.getFeatures()
 }
 
-func (feats *ofeatureData) getFeatures() FeatureMap {
+func (feats *featureData) getFeatures() FeatureMap {
 	feats.RLock()
 	defer feats.RUnlock()
 	return feats.features
 }
 
-// !!! IMMUTABILITY !!!
-
 // WithEncryptedFeatures updates the features in a GrowthBook instance
 // from encrypted data.
 func (c *Client) WithEncryptedFeatures(encrypted string, key string) (*Client, error) {
-	err := c.features.withEncryptedFeatures(encrypted, key)
-	return c, err
+	newc := c.clone()
+	err := newc.features.withEncryptedFeatures(encrypted, key)
+	return newc, err
 }
 
-func (feats *ofeatureData) withEncryptedFeatures(encrypted string, key string) error {
+func (feats *featureData) withEncryptedFeatures(encrypted string, key string) error {
 	feats.Lock()
 	defer feats.Unlock()
 
@@ -275,16 +309,15 @@ func (feats *ofeatureData) withEncryptedFeatures(encrypted string, key string) e
 	return err
 }
 
-// !!! IMMUTABILITY !!!
-
 // WithForcedVariations sets the forced variations in a GrowthBook
 // instance.
 func (c *Client) WithForcedVariations(forcedVariations ForcedVariationsMap) *Client {
 	if forcedVariations == nil {
 		forcedVariations = ForcedVariationsMap{}
 	}
-	c.forcedVariations = forcedVariations
-	return c
+	newc := c.clone()
+	newc.forcedVariations = forcedVariations
+	return newc
 }
 
 func (c *Client) ForceVariation(key string, variation int) {
@@ -324,6 +357,24 @@ func (c *Client) GetFeatureValue(key string, attrs Attributes, defaultValue inte
 	return defaultValue
 }
 
+// EffectiveAttributes returns the attributes in a GrowthBook's
+// context, possibly modified by overrides.
+func (c *Client) EffectiveAttributes(attrs Attributes) Attributes {
+	c.features.RLock()
+	defer c.features.RUnlock()
+
+	effAttrs := Attributes{}
+	for id, v := range attrs {
+		effAttrs[id] = v
+	}
+	if c.attributeOverrides != nil {
+		for id, v := range c.attributeOverrides {
+			effAttrs[id] = v
+		}
+	}
+	return effAttrs
+}
+
 // EvalFeature returns the result for a feature identified by a string
 // feature key.
 func (c *Client) EvalFeature(id string, attrs Attributes) *FeatureResult {
@@ -351,8 +402,7 @@ func (c *Client) EvalFeature(id string, attrs Attributes) *FeatureResult {
 	for _, rule := range feature.Rules {
 		// If the rule has a condition and the condition does not pass,
 		// skip this rule.
-		// TODO: HANDLE ATTRIBUTE OVERRIDES HERE!
-		if rule.Condition != nil && !rule.Condition.Eval(attrs) {
+		if rule.Condition != nil && !rule.Condition.Eval(c.EffectiveAttributes(attrs)) {
 			logInfo("Skip rule because of condition", id, JSONLog{rule})
 			continue
 		}
@@ -704,7 +754,7 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) *Res
 
 	// 8. Exclude if condition is false.
 	if exp.Condition != nil {
-		if !exp.Condition.Eval(attrs) {
+		if !exp.Condition.Eval(c.EffectiveAttributes(attrs)) {
 			logInfo("Skip because of condition", exp.Key)
 			return c.getResult(exp, attrs, -1, false, featureID, nil)
 		}

@@ -14,7 +14,7 @@ type Namespace struct {
 	End   float64
 }
 
-func (ns *Namespace) Copy() *Namespace {
+func (ns *Namespace) clone() *Namespace {
 	return &Namespace{
 		ID:    ns.ID,
 		Start: ns.Start,

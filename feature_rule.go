@@ -1,5 +1,7 @@
 package growthbook
 
+import "encoding/json"
+
 // FeatureRule overrides the default value of a Feature.
 type FeatureRule struct {
 	ID            string          `json:",omitempty"`
@@ -19,4 +21,18 @@ type FeatureRule struct {
 	Seed          string          `json:"seed,omitempty"`
 	Name          string          `json:"name,omitempty"`
 	Phase         string          `json:"phase,omitempty"`
+}
+
+// Clone via JSON for simplicity.
+func (r *FeatureRule) clone() *FeatureRule {
+	data, err := json.Marshal(r)
+	if err != nil {
+		return nil
+	}
+	retval := FeatureRule{}
+	err = json.Unmarshal(data, &retval)
+	if err != nil {
+		return nil
+	}
+	return &retval
 }

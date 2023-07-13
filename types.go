@@ -23,16 +23,20 @@ func (attrs Attributes) fixSliceTypes() Attributes {
 // IDs.
 type FeatureMap map[string]*Feature
 
+func (fm FeatureMap) clone() FeatureMap {
+	retval := FeatureMap{}
+	for k, f := range fm {
+		retval[k] = f.clone()
+	}
+	return retval
+}
+
 // ForcedVariationsMap is a map that forces an Experiment to always
 // assign a specific variation. Useful for QA.
 //
 // Keys are the experiment key, values are the array index of the
 // variation.
 type ForcedVariationsMap map[string]int
-
-func (fv ForcedVariationsMap) Copy() ForcedVariationsMap {
-	return deepcopy.MustAnything(fv).(ForcedVariationsMap)
-}
 
 // URL matching supports regular expressions or simple string matches.
 type URLTargetType uint
@@ -112,7 +116,7 @@ type ExperimentOverride struct {
 	URL       *regexp.Regexp    `json:"url,omitempty"`
 }
 
-func (o *ExperimentOverride) Copy() *ExperimentOverride {
+func (o *ExperimentOverride) clone() *ExperimentOverride {
 	retval := ExperimentOverride{}
 	if o.Condition != nil {
 		retval.Condition = deepcopy.MustAnything(o.Condition).(*Condition)
@@ -142,7 +146,7 @@ func (o *ExperimentOverride) Copy() *ExperimentOverride {
 		copy(retval.Groups, o.Groups)
 	}
 	if o.Namespace != nil {
-		retval.Namespace = o.Namespace.Copy()
+		retval.Namespace = o.Namespace.clone()
 	}
 	if o.URL != nil {
 		tmp := regexp.Regexp(*o.URL)
@@ -153,10 +157,10 @@ func (o *ExperimentOverride) Copy() *ExperimentOverride {
 
 type ExperimentOverrides map[string]*ExperimentOverride
 
-func (os ExperimentOverrides) Copy() ExperimentOverrides {
+func (os ExperimentOverrides) clone() ExperimentOverrides {
 	retval := map[string]*ExperimentOverride{}
 	for k, v := range os {
-		retval[k] = v.Copy()
+		retval[k] = v.clone()
 	}
 	return retval
 }

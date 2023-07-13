@@ -30,7 +30,7 @@ func TestFeaturesCanSetEncryptedFeatures(t *testing.T) {
 	encrypedFeatures :=
 		"vMSg2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
 
-	_, err := client.WithEncryptedFeatures(encrypedFeatures, keyString)
+	client, err := client.WithEncryptedFeatures(encrypedFeatures, keyString)
 	if err != nil {
 		t.Error("unexpected error: ", err)
 	}

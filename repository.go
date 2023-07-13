@@ -309,7 +309,7 @@ func doFetchRequest(ctx context.Context, c *Client) *FeatureAPIResponse {
 // GrowthBook client instances. See the comment on the NewClient
 // function in client.go for an explanation.
 
-func refreshInstance(feats *ofeatureData, data *FeatureAPIResponse) {
+func refreshInstance(feats *featureData, data *FeatureAPIResponse) {
 	if data.EncryptedFeatures != "" {
 		err := feats.withEncryptedFeatures(data.EncryptedFeatures, "")
 		if err != nil {
@@ -356,7 +356,7 @@ func onNewFeatureData(key RepositoryKey, data *FeatureAPIResponse) {
 // instances here, so that the finalizer added to the main (outer)
 // GrowthBook client instances will run, triggering an unsubscribe,
 // allowing us to remove the inner data structure here.
-type gbDataSet map[*ofeatureData]bool
+type gbDataSet map[*featureData]bool
 
 type refreshData struct {
 	sync.RWMutex
@@ -397,15 +397,15 @@ func reconnectAutoRefresh() {
 // Safely get list of GrowthBook client instance inner data structures
 // for a repository key.
 
-func (r *refreshData) instances(key RepositoryKey) []*ofeatureData {
+func (r *refreshData) instances(key RepositoryKey) []*featureData {
 	r.RLock()
 	defer r.RUnlock()
 
 	m := r.subscribed[key]
 	if m == nil {
-		return []*ofeatureData{}
+		return []*featureData{}
 	}
-	result := make([]*ofeatureData, len(m))
+	result := make([]*featureData, len(m))
 	i := 0
 	for k := range m {
 		result[i] = k

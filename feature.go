@@ -11,3 +11,14 @@ type Feature struct {
 	DefaultValue FeatureValue   `json:"defaultValue"`
 	Rules        []*FeatureRule `json:"rules"`
 }
+
+func (f *Feature) clone() *Feature {
+	rules := make([]*FeatureRule, len(f.Rules))
+	for i := range f.Rules {
+		rules[i] = f.Rules[i].clone()
+	}
+	return &Feature{
+		DefaultValue: f.DefaultValue,
+		Rules:        rules,
+	}
+}

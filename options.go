@@ -19,9 +19,8 @@ type Options struct {
 	APIHost          string
 	ClientKey        string
 	DecryptionKey    string
-	// Overrides        ExperimentOverrides
-	CacheTTL   time.Duration
-	HTTPClient *http.Client
+	CacheTTL         time.Duration
+	HTTPClient       *http.Client
 }
 
 // ExperimentCallback is a callback function that is executed every
@@ -30,10 +29,12 @@ type Options struct {
 // Experiment.Run is called and the experiment result changes,
 // independent of whether a user is inncluded in the experiment or
 // not.
+// TODO: type ExperimentCallback func(ctx context.Context, experiment *Experiment, result *Result)
 type ExperimentCallback func(experiment *Experiment, result *Result)
 
 // FeatureUsageCallback is a callback function that is executed every
 // time a feature is evaluated.
+// TODO: type FeatureUsageCallback func(ctx context.Context, key string, result *FeatureResult)
 type FeatureUsageCallback func(key string, result *FeatureResult)
 
 func (opt *Options) defaults() {
@@ -53,5 +54,9 @@ func (opt *Options) defaults() {
 
 func (opt *Options) clone() *Options {
 	clone := *opt
+	if opt.URL != nil {
+		newURL := *opt.URL
+		clone.URL = &newURL
+	}
 	return &clone
 }

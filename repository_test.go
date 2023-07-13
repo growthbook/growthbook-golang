@@ -371,7 +371,7 @@ func TestRepoExposesAReadyFlag(t *testing.T) {
 	if client2.Ready() {
 		t.Error("expected ready flag to be false")
 	}
-	client2.WithFeatures(FeatureMap{"foo": &Feature{DefaultValue: "manual"}})
+	client2 = client2.WithFeatures(FeatureMap{"foo": &Feature{DefaultValue: "manual"}})
 	if !client2.Ready() {
 		t.Error("expected ready flag to be false")
 	}

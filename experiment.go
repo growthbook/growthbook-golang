@@ -3,6 +3,8 @@ package growthbook
 import (
 	"encoding/json"
 	"regexp"
+
+	"github.com/barkimedes/go-deepcopy"
 )
 
 type ExperimentStatus string
@@ -36,6 +38,52 @@ type Experiment struct {
 	Status        ExperimentStatus `json:"status,omitempty"`
 	URL           *regexp.Regexp   `json:"url,omitempty"`
 	Groups        []string         `json:"groups,omitempty"`
+}
+
+func (exp *Experiment) clone() *Experiment {
+	var coverage *float64
+	if exp.Coverage != nil {
+		tmp := *exp.Coverage
+		coverage = &tmp
+	}
+	var force *int
+	if exp.Force != nil {
+		tmp := *exp.Force
+		force = &tmp
+	}
+	var url *regexp.Regexp
+	if exp.URL != nil {
+		tmp := *exp.URL
+		url = &tmp
+	}
+	var namespace *Namespace
+	if exp.Namespace != nil {
+		namespace = exp.Namespace.clone()
+	}
+	retval := Experiment{
+		Key:           exp.Key,
+		Variations:    deepcopy.MustAnything(exp.Variations).([]FeatureValue),
+		Ranges:        deepcopy.MustAnything(exp.Ranges).([]Range),
+		Meta:          deepcopy.MustAnything(exp.Meta).([]VariationMeta),
+		Filters:       deepcopy.MustAnything(exp.Filters).([]Filter),
+		Seed:          exp.Seed,
+		Name:          exp.Name,
+		Phase:         exp.Phase,
+		URLPatterns:   deepcopy.MustAnything(exp.URLPatterns).([]URLTarget),
+		Weights:       deepcopy.MustAnything(exp.Weights).([]float64),
+		Condition:     deepcopy.MustAnything(exp.Condition).(*Condition),
+		Coverage:      coverage,
+		Include:       exp.Include,
+		Namespace:     namespace,
+		Force:         force,
+		HashAttribute: exp.HashAttribute,
+		HashVersion:   exp.HashVersion,
+		Active:        exp.Active,
+		Status:        exp.Status,
+		URL:           url,
+		Groups:        deepcopy.MustAnything(exp.Groups).([]string),
+	}
+	return &retval
 }
 
 // UnmarshalJSON deserializes experiment data, defaulting the Active
