@@ -34,8 +34,8 @@ func TestLogMessageConversion(t *testing.T) {
 		"[WARN] Unknown feature: test-feature")
 
 	check(t, Info, SSEConnecting,
-		LogData{"key": "test-key"},
-		"[INFO] Connecting to SSE stream: test-key")
+		LogData{"apiHost": "test-api-host"},
+		"[INFO] Connecting to SSE stream: test-api-host")
 
 	check(t, Info, ExperimentForcedVariation,
 		LogData{"key": "test-key", "force": 123},

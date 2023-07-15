@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"context"
 	"net/http"
 	"net/url"
 )
@@ -27,13 +28,11 @@ type Options struct {
 // Experiment.Run is called and the experiment result changes,
 // independent of whether a user is inncluded in the experiment or
 // not.
-// TODO: type ExperimentCallback func(ctx context.Context, experiment *Experiment, result *Result)
-type ExperimentCallback func(experiment *Experiment, result *Result)
+type ExperimentCallback func(ctx context.Context, experiment *Experiment, result *Result)
 
 // FeatureUsageCallback is a callback function that is executed every
 // time a feature is evaluated.
-// TODO: type FeatureUsageCallback func(ctx context.Context, key string, result *FeatureResult)
-type FeatureUsageCallback func(key string, result *FeatureResult)
+type FeatureUsageCallback func(ctx context.Context, key string, result *FeatureResult)
 
 func (opt *Options) defaults() {
 	if opt.Groups == nil {

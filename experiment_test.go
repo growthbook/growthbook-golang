@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"context"
 	"fmt"
 	"reflect"
 	"regexp"
@@ -14,12 +15,12 @@ type trackCall struct {
 
 type tracker struct {
 	calls []trackCall
-	cb    func(experiment *Experiment, result *Result)
+	cb    func(ctx context.Context, experiment *Experiment, result *Result)
 }
 
 func track() *tracker {
 	t := tracker{[]trackCall{}, nil}
-	t.cb = func(experiment *Experiment, result *Result) {
+	t.cb = func(ctx context.Context, experiment *Experiment, result *Result) {
 		t.calls = append(t.calls, trackCall{experiment, result})
 	}
 	return &t
@@ -456,7 +457,7 @@ func TestExperimentFiresSubscriptionsCorrectly(t *testing.T) {
 		}
 	}
 
-	unsubscriber := client.Subscribe(func(experiment *Experiment, result *Result) {
+	unsubscriber := client.Subscribe(func(ctx context.Context, experiment *Experiment, result *Result) {
 		fired = true
 	})
 	checkFired(1, false)

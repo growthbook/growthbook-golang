@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"context"
 	"reflect"
 	"testing"
 )
@@ -11,7 +12,7 @@ func TestSubscriptionsSubscribe(t *testing.T) {
 
 	var savedExp *Experiment
 	called := 0
-	client.Subscribe(func(exp *Experiment, result *Result) {
+	client.Subscribe(func(ctx context.Context, exp *Experiment, result *Result) {
 		savedExp = exp
 		called++
 	})
@@ -51,7 +52,7 @@ func TestSubscriptionsUnsubscribe(t *testing.T) {
 
 	var savedExp *Experiment
 	called := 0
-	unsubscribe := client.Subscribe(func(exp *Experiment, result *Result) {
+	unsubscribe := client.Subscribe(func(ctx context.Context, exp *Experiment, result *Result) {
 		savedExp = exp
 		called++
 	})
@@ -71,7 +72,7 @@ func TestSubscriptionsUnsubscribe(t *testing.T) {
 func TestSubscriptionsTrack(t *testing.T) {
 	called := 0
 	options := Options{
-		TrackingCallback: func(exp *Experiment, result *Result) {
+		TrackingCallback: func(ctx context.Context, exp *Experiment, result *Result) {
 			called++
 		},
 	}

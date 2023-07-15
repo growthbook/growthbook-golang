@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"testing"
@@ -199,7 +200,7 @@ func TestFeaturesFeatureUsageWhenAssignedValueChanges(t *testing.T) {
 		result *FeatureResult
 	}
 	calls := []featureCall{}
-	callback := func(key string, result *FeatureResult) {
+	callback := func(ctx context.Context, key string, result *FeatureResult) {
 		calls = append(calls, featureCall{key, result})
 	}
 	client := NewClient(&Options{OnFeatureUsage: callback}).
@@ -269,7 +270,7 @@ func TestFeaturesUsesFallbacksForGetFeatureValue(t *testing.T) {
 
 func TestFeaturesUsageTracking(t *testing.T) {
 	called := false
-	cb := func(key string, result *FeatureResult) {
+	cb := func(ctx context.Context, key string, result *FeatureResult) {
 		called = true
 	}
 
