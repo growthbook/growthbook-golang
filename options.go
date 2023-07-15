@@ -6,33 +6,63 @@ import (
 	"net/url"
 )
 
-// Options contains the options for creating a new GrowthBook client
-// instance.
-type Options struct {
-	Disabled         bool
-	URL              *url.URL
-	QAMode           bool
-	DevMode          bool
-	TrackingCallback ExperimentCallback
-	OnFeatureUsage   FeatureUsageCallback
-	Groups           map[string]bool
-	APIHost          string
-	ClientKey        string
-	DecryptionKey    string
-	HTTPClient       *http.Client
-}
-
-// ExperimentCallback is a callback function that is executed every
-// time a user is included in an Experiment. It is also the type used
-// for subscription functions, which are called whenever
+// ExperimentTrackerIf is an interface with a callback method that is
+// executed every time a user is included in an Experiment. It is also
+// the type used for subscription functions, which are called whenever
 // Experiment.Run is called and the experiment result changes,
 // independent of whether a user is inncluded in the experiment or
 // not.
-type ExperimentCallback func(ctx context.Context, experiment *Experiment, result *Result)
 
-// FeatureUsageCallback is a callback function that is executed every
-// time a feature is evaluated.
-type FeatureUsageCallback func(ctx context.Context, key string, result *FeatureResult)
+type ExperimentTrackerIf interface {
+	Track(ctx context.Context, c *Client, exp *Experiment, result *Result)
+}
+
+// ExperimentCallback is a wrapper around a simple callback for
+// experiment tracking.
+
+type ExperimentCallback struct {
+	cb func(ctx context.Context, exp *Experiment, result *Result)
+}
+
+func (tcb *ExperimentCallback) Track(ctx context.Context,
+	c *Client, exp *Experiment, result *Result) {
+	tcb.cb(ctx, exp, result)
+}
+
+// FeatureUsageTrackerIf is an interface with a callback method that
+// is executed every time a feature is evaluated.
+
+type FeatureUsageTrackerIf interface {
+	OnFeatureUsage(ctx context.Context, c *Client, key string, result *FeatureResult)
+}
+
+// FeatureUsageCallback is a wrapper around a simple callback for
+// feature usage tracking.
+
+type FeatureUsageCallback struct {
+	cb func(ctx context.Context, key string, result *FeatureResult)
+}
+
+func (fcb *FeatureUsageCallback) OnFeatureUsage(ctx context.Context,
+	c *Client, key string, result *FeatureResult) {
+	fcb.cb(ctx, key, result)
+}
+
+// Options contains the options for creating a new GrowthBook client
+// instance.
+type Options struct {
+	Disabled            bool
+	URL                 *url.URL
+	QAMode              bool
+	DevMode             bool
+	ExperimentTracker   ExperimentTrackerIf
+	FeatureUsageTracker FeatureUsageTrackerIf
+	Groups              map[string]bool
+	APIHost             string
+	ClientKey           string
+	DecryptionKey       string
+	HTTPClient          *http.Client
+}
 
 func (opt *Options) defaults() {
 	if opt.Groups == nil {

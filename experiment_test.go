@@ -28,7 +28,7 @@ func track() *tracker {
 
 func TestExperimentTracking(t *testing.T) {
 	tr := track()
-	client := NewClient(&Options{TrackingCallback: tr.cb})
+	client := NewClient(&Options{ExperimentTracker: &ExperimentCallback{tr.cb}})
 
 	exp1 := NewExperiment("my-tracked-test").WithVariations(0, 1)
 	exp2 := NewExperiment("my-other-tracked-test").WithVariations(0, 1)
@@ -117,7 +117,7 @@ func TestExperimentCoverageFromOverrides(t *testing.T) {
 
 func TestExperimentDoesNotTrackWhenForcedWithOverrides(t *testing.T) {
 	tr := track()
-	client := NewClient(&Options{TrackingCallback: tr.cb})
+	client := NewClient(&Options{ExperimentTracker: &ExperimentCallback{tr.cb}})
 	exp := NewExperiment("forced-test").WithVariations(0, 1)
 
 	forceVal := 1
@@ -211,8 +211,8 @@ func TestExperimentCustomIncludeCallback(t *testing.T) {
 func TestExperimentQuerystringForceDisablsTracking(t *testing.T) {
 	tr := track()
 	client := NewClient(&Options{
-		TrackingCallback: tr.cb,
-		URL:              mustParseUrl("http://example.com?forced-test-qs=1"),
+		ExperimentTracker: &ExperimentCallback{tr.cb},
+		URL:               mustParseUrl("http://example.com?forced-test-qs=1"),
 	})
 
 	_, err := client.Run(NewExperiment("forced-test-qs").WithVariations(0, 1),
@@ -457,9 +457,10 @@ func TestExperimentFiresSubscriptionsCorrectly(t *testing.T) {
 		}
 	}
 
-	unsubscriber := client.Subscribe(func(ctx context.Context, experiment *Experiment, result *Result) {
+	unsubscriber := client.Subscribe(&ExperimentCallback{func(ctx context.Context,
+		experiment *Experiment, result *Result) {
 		fired = true
-	})
+	}})
 	checkFired(1, false)
 
 	exp := NewExperiment("my-test").WithVariations(0, 1)

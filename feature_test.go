@@ -203,7 +203,7 @@ func TestFeaturesFeatureUsageWhenAssignedValueChanges(t *testing.T) {
 	callback := func(ctx context.Context, key string, result *FeatureResult) {
 		calls = append(calls, featureCall{key, result})
 	}
-	client := NewClient(&Options{OnFeatureUsage: callback}).
+	client := NewClient(&Options{FeatureUsageTracker: &FeatureUsageCallback{callback}}).
 		WithFeatures(features)
 
 	// Fires for regular features
@@ -274,7 +274,7 @@ func TestFeaturesUsageTracking(t *testing.T) {
 		called = true
 	}
 
-	client := NewClient(&Options{OnFeatureUsage: cb}).
+	client := NewClient(&Options{FeatureUsageTracker: &FeatureUsageCallback{cb}}).
 		WithFeatures(FeatureMap{"feature": &Feature{DefaultValue: 0}})
 
 	result, err := client.EvalFeature("feature", Attributes{"id": "123"})

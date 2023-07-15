@@ -12,10 +12,10 @@ func TestSubscriptionsSubscribe(t *testing.T) {
 
 	var savedExp *Experiment
 	called := 0
-	client.Subscribe(func(ctx context.Context, exp *Experiment, result *Result) {
+	client.Subscribe(&ExperimentCallback{func(ctx context.Context, exp *Experiment, result *Result) {
 		savedExp = exp
 		called++
-	})
+	}})
 
 	client.Run(exp1, Attributes{"id": "1"})
 	client.Run(exp1, Attributes{"id": "1"})
@@ -52,10 +52,10 @@ func TestSubscriptionsUnsubscribe(t *testing.T) {
 
 	var savedExp *Experiment
 	called := 0
-	unsubscribe := client.Subscribe(func(ctx context.Context, exp *Experiment, result *Result) {
+	unsubscribe := client.Subscribe(&ExperimentCallback{func(ctx context.Context, exp *Experiment, result *Result) {
 		savedExp = exp
 		called++
-	})
+	}})
 
 	client.Run(exp1, Attributes{"id": "1"})
 	unsubscribe()
@@ -72,9 +72,9 @@ func TestSubscriptionsUnsubscribe(t *testing.T) {
 func TestSubscriptionsTrack(t *testing.T) {
 	called := 0
 	options := Options{
-		TrackingCallback: func(ctx context.Context, exp *Experiment, result *Result) {
+		ExperimentTracker: &ExperimentCallback{func(ctx context.Context, exp *Experiment, result *Result) {
 			called++
-		},
+		}},
 	}
 	client := NewClient(&options)
 	exp1 := NewExperiment("experiment-1").WithVariations("result1", "result2")
@@ -103,5 +103,38 @@ func TestSubscriptionsRetrieve(t *testing.T) {
 	resultsLen := len(client.GetAllResults())
 	if resultsLen != 2 {
 		t.Errorf("expected results length = 2, got length = %d", resultsLen)
+	}
+}
+
+type testTracker struct {
+	called int
+}
+
+func newTestTracker() *testTracker {
+	return &testTracker{called: 0}
+}
+
+func (t *testTracker) Track(ctx context.Context,
+	c *Client, exp *Experiment, result *Result) {
+	t.called++
+}
+
+func TestSubscriptionsStruct(t *testing.T) {
+	tr := newTestTracker()
+	options := Options{ExperimentTracker: tr}
+	client := NewClient(&options)
+	exp1 := NewExperiment("experiment-1").WithVariations("result1", "result2")
+	exp2 := NewExperiment("experiment-2").WithVariations("result3", "result4")
+
+	client.Run(exp1, Attributes{"id": "1"})
+	client.Run(exp2, Attributes{"id": "1"})
+	client.Run(exp1, Attributes{"id": "1"})
+	client.Run(exp2, Attributes{"id": "1"})
+	client.Run(exp1, Attributes{"id": "3"})
+	client.Run(exp2, Attributes{"id": "3"})
+	client.Run(exp1, Attributes{"id": "3"})
+	client.Run(exp2, Attributes{"id": "3"})
+	if tr.called != 4 {
+		t.Errorf("expected called = 4, got called = %d", tr.called)
 	}
 }

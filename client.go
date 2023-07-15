@@ -42,7 +42,7 @@ func (as assignments) clone() assignments {
 	return retval
 }
 
-type subscriptions map[subscriptionID]ExperimentCallback
+type subscriptions map[subscriptionID]ExperimentTrackerIf
 
 func (s subscriptions) clone() subscriptions {
 	retval := subscriptions{}
@@ -167,7 +167,7 @@ func NewClientContext(ctx context.Context, opt *Options) *Client {
 		attributeOverrides:  make(Attributes),
 		trackedFeatures:     make(map[string]interface{}),
 		trackedExperiments:  make(map[string]bool),
-		subscriptions:       make(map[subscriptionID]ExperimentCallback),
+		subscriptions:       make(map[subscriptionID]ExperimentTrackerIf),
 		assigned:            make(assignments),
 		features:            features,
 	}
@@ -503,12 +503,12 @@ func (c *Client) RunContext(ctx context.Context, exp *Experiment, attrs Attribut
 // Subscribe adds a callback that is called every time GrowthBook.Run
 // is called. This is different from the tracking callback since it
 // also fires when a user is not included in an experiment.
-func (c *Client) Subscribe(callback ExperimentCallback) func() {
+func (c *Client) Subscribe(tracker ExperimentTrackerIf) func() {
 	c.features.Lock()
 	defer c.features.Unlock()
 
 	id := c.nextSubscriptionID
-	c.subscriptions[id] = callback
+	c.subscriptions[id] = tracker
 	c.nextSubscriptionID++
 	return func() {
 		delete(c.subscriptions, id)
@@ -605,8 +605,8 @@ func (c *Client) trackFeatureUsage(ctx context.Context, key string, res *Feature
 	c.trackedFeatures[key] = res.Value
 
 	// Fire user-supplied callback
-	if c.opt.OnFeatureUsage != nil {
-		c.opt.OnFeatureUsage(ctx, key, res)
+	if c.opt.FeatureUsageTracker != nil {
+		c.opt.FeatureUsageTracker.OnFeatureUsage(ctx, c, key, res)
 	}
 }
 
@@ -707,7 +707,7 @@ func (c *Client) fireSubscriptions(ctx context.Context, exp *Experiment, result 
 	// If the result changed, trigger all subscriptions.
 	if changed || !exists {
 		for _, sub := range c.subscriptions {
-			sub(ctx, exp, result)
+			sub.Track(ctx, c, exp, result)
 		}
 	}
 }
@@ -888,7 +888,7 @@ func (c *Client) mergeOverrides(exp *Experiment) *Experiment {
 // hashAttribute, hashValue, experiment key, and variation ID has not
 // been tracked before.
 func (c *Client) track(ctx context.Context, exp *Experiment, result *Result) {
-	if c.opt.TrackingCallback == nil {
+	if c.opt.ExperimentTracker == nil {
 		return
 	}
 
@@ -901,7 +901,7 @@ func (c *Client) track(ctx context.Context, exp *Experiment, result *Result) {
 	}
 
 	c.trackedExperiments[key] = true
-	c.opt.TrackingCallback(ctx, exp, result)
+	c.opt.ExperimentTracker.Track(ctx, c, exp, result)
 }
 
 func (c *Client) getHashAttribute(attr string, attrs Attributes) (string, string) {
