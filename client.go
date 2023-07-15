@@ -398,7 +398,7 @@ func (c *Client) EvalFeature(id string, attrs Attributes) (*FeatureResult, error
 	// Global override.
 	if len(c.forcedFeatureValues) != 0 {
 		if override, ok := c.forcedFeatureValues[id]; ok {
-			logInfo("Global override", id, override)
+			logInfo(FeatureGlobalOverride, LogData{"id": id, "override": override})
 			return c.getFeatureResult(id, override, OverrideResultSource, "", nil, nil)
 		}
 	}
@@ -406,7 +406,7 @@ func (c *Client) EvalFeature(id string, attrs Attributes) (*FeatureResult, error
 	// Handle unknown features.
 	feature, ok := c.features.features[id]
 	if !ok {
-		logWarn("Unknown feature", id)
+		logWarn(FeatureUnknown, LogData{"feature": id})
 		return c.getFeatureResult(id, nil, UnknownResultSource, "", nil, nil)
 	}
 
@@ -415,13 +415,13 @@ func (c *Client) EvalFeature(id string, attrs Attributes) (*FeatureResult, error
 		// If the rule has a condition and the condition does not pass,
 		// skip this rule.
 		if rule.Condition != nil && !rule.Condition.Eval(c.EffectiveAttributes(attrs)) {
-			logInfo("Skip rule because of condition", id, JSONLog{rule})
+			logInfo(FeatureSkipCondition, LogData{"id": id, "rule": JSONLog{rule}})
 			continue
 		}
 
 		// Apply any filters for who is included (e.g. namespaces).
 		if rule.Filters != nil && c.isFilteredOut(rule.Filters, attrs) {
-			logInfo("Skip rule because of filters", id, JSONLog{rule})
+			logInfo(FeatureSkipFilters, LogData{"id": id, "rule": JSONLog{rule}})
 			continue
 		}
 
@@ -440,17 +440,17 @@ func (c *Client) EvalFeature(id string, attrs Attributes) (*FeatureResult, error
 				rule.Coverage,
 				rule.HashVersion,
 			) {
-				logInfo("Skip rule because user not included in rollout", id, JSONLog{rule})
+				logInfo(FeatureSkipUserRollout, LogData{"id": id, "rule": JSONLog{rule}})
 				continue
 			}
 
 			// Return forced feature result.
-			logInfo("Force value from rule", id, JSONLog{rule})
+			logInfo(FeatureForceFromRule, LogData{"id": id, "rule": JSONLog{rule}})
 			return c.getFeatureResult(id, rule.Force, ForceResultSource, rule.ID, nil, nil)
 		}
 
 		if rule.Variations == nil {
-			logWarn("Skip invalid rule", id, JSONLog{rule})
+			logWarn(FeatureSkipInvalidRule, LogData{"id": id, "rule": JSONLog{rule}})
 			continue
 		}
 
@@ -473,7 +473,7 @@ func (c *Client) EvalFeature(id string, attrs Attributes) (*FeatureResult, error
 	}
 
 	// Fall back to using the default value.
-	logInfo("Use default value", id, feature.DefaultValue)
+	logInfo(FeatureUseDefaultValue, LogData{"id": id, "value": JSONLog{feature.DefaultValue}})
 	return c.getFeatureResult(id, feature.DefaultValue, DefaultValueResultSource, "", nil, nil)
 }
 
@@ -707,13 +707,13 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) (*Re
 	// 1. If experiment has fewer than two variations, return default
 	//    result.
 	if len(exp.Variations) < 2 {
-		logWarn("Invalid experiment", exp.Key)
+		logWarn(ExperimentInvalid, LogData{"key": exp.Key})
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
 	// 2. If the client is disabled, return default result.
 	if c.opt.Disabled {
-		logInfo("Context disabled", exp.Key)
+		logInfo(ExperimentDisabled, LogData{"key": exp.Key})
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
@@ -725,7 +725,7 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) (*Re
 	if c.opt.URL != nil {
 		qsOverride := getQueryStringOverride(exp.Key, c.opt.URL, len(exp.Variations))
 		if qsOverride != nil {
-			logInfo("Force via querystring", exp.Key, qsOverride)
+			logInfo(ExperimentForceViaQueryString, LogData{"key": exp.Key, "qsOverride": *qsOverride})
 			return c.getResult(exp, attrs, *qsOverride, false, featureID, nil)
 		}
 	}
@@ -735,60 +735,60 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) (*Re
 	if c.forcedVariations != nil {
 		force, forced := c.forcedVariations[exp.Key]
 		if forced {
-			logInfo("Forced variation", exp.Key, force)
+			logInfo(ExperimentForcedVariation, LogData{"key": exp.Key, "force": force})
 			return c.getResult(exp, attrs, force, false, featureID, nil)
 		}
 	}
 
 	// 5. Exclude inactive experiments and return default result.
 	if exp.Status == DraftStatus || !exp.Active {
-		logInfo("Skip because inactive", exp.Key)
+		logInfo(ExperimentSkipInactive, LogData{"key": exp.Key})
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
 	// 6. Get the user hash value and return if empty.
 	_, hashString := c.getHashAttribute(exp.HashAttribute, attrs)
 	if hashString == "" {
-		logInfo("Skip because of missing hash attribute", exp.Key)
+		logInfo(ExperimentSkipMissingHashAttribute, LogData{"key": exp.Key})
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
 	// 7. If exp.Namespace is set, return if not in range.
 	if exp.Filters != nil {
 		if c.isFilteredOut(exp.Filters, attrs) {
-			logInfo("Skip because of filters", exp.Key)
+			logInfo(ExperimentSkipFilters, LogData{"key": exp.Key})
 			return c.getResult(exp, attrs, -1, false, featureID, nil)
 		}
 	} else if exp.Namespace != nil {
 		if !exp.Namespace.inNamespace(hashString) {
-			logInfo("Skip because of namespace", exp.Key)
+			logInfo(ExperimentSkipNamespace, LogData{"key": exp.Key})
 			return c.getResult(exp, attrs, -1, false, featureID, nil)
 		}
 	}
 
 	// 7.5. Exclude if include function returns false.
 	if exp.Include != nil && !exp.Include() {
-		logInfo("Skip because of include function", exp.Key)
+		logInfo(ExperimentSkipIncludeFunction, LogData{"key": exp.Key})
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
 	// 8. Exclude if condition is false.
 	if exp.Condition != nil {
 		if !exp.Condition.Eval(c.EffectiveAttributes(attrs)) {
-			logInfo("Skip because of condition", exp.Key)
+			logInfo(ExperimentSkipCondition, LogData{"key": exp.Key})
 			return c.getResult(exp, attrs, -1, false, featureID, nil)
 		}
 	}
 
 	// 8.1. Exclude if user is not in a required group.
 	if exp.Groups != nil && !c.hasGroupOverlap(exp.Groups) {
-		logInfo("Skip because of groups", exp.Key)
+		logInfo(ExperimentSkipGroups, LogData{"key": exp.Key})
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
 	// 8.2. Old style URL targeting.
 	if exp.URL != nil && !c.urlIsValid(exp.URL) {
-		logInfo("Skip because of URL", exp.Key)
+		logInfo(ExperimentSkipURL, LogData{"key": exp.Key})
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
@@ -799,7 +799,7 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) (*Re
 			return nil, err
 		}
 		if !targeted {
-			logInfo("Skip because of URL targeting", exp.Key)
+			logInfo(ExperimentSkipURLTargeting, LogData{"key": exp.Key})
 			return c.getResult(exp, attrs, -1, false, featureID, nil)
 		}
 	}
@@ -815,7 +815,7 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) (*Re
 	}
 	n := hash(seed, hashString, hv)
 	if n == nil {
-		logWarn("Skip because of invalid hash version", exp.Key)
+		logWarn(ExperimentSkipInvalidHashVersion, LogData{"key": exp.Key})
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 	coverage := float64(1)
@@ -830,7 +830,7 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) (*Re
 
 	// 10. If assigned == -1, return default result.
 	if assigned == -1 {
-		logInfo("Skip because of coverage", exp.Key)
+		logInfo(ExperimentSkipCoverage, LogData{"key": exp.Key})
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
@@ -846,7 +846,7 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) (*Re
 
 	// 12.5. Exclude if experiment is stopped.
 	if exp.Status == StoppedStatus {
-		logInfo("Skip because stopped", exp.Key)
+		logInfo(ExperimentSkipStopped, LogData{"key": exp.Key})
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
@@ -858,7 +858,8 @@ func (c *Client) doRun(exp *Experiment, featureID string, attrs Attributes) (*Re
 		c.track(exp, result)
 	}
 
-	logInfo("In experiment", fmt.Sprintf("%s[%d]", exp.Key, result.VariationID))
+	// InExperiment
+	logInfo(InExperiment, LogData{"key": exp.Key, "variationID": result.VariationID})
 	return result, err
 }
 

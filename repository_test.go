@@ -153,7 +153,7 @@ func knownErrors(t *testing.T, messages ...string) {
 	}
 
 	for i, msg := range messages {
-		if !strings.HasPrefix(testLog.errors[i], msg) {
+		if !strings.HasPrefix(testLog.errors[i], "[ERROR] "+msg) {
 			t.Errorf("expected error message %d '%s...', got '%s'", i+1, msg, testLog.errors[i])
 		}
 	}

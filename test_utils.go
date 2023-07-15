@@ -81,43 +81,16 @@ func formatArgs(args ...interface{}) string {
 	return s
 }
 
-func (log *testLogger) Error(msg string, args ...interface{}) {
-	s := msg
-	if len(args) > 0 {
-		s += ": " + formatArgs(args...)
+func (log *testLogger) Handle(msg *LogMessage) {
+	s := msg.String()
+	switch msg.Level {
+	case Error:
+		log.errors = append(log.errors, s)
+	case Warn:
+		log.warnings = append(log.errors, s)
+	case Info:
+		log.info = append(log.errors, s)
 	}
-	log.errors = append(log.errors, s)
-}
-
-func (log *testLogger) Errorf(format string, args ...interface{}) {
-	s := fmt.Sprintf(format, args...)
-	log.errors = append(log.errors, s)
-}
-
-func (log *testLogger) Warn(msg string, args ...interface{}) {
-	s := msg
-	if len(args) > 0 {
-		s += ": " + formatArgs(args...)
-	}
-	log.warnings = append(log.warnings, s)
-}
-
-func (log *testLogger) Warnf(format string, args ...interface{}) {
-	s := fmt.Sprintf(format, args...)
-	log.warnings = append(log.warnings, s)
-}
-
-func (log *testLogger) Info(msg string, args ...interface{}) {
-	s := msg
-	if len(args) > 0 {
-		s += ": " + fmt.Sprint(args...)
-	}
-	log.info = append(log.info, s)
-}
-
-func (log *testLogger) Infof(format string, args ...interface{}) {
-	s := fmt.Sprintf(format, args...)
-	log.info = append(log.info, s)
 }
 
 // Polyfill from Go v1.20 sort.
