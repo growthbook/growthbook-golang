@@ -21,12 +21,12 @@ type ExperimentTrackerIf interface {
 // experiment tracking.
 
 type ExperimentCallback struct {
-	cb func(ctx context.Context, exp *Experiment, result *Result)
+	CB func(ctx context.Context, exp *Experiment, result *Result)
 }
 
 func (tcb *ExperimentCallback) Track(ctx context.Context,
 	c *Client, exp *Experiment, result *Result) {
-	tcb.cb(ctx, exp, result)
+	tcb.CB(ctx, exp, result)
 }
 
 // FeatureUsageTrackerIf is an interface with a callback method that
@@ -40,12 +40,12 @@ type FeatureUsageTrackerIf interface {
 // feature usage tracking.
 
 type FeatureUsageCallback struct {
-	cb func(ctx context.Context, key string, result *FeatureResult)
+	CB func(ctx context.Context, key string, result *FeatureResult)
 }
 
 func (fcb *FeatureUsageCallback) OnFeatureUsage(ctx context.Context,
 	c *Client, key string, result *FeatureResult) {
-	fcb.cb(ctx, key, result)
+	fcb.CB(ctx, key, result)
 }
 
 // Options contains the options for creating a new GrowthBook client
