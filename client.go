@@ -390,11 +390,11 @@ func (c *Client) EffectiveAttributes(attrs Attributes) Attributes {
 // EvalFeature returns the result for a feature identified by a string
 // feature key.
 func (c *Client) EvalFeature(id string, attrs Attributes) (*FeatureResult, error) {
-	return c.EvalFeatureContext(context.Background(), id, attrs)
+	return c.EvalFeatureContext(context.Background(), id, attrs, nil)
 }
 
 func (c *Client) EvalFeatureContext(ctx context.Context,
-	id string, attrs Attributes) (*FeatureResult, error) {
+	id string, attrs Attributes, extraData interface{}) (*FeatureResult, error) {
 	c.features.RLock()
 	defer c.features.RUnlock()
 
@@ -404,7 +404,7 @@ func (c *Client) EvalFeatureContext(ctx context.Context,
 	if len(c.forcedFeatureValues) != 0 {
 		if override, ok := c.forcedFeatureValues[id]; ok {
 			logInfo(FeatureGlobalOverride, LogData{"id": id, "override": override})
-			return c.getFeatureResult(ctx, id, override, OverrideResultSource, "", nil, nil)
+			return c.getFeatureResult(ctx, id, override, OverrideResultSource, "", nil, nil, extraData)
 		}
 	}
 
@@ -412,7 +412,7 @@ func (c *Client) EvalFeatureContext(ctx context.Context,
 	feature, ok := c.features.features[id]
 	if !ok {
 		logWarn(FeatureUnknown, LogData{"feature": id})
-		return c.getFeatureResult(ctx, id, nil, UnknownResultSource, "", nil, nil)
+		return c.getFeatureResult(ctx, id, nil, UnknownResultSource, "", nil, nil, extraData)
 	}
 
 	// Loop through the feature rules.
@@ -451,7 +451,7 @@ func (c *Client) EvalFeatureContext(ctx context.Context,
 
 			// Return forced feature result.
 			logInfo(FeatureForceFromRule, LogData{"id": id, "rule": JSONLog{rule}})
-			return c.getFeatureResult(ctx, id, rule.Force, ForceResultSource, rule.ID, nil, nil)
+			return c.getFeatureResult(ctx, id, rule.Force, ForceResultSource, rule.ID, nil, nil, extraData)
 		}
 
 		if rule.Variations == nil {
@@ -464,39 +464,40 @@ func (c *Client) EvalFeatureContext(ctx context.Context,
 		exp := experimentFromFeatureRule(id, rule)
 
 		// Run the experiment.
-		result, err := c.doRun(ctx, exp, id, attrs)
+		result, err := c.doRun(ctx, exp, id, attrs, extraData)
 		if err != nil {
 
 		}
-		c.fireSubscriptions(ctx, exp, result)
+		c.fireSubscriptions(ctx, exp, result, extraData)
 
 		// Only return a value if the user is part of the experiment.
 		// c.fireSubscriptions(experiment, result)
 		if result.InExperiment && !result.Passthrough {
-			return c.getFeatureResult(ctx, id, result.Value, ExperimentResultSource, rule.ID, exp, result)
+			return c.getFeatureResult(ctx, id, result.Value, ExperimentResultSource, rule.ID, exp, result, extraData)
 		}
 	}
 
 	// Fall back to using the default value.
 	logInfo(FeatureUseDefaultValue, LogData{"id": id, "value": JSONLog{feature.DefaultValue}})
-	return c.getFeatureResult(ctx, id, feature.DefaultValue, DefaultValueResultSource, "", nil, nil)
+	return c.getFeatureResult(ctx, id, feature.DefaultValue, DefaultValueResultSource, "", nil, nil, extraData)
 }
 
 // Run an experiment. (Uses doRun to make wrapping for subscriptions
 // simple.)
 func (c *Client) Run(exp *Experiment, attrs Attributes) (*Result, error) {
-	return c.RunContext(context.Background(), exp, attrs)
+	return c.RunContext(context.Background(), exp, attrs, nil)
 }
 
-func (c *Client) RunContext(ctx context.Context, exp *Experiment, attrs Attributes) (*Result, error) {
+func (c *Client) RunContext(ctx context.Context,
+	exp *Experiment, attrs Attributes, extraData interface{}) (*Result, error) {
 	c.features.RLock()
 	defer c.features.RUnlock()
 
-	result, err := c.doRun(ctx, exp, "", attrs)
+	result, err := c.doRun(ctx, exp, "", attrs, extraData)
 	if err != nil {
 		return nil, err
 	}
-	c.fireSubscriptions(ctx, exp, result)
+	c.fireSubscriptions(ctx, exp, result, extraData)
 	return result, nil
 }
 
@@ -592,7 +593,8 @@ func (c *Client) refresh(
 	return repoRefreshFeatures(ctx, c, timeout, skipCache, allowStale, updateInstance)
 }
 
-func (c *Client) trackFeatureUsage(ctx context.Context, key string, res *FeatureResult) {
+func (c *Client) trackFeatureUsage(ctx context.Context,
+	key string, res *FeatureResult, extraData interface{}) {
 	// Don't track feature usage that was forced via an override.
 	if res.Source == OverrideResultSource {
 		return
@@ -606,7 +608,7 @@ func (c *Client) trackFeatureUsage(ctx context.Context, key string, res *Feature
 
 	// Fire user-supplied callback
 	if c.opt.FeatureUsageTracker != nil {
-		c.opt.FeatureUsageTracker.OnFeatureUsage(ctx, c, key, res)
+		c.opt.FeatureUsageTracker.OnFeatureUsage(ctx, c, key, res, extraData)
 	}
 }
 
@@ -617,7 +619,8 @@ func (c *Client) getFeatureResult(
 	source FeatureResultSource,
 	ruleID string,
 	experiment *Experiment,
-	result *Result) (*FeatureResult, error) {
+	result *Result,
+	extraData interface{}) (*FeatureResult, error) {
 	on := truthy(value)
 	off := !on
 	retval := FeatureResult{
@@ -630,7 +633,7 @@ func (c *Client) getFeatureResult(
 		ExperimentResult: result,
 	}
 
-	c.trackFeatureUsage(ctx, key, &retval)
+	c.trackFeatureUsage(ctx, key, &retval, extraData)
 
 	return &retval, nil
 }
@@ -689,7 +692,8 @@ func (c *Client) getResult(
 	}, nil
 }
 
-func (c *Client) fireSubscriptions(ctx context.Context, exp *Experiment, result *Result) {
+func (c *Client) fireSubscriptions(ctx context.Context,
+	exp *Experiment, result *Result, extraData interface{}) {
 	// Determine whether the result changed from the last stored result
 	// for the experiment.
 	changed := false
@@ -707,14 +711,14 @@ func (c *Client) fireSubscriptions(ctx context.Context, exp *Experiment, result 
 	// If the result changed, trigger all subscriptions.
 	if changed || !exists {
 		for _, sub := range c.subscriptions {
-			sub.Track(ctx, c, exp, result)
+			sub.Track(ctx, c, exp, result, extraData)
 		}
 	}
 }
 
 // Worker function to run an experiment.
 func (c *Client) doRun(ctx context.Context,
-	exp *Experiment, featureID string, attrs Attributes) (*Result, error) {
+	exp *Experiment, featureID string, attrs Attributes, extraData interface{}) (*Result, error) {
 	// 1. If experiment has fewer than two variations, return default
 	//    result.
 	if len(exp.Variations) < 2 {
@@ -866,7 +870,7 @@ func (c *Client) doRun(ctx context.Context,
 
 	// 14. Fire tracking callback if required.
 	if err == nil {
-		c.track(ctx, exp, result)
+		c.track(ctx, exp, result, extraData)
 	}
 
 	// InExperiment
@@ -887,7 +891,8 @@ func (c *Client) mergeOverrides(exp *Experiment) *Experiment {
 // Fire Context.TrackingCallback if it's set and the combination of
 // hashAttribute, hashValue, experiment key, and variation ID has not
 // been tracked before.
-func (c *Client) track(ctx context.Context, exp *Experiment, result *Result) {
+func (c *Client) track(ctx context.Context,
+	exp *Experiment, result *Result, extraData interface{}) {
 	if c.opt.ExperimentTracker == nil {
 		return
 	}
@@ -901,7 +906,7 @@ func (c *Client) track(ctx context.Context, exp *Experiment, result *Result) {
 	}
 
 	c.trackedExperiments[key] = true
-	c.opt.ExperimentTracker.Track(ctx, c, exp, result)
+	c.opt.ExperimentTracker.Track(ctx, c, exp, result, extraData)
 }
 
 func (c *Client) getHashAttribute(attr string, attrs Attributes) (string, string) {

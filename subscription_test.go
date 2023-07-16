@@ -115,7 +115,7 @@ func newTestTracker() *testTracker {
 }
 
 func (t *testTracker) Track(ctx context.Context,
-	c *Client, exp *Experiment, result *Result) {
+	c *Client, exp *Experiment, result *Result, extraData interface{}) {
 	t.called++
 }
 

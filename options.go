@@ -14,7 +14,8 @@ import (
 // not.
 
 type ExperimentTrackerIf interface {
-	Track(ctx context.Context, c *Client, exp *Experiment, result *Result)
+	Track(ctx context.Context, c *Client,
+		exp *Experiment, result *Result, extraData interface{})
 }
 
 // ExperimentCallback is a wrapper around a simple callback for
@@ -25,7 +26,7 @@ type ExperimentCallback struct {
 }
 
 func (tcb *ExperimentCallback) Track(ctx context.Context,
-	c *Client, exp *Experiment, result *Result) {
+	c *Client, exp *Experiment, result *Result, extraData interface{}) {
 	tcb.CB(ctx, exp, result)
 }
 
@@ -33,7 +34,8 @@ func (tcb *ExperimentCallback) Track(ctx context.Context,
 // is executed every time a feature is evaluated.
 
 type FeatureUsageTrackerIf interface {
-	OnFeatureUsage(ctx context.Context, c *Client, key string, result *FeatureResult)
+	OnFeatureUsage(ctx context.Context, c *Client,
+		key string, result *FeatureResult, extraData interface{})
 }
 
 // FeatureUsageCallback is a wrapper around a simple callback for
@@ -44,7 +46,7 @@ type FeatureUsageCallback struct {
 }
 
 func (fcb *FeatureUsageCallback) OnFeatureUsage(ctx context.Context,
-	c *Client, key string, result *FeatureResult) {
+	c *Client, key string, result *FeatureResult, extraData interface{}) {
 	fcb.CB(ctx, key, result)
 }
 
