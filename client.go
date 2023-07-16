@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"regexp"
 	"runtime"
 	"strings"
@@ -42,7 +41,7 @@ func (as assignments) clone() assignments {
 	return retval
 }
 
-type subscriptions map[subscriptionID]ExperimentTrackerIf
+type subscriptions map[subscriptionID]ExperimentTracker
 
 func (s subscriptions) clone() subscriptions {
 	retval := subscriptions{}
@@ -61,8 +60,6 @@ type Client struct {
 	overrides           ExperimentOverrides
 	forcedFeatureValues map[string]interface{}
 	attributeOverrides  Attributes
-	trackedFeatures     map[string]interface{}
-	trackedExperiments  map[string]bool
 	nextSubscriptionID  subscriptionID
 	subscriptions       subscriptions
 	assigned            assignments
@@ -165,9 +162,7 @@ func NewClientContext(ctx context.Context, opt *Options) *Client {
 		overrides:           ExperimentOverrides{},
 		forcedFeatureValues: make(map[string]interface{}),
 		attributeOverrides:  make(Attributes),
-		trackedFeatures:     make(map[string]interface{}),
-		trackedExperiments:  make(map[string]bool),
-		subscriptions:       make(map[subscriptionID]ExperimentTrackerIf),
+		subscriptions:       make(map[subscriptionID]ExperimentTracker),
 		assigned:            make(assignments),
 		features:            features,
 	}
@@ -189,8 +184,6 @@ func (c *Client) clone() *Client {
 		overrides:           c.overrides.clone(),
 		forcedFeatureValues: deepcopy.MustAnything(c.forcedFeatureValues).(map[string]interface{}),
 		attributeOverrides:  deepcopy.MustAnything(c.attributeOverrides).(Attributes),
-		trackedFeatures:     deepcopy.MustAnything(c.trackedFeatures).(map[string]interface{}),
-		trackedExperiments:  deepcopy.MustAnything(c.trackedExperiments).(map[string]bool),
 		subscriptions:       c.subscriptions.clone(),
 		assigned:            c.assigned.clone(),
 		features:            c.features.clone(),
@@ -504,7 +497,7 @@ func (c *Client) RunContext(ctx context.Context,
 // Subscribe adds a callback that is called every time GrowthBook.Run
 // is called. This is different from the tracking callback since it
 // also fires when a user is not included in an experiment.
-func (c *Client) Subscribe(tracker ExperimentTrackerIf) func() {
+func (c *Client) Subscribe(tracker ExperimentTracker) func() {
 	c.features.Lock()
 	defer c.features.Unlock()
 
@@ -532,8 +525,7 @@ func (c *Client) ClearSavedResults() {
 // ClearTrackingData clears out records of calls to the experiment
 // tracking callback.
 func (c *Client) ClearTrackingData() {
-	// TODO: THREAD-SAFETY!
-	c.trackedExperiments = make(map[string]bool)
+	c.opt.ExperimentTrackingCache.Clear()
 }
 
 // GetAPIInfo gets the hostname and client key for GrowthBook API
@@ -600,14 +592,12 @@ func (c *Client) trackFeatureUsage(ctx context.Context,
 		return
 	}
 
-	// Only track a feature once, unless the assigned value changed.
-	if saved, ok := c.trackedFeatures[key]; ok && reflect.DeepEqual(saved, res.Value) {
+	if c.opt.FeatureUsageTracker == nil {
 		return
 	}
-	c.trackedFeatures[key] = res.Value
 
-	// Fire user-supplied callback
-	if c.opt.FeatureUsageTracker != nil {
+	// Fire user-supplied tracker.
+	if c.opt.FeatureUsageTrackingCache.Check(ctx, c, key, res, extraData) {
 		c.opt.FeatureUsageTracker.OnFeatureUsage(ctx, c, key, res, extraData)
 	}
 }
@@ -898,15 +888,12 @@ func (c *Client) track(ctx context.Context,
 	}
 
 	// Make sure tracking callback is only fired once per unique
-	// experiment.
-	key := fmt.Sprintf("%s%v%s%d", result.HashAttribute, result.HashValue,
-		exp.Key, result.VariationID)
-	if _, exists := c.trackedExperiments[key]; exists {
-		return
+	// experiment (or according to whatever application-dependent logic
+	// the user chooses in their implementation of the tracking cache
+	// interface).
+	if c.opt.ExperimentTrackingCache.Check(ctx, c, exp, result, extraData) {
+		c.opt.ExperimentTracker.Track(ctx, c, exp, result, extraData)
 	}
-
-	c.trackedExperiments[key] = true
-	c.opt.ExperimentTracker.Track(ctx, c, exp, result, extraData)
 }
 
 func (c *Client) getHashAttribute(attr string, attrs Attributes) (string, string) {
