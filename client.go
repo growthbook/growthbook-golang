@@ -396,7 +396,7 @@ func (c *Client) EvalFeatureContext(ctx context.Context,
 	// Global override.
 	if len(c.forcedFeatureValues) != 0 {
 		if override, ok := c.forcedFeatureValues[id]; ok {
-			logInfo(FeatureGlobalOverride, LogData{"id": id, "override": override})
+			logger.Info("Global override", "id", id, "override", override)
 			return c.getFeatureResult(ctx, id, override, OverrideResultSource, "", nil, nil, extraData)
 		}
 	}
@@ -404,7 +404,7 @@ func (c *Client) EvalFeatureContext(ctx context.Context,
 	// Handle unknown features.
 	feature, ok := c.features.features[id]
 	if !ok {
-		logWarn(FeatureUnknown, LogData{"feature": id})
+		logger.Warn("Unknown feature", "feature", id)
 		return c.getFeatureResult(ctx, id, nil, UnknownResultSource, "", nil, nil, extraData)
 	}
 
@@ -413,13 +413,13 @@ func (c *Client) EvalFeatureContext(ctx context.Context,
 		// If the rule has a condition and the condition does not pass,
 		// skip this rule.
 		if rule.Condition != nil && !rule.Condition.Eval(c.EffectiveAttributes(attrs)) {
-			logInfo(FeatureSkipCondition, LogData{"id": id, "rule": JSONLog{rule}})
+			logger.Info("Skip rule because of condition", "id", id, "rule", rule)
 			continue
 		}
 
 		// Apply any filters for who is included (e.g. namespaces).
 		if rule.Filters != nil && c.isFilteredOut(rule.Filters, attrs) {
-			logInfo(FeatureSkipFilters, LogData{"id": id, "rule": JSONLog{rule}})
+			logger.Info("Skip rule because of filters", "id", id, "rule", rule)
 			continue
 		}
 
@@ -438,17 +438,17 @@ func (c *Client) EvalFeatureContext(ctx context.Context,
 				rule.Coverage,
 				rule.HashVersion,
 			) {
-				logInfo(FeatureSkipUserRollout, LogData{"id": id, "rule": JSONLog{rule}})
+				logger.Info("Skip rule because user not included in rollout", "id", id, "rule", rule)
 				continue
 			}
 
 			// Return forced feature result.
-			logInfo(FeatureForceFromRule, LogData{"id": id, "rule": JSONLog{rule}})
+			logger.Info("Force value from rule", "id", id, "rule", rule)
 			return c.getFeatureResult(ctx, id, rule.Force, ForceResultSource, rule.ID, nil, nil, extraData)
 		}
 
 		if rule.Variations == nil {
-			logWarn(FeatureSkipInvalidRule, LogData{"id": id, "rule": JSONLog{rule}})
+			logger.Warn("Skip invalid rule", "id", id, "rule", rule)
 			continue
 		}
 
@@ -471,7 +471,7 @@ func (c *Client) EvalFeatureContext(ctx context.Context,
 	}
 
 	// Fall back to using the default value.
-	logInfo(FeatureUseDefaultValue, LogData{"id": id, "value": JSONLog{feature.DefaultValue}})
+	logger.Info("Use default value", "id", id, "value", feature.DefaultValue)
 	return c.getFeatureResult(ctx, id, feature.DefaultValue, DefaultValueResultSource, "", nil, nil, extraData)
 }
 
@@ -712,13 +712,13 @@ func (c *Client) doRun(ctx context.Context,
 	// 1. If experiment has fewer than two variations, return default
 	//    result.
 	if len(exp.Variations) < 2 {
-		logWarn(ExperimentInvalid, LogData{"key": exp.Key})
+		logger.Warn("Invalid experiment", "key", exp.Key)
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
 	// 2. If the client is disabled, return default result.
 	if c.opt.Disabled {
-		logInfo(ExperimentDisabled, LogData{"key": exp.Key})
+		logger.Info("Context disabled", "key", exp.Key)
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
@@ -730,7 +730,7 @@ func (c *Client) doRun(ctx context.Context,
 	if c.opt.URL != nil {
 		qsOverride := getQueryStringOverride(exp.Key, c.opt.URL, len(exp.Variations))
 		if qsOverride != nil {
-			logInfo(ExperimentForceViaQueryString, LogData{"key": exp.Key, "qsOverride": *qsOverride})
+			logger.Info("Force via querystring", "key", exp.Key, "qsOverride", *qsOverride)
 			return c.getResult(exp, attrs, *qsOverride, false, featureID, nil)
 		}
 	}
@@ -740,60 +740,60 @@ func (c *Client) doRun(ctx context.Context,
 	if c.forcedVariations != nil {
 		force, forced := c.forcedVariations[exp.Key]
 		if forced {
-			logInfo(ExperimentForcedVariation, LogData{"key": exp.Key, "force": force})
+			logger.Info("Forced variation", "key", exp.Key, "force", force)
 			return c.getResult(exp, attrs, force, false, featureID, nil)
 		}
 	}
 
 	// 5. Exclude inactive experiments and return default result.
 	if exp.Status == DraftStatus || !exp.Active {
-		logInfo(ExperimentSkipInactive, LogData{"key": exp.Key})
+		logger.Info("Skip because inactive", "key", exp.Key)
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
 	// 6. Get the user hash value and return if empty.
 	_, hashString := c.getHashAttribute(exp.HashAttribute, attrs)
 	if hashString == "" {
-		logInfo(ExperimentSkipMissingHashAttribute, LogData{"key": exp.Key})
+		logger.Info("Skip because of missing hash attribute", "key", exp.Key)
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
 	// 7. If exp.Namespace is set, return if not in range.
 	if exp.Filters != nil {
 		if c.isFilteredOut(exp.Filters, attrs) {
-			logInfo(ExperimentSkipFilters, LogData{"key": exp.Key})
+			logger.Info("Skip because of filters", "key", exp.Key)
 			return c.getResult(exp, attrs, -1, false, featureID, nil)
 		}
 	} else if exp.Namespace != nil {
 		if !exp.Namespace.inNamespace(hashString) {
-			logInfo(ExperimentSkipNamespace, LogData{"key": exp.Key})
+			logger.Info("Skip because of namespace", "key", exp.Key)
 			return c.getResult(exp, attrs, -1, false, featureID, nil)
 		}
 	}
 
 	// 7.5. Exclude if include function returns false.
 	if exp.Include != nil && !exp.Include() {
-		logInfo(ExperimentSkipIncludeFunction, LogData{"key": exp.Key})
+		logger.Info("Skip because of include function", "key", exp.Key)
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
 	// 8. Exclude if condition is false.
 	if exp.Condition != nil {
 		if !exp.Condition.Eval(c.EffectiveAttributes(attrs)) {
-			logInfo(ExperimentSkipCondition, LogData{"key": exp.Key})
+			logger.Info("Skip because of condition", "key", exp.Key)
 			return c.getResult(exp, attrs, -1, false, featureID, nil)
 		}
 	}
 
 	// 8.1. Exclude if user is not in a required group.
 	if exp.Groups != nil && !c.hasGroupOverlap(exp.Groups) {
-		logInfo(ExperimentSkipGroups, LogData{"key": exp.Key})
+		logger.Info("Skip because of groups", "key", exp.Key)
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
 	// 8.2. Old style URL targeting.
 	if exp.URL != nil && !c.urlIsValid(exp.URL) {
-		logInfo(ExperimentSkipURL, LogData{"key": exp.Key})
+		logger.Info("Skip because of URL", "key", exp.Key)
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
@@ -804,7 +804,7 @@ func (c *Client) doRun(ctx context.Context,
 			return nil, err
 		}
 		if !targeted {
-			logInfo(ExperimentSkipURLTargeting, LogData{"key": exp.Key})
+			logger.Info("Skip because of URL targeting", "key", exp.Key)
 			return c.getResult(exp, attrs, -1, false, featureID, nil)
 		}
 	}
@@ -820,7 +820,7 @@ func (c *Client) doRun(ctx context.Context,
 	}
 	n := hash(seed, hashString, hv)
 	if n == nil {
-		logWarn(ExperimentSkipInvalidHashVersion, LogData{"key": exp.Key})
+		logger.Warn("Skip because of invalid hash version", "key", exp.Key)
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 	coverage := float64(1)
@@ -835,7 +835,7 @@ func (c *Client) doRun(ctx context.Context,
 
 	// 10. If assigned == -1, return default result.
 	if assigned == -1 {
-		logInfo(ExperimentSkipCoverage, LogData{"key": exp.Key})
+		logger.Info("Skip because of coverage", "key", exp.Key)
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
@@ -851,7 +851,7 @@ func (c *Client) doRun(ctx context.Context,
 
 	// 12.5. Exclude if experiment is stopped.
 	if exp.Status == StoppedStatus {
-		logInfo(ExperimentSkipStopped, LogData{"key": exp.Key})
+		logger.Info("Skip because stopped", "key", exp.Key)
 		return c.getResult(exp, attrs, -1, false, featureID, nil)
 	}
 
@@ -864,7 +864,7 @@ func (c *Client) doRun(ctx context.Context,
 	}
 
 	// InExperiment
-	logInfo(InExperiment, LogData{"key": exp.Key, "variationID": result.VariationID})
+	logger.Info("In experiment", "key", exp.Key, "variationID", result.VariationID)
 	return result, err
 }
 

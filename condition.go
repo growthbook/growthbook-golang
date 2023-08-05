@@ -420,7 +420,7 @@ func compare(comp string, x interface{}, y interface{}) bool {
 		xn := x.(float64)
 		yn, ok := y.(float64)
 		if !ok {
-			logWarn(ConditionTypeMismatch, nil)
+			logger.Warn("Types don't match in condition comparison operation")
 			return false
 		}
 		switch comp {
@@ -438,7 +438,7 @@ func compare(comp string, x interface{}, y interface{}) bool {
 		xs := x.(string)
 		ys, ok := y.(string)
 		if !ok {
-			logWarn(ConditionTypeMismatch, nil)
+			logger.Warn("Types don't match in condition comparison operation")
 			return false
 		}
 		switch comp {

@@ -10,7 +10,7 @@ func convertHashValue(vin interface{}) (string, bool) {
 	hashString, stringOK := vin.(string)
 	if stringOK {
 		if hashString == "" {
-			logInfo(EmptyHashAttribute, nil)
+			logger.Info("Skip because of empty hash attribute")
 			return "", false
 		}
 		return hashString, true

@@ -8,6 +8,10 @@ import (
 	"testing"
 )
 
+func init() {
+	SetLogger(testLog)
+}
+
 type trackCall struct {
 	experiment *Experiment
 	result     *Result
@@ -29,34 +33,27 @@ func track() *tracker {
 func TestExperimentTracking(t *testing.T) {
 	tr := track()
 	client := NewClient(&Options{ExperimentTracker: &ExperimentCallback{tr.cb}})
-	fmt.Println("HERE 1")
 
 	exp1 := NewExperiment("my-tracked-test").WithVariations(0, 1)
 	exp2 := NewExperiment("my-other-tracked-test").WithVariations(0, 1)
-	fmt.Println("HERE 2")
 
 	res1, err := client.Run(exp1, Attributes{"id": "1"})
-	fmt.Println("HERE 3")
 	if err != nil {
 		t.Error("unexpected error:", err)
 	}
 	_, err = client.Run(exp1, Attributes{"id": "1"})
-	fmt.Println("HERE 4")
 	if err != nil {
 		t.Error("unexpected error:", err)
 	}
 	_, err = client.Run(exp1, Attributes{"id": "1"})
-	fmt.Println("HERE 5")
 	if err != nil {
 		t.Error("unexpected error:", err)
 	}
 	res4, err := client.Run(exp2, Attributes{"id": "1"})
-	fmt.Println("HERE 6")
 	if err != nil {
 		t.Error("unexpected error:", err)
 	}
 	res5, err := client.Run(exp2, Attributes{"id": "2"})
-	fmt.Println("HERE 7")
 	if err != nil {
 		t.Error("unexpected error:", err)
 	}

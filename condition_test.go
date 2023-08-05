@@ -5,6 +5,10 @@ import (
 	"testing"
 )
 
+func init() {
+	SetLogger(testLog)
+}
+
 func TestConditionValueNullOrNotPresent(t *testing.T) {
 	condition := Condition{}
 	json.Unmarshal([]byte(`{"userId": null}`), &condition)

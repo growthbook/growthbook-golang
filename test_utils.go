@@ -1,10 +1,15 @@
 package growthbook
 
 import (
-	"fmt"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"testing"
+
+	"golang.org/x/exp/slog"
 )
 
 // Some test functions generate warnings in the log. We need to check
@@ -14,8 +19,8 @@ func handleExpectedWarnings(
 	t *testing.T, name string, expectedWarnings map[string]int) {
 	warnings, ok := expectedWarnings[name]
 	if ok {
-		if len(testLog.errors) == 0 && len(testLog.warnings) == warnings {
-			testLog.reset()
+		if len(testLogHandler.errors) == 0 && len(testLogHandler.warnings) == warnings {
+			testLogHandler.reset()
 		} else {
 			t.Errorf("expected log warning")
 		}
@@ -43,54 +48,103 @@ func round(vals []float64) []float64 {
 	return result
 }
 
-// Logger to capture error and log messages.
-type testLogger struct {
-	errors   []string
-	warnings []string
-	info     []string
+var testLogHandler *handler = newHandler()
+
+var testLog *slog.Logger = slog.New(testLogHandler)
+
+// Log handler to capture error and warning messages.
+type handler struct {
+	errors     []map[string]any
+	warnings   []map[string]any
+	buf        *bytes.Buffer
+	subHandler slog.Handler
 }
 
-var testLog = testLogger{}
-
-func (log *testLogger) allErrors() string {
-	return strings.Join(log.errors, ", ")
+func newHandler() *handler {
+	buf := bytes.Buffer{}
+	h := slog.NewJSONHandler(&buf, nil)
+	return &handler{
+		errors:     []map[string]any{},
+		warnings:   []map[string]any{},
+		buf:        &buf,
+		subHandler: h,
+	}
 }
 
-func (log *testLogger) allWarnings() string {
-	return strings.Join(log.warnings, ", ")
+func (h *handler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.subHandler.Enabled(ctx, level)
 }
 
-func (log *testLogger) allInfo() string {
-	return strings.Join(log.info, ", ")
+func (h *handler) Handle(ctx context.Context, r slog.Record) error {
+	err := h.subHandler.Handle(ctx, r)
+	if err != nil {
+		return err
+	}
+	v := map[string]any{}
+	err = json.Unmarshal(h.buf.Bytes(), &v)
+	h.buf.Reset()
+	if err != nil {
+		return err
+	}
+	level, ok := v["level"]
+	if !ok {
+		return errors.New("no level in log message")
+	}
+	switch level {
+	case "ERROR":
+		h.errors = append(h.errors, v)
+	case "WARN":
+		h.warnings = append(h.warnings, v)
+	}
+	return nil
 }
 
-func (log *testLogger) reset() {
-	log.errors = []string{}
-	log.warnings = []string{}
-	log.info = []string{}
+func (h *handler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	newSubHandler := h.subHandler.WithAttrs(attrs)
+	return &handler{
+		errors:     h.errors,
+		warnings:   h.warnings,
+		buf:        h.buf,
+		subHandler: newSubHandler,
+	}
 }
 
-func formatArgs(args ...interface{}) string {
-	s := ""
-	for i, a := range args {
-		if i != 0 {
-			s += " "
+func (h *handler) WithGroup(name string) slog.Handler {
+	newSubHandler := h.subHandler.WithGroup(name)
+	return &handler{
+		errors:     h.errors,
+		warnings:   h.warnings,
+		buf:        h.buf,
+		subHandler: newSubHandler,
+	}
+}
+
+func (h *handler) reset() {
+	h.errors = []map[string]any{}
+	h.warnings = []map[string]any{}
+	h.buf.Reset()
+}
+
+func (h *handler) allErrors() string {
+	ss := []string{}
+	for _, e := range h.errors {
+		b, err := json.Marshal(e)
+		if err != nil {
+			ss = append(ss, string(b))
 		}
-		s += fmt.Sprint(a)
 	}
-	return s
+	return strings.Join(ss, ", ")
 }
 
-func (log *testLogger) Handle(msg *LogMessage) {
-	s := msg.String()
-	switch msg.Level {
-	case Error:
-		log.errors = append(log.errors, s)
-	case Warn:
-		log.warnings = append(log.errors, s)
-	case Info:
-		log.info = append(log.errors, s)
+func (h *handler) allWarnings() string {
+	ss := []string{}
+	for _, e := range h.warnings {
+		b, err := json.Marshal(e)
+		if err != nil {
+			ss = append(ss, string(b))
+		}
 	}
+	return strings.Join(ss, ", ")
 }
 
 // Polyfill from Go v1.20 sort.

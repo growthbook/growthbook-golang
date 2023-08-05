@@ -321,7 +321,7 @@ func refreshInstance(feats *featureData, data *FeatureAPIResponse) {
 	if data.EncryptedFeatures != "" {
 		err := feats.withEncryptedFeatures(data.EncryptedFeatures, "")
 		if err != nil {
-			logError(FailedDecrypt, nil)
+			logger.Error("Failed to decrypt encrypted features")
 		}
 	} else {
 		features := data.Features
@@ -529,11 +529,11 @@ func refreshFromSSE(ctx context.Context, c *Client,
 			return
 
 		case <-reconnect:
-			logInfo(SSEConnecting, LogData{"apiHost": apiHost})
+			logger.Info("Connecting to SSE stream", "apiHost", apiHost)
 			errors = 0
 			client := sse.NewClient(apiHost + "/sub/" + clientKey)
 			client.OnDisconnect(func(c *sse.Client) {
-				logError(SSEStreamDisconnect, LogData{"key": key})
+				logger.Error("SSE event stream disconnected", "key", key)
 				reconnect <- struct{}{}
 			})
 			client.SubscribeChanWithContext(ctx, "features", ch)
@@ -546,12 +546,12 @@ func refreshFromSSE(ctx context.Context, c *Client,
 			err := json.Unmarshal(msg.Data, &data)
 
 			if err != nil {
-				logError(SSEError, LogData{"key": key, "error": err})
+				logger.Error("SSE error", "key", key, "error", err)
 			}
 			if err != nil && client != nil {
 				errors++
 				if errors > 3 {
-					logError(SSEMultipleErrors, LogData{"key": key})
+					logger.Error("Multiple SSE errors: disconnecting stream", "key", key)
 					client.Unsubscribe(ch)
 					client = nil
 
@@ -563,13 +563,13 @@ func refreshFromSSE(ctx context.Context, c *Client,
 					if delay > 5*time.Minute {
 						delay = 5 * time.Minute
 					}
-					logWarn(SSEWaitingToReconnect, LogData{"key": key, "delay": delay})
+					logger.Warn("Waiting to reconnect SSE stream", "key", key, "delay", delay)
 					time.Sleep(delay)
 					reconnect <- struct{}{}
 				}
 				continue
 			}
-			logInfo(SSENewData, nil)
+			logger.Info("New feature data from SSE stream")
 			onNewFeatureData(key, &data)
 		}
 	}

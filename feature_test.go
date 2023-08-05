@@ -7,6 +7,10 @@ import (
 	"testing"
 )
 
+func init() {
+	SetLogger(testLog)
+}
+
 func TestFeaturesCanSetFeatures(t *testing.T) {
 	client := NewClient(nil).
 		WithFeatures(FeatureMap{"feature": &Feature{DefaultValue: 0}})

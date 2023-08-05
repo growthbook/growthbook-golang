@@ -14,7 +14,7 @@ import (
 // jsonTest helper function to read and parse the JSON test case file.
 
 func TestJSON(t *testing.T) {
-	SetLogger(&testLog)
+	SetLogger(testLog)
 
 	jsonTest(t, "evalCondition", jsonTestEvalCondition)
 	jsonMapTest(t, "versionCompare", jsonTestVersionCompare)
@@ -130,26 +130,26 @@ func jsonTestGetBucketRange(t *testing.T, test []byte) {
 
 	// Handle expected warnings.
 	if coverage < 0 || coverage > 1 {
-		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
+		if len(testLogHandler.errors) != 0 && len(testLogHandler.warnings) != 1 {
 			t.Errorf("expected coverage log warning")
 		}
-		testLog.reset()
+		testLogHandler.reset()
 	}
 	totalWeights := 0.0
 	for _, w := range weights {
 		totalWeights += w
 	}
 	if totalWeights != 1 {
-		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
+		if len(testLogHandler.errors) != 0 && len(testLogHandler.warnings) != 1 {
 			t.Errorf("expected weight sum log warning")
 		}
-		testLog.reset()
+		testLogHandler.reset()
 	}
 	if len(weights) != len(result) {
-		if len(testLog.errors) != 0 && len(testLog.warnings) != 1 {
+		if len(testLogHandler.errors) != 0 && len(testLogHandler.warnings) != 1 {
 			t.Errorf("expected weight length log warning")
 		}
-		testLog.reset()
+		testLogHandler.reset()
 	}
 }
 
@@ -372,17 +372,17 @@ func jsonTest(t *testing.T, label string,
 				// check for correct handling of out-of-range parameters
 				// trigger warnings, but these are handled within the test
 				// themselves).
-				testLog.reset()
+				testLogHandler.reset()
 				jsonTest, err := json.Marshal(test)
 				if err != nil {
 					t.Errorf("CAN'T CONVERT TEST BACK TO JSON!")
 				}
 				fn(t, jsonTest)
-				if len(testLog.errors) != 0 {
-					t.Errorf("test log has errors: %s", testLog.allErrors())
+				if len(testLogHandler.errors) != 0 {
+					t.Errorf("test log has errors: %s", testLogHandler.allErrors())
 				}
-				if len(testLog.warnings) != 0 {
-					t.Errorf("test log has warnings: %s", testLog.allWarnings())
+				if len(testLogHandler.warnings) != 0 {
+					t.Errorf("test log has warnings: %s", testLogHandler.allWarnings())
 				}
 			})
 		}
@@ -427,7 +427,7 @@ func jsonMapTest(t *testing.T, label string,
 				// check for correct handling of out-of-range parameters
 				// trigger warnings, but these are handled within the test
 				// themselves).
-				testLog.reset()
+				testLogHandler.reset()
 				for _, test := range tests {
 					jsonTest, err := json.Marshal(test)
 					if err != nil {
@@ -435,11 +435,11 @@ func jsonMapTest(t *testing.T, label string,
 					}
 					fn(t, name, jsonTest)
 				}
-				if len(testLog.errors) != 0 {
-					t.Errorf("test log has errors: %s", testLog.allErrors())
+				if len(testLogHandler.errors) != 0 {
+					t.Errorf("test log has errors: %s", testLogHandler.allErrors())
 				}
-				if len(testLog.warnings) != 0 {
-					t.Errorf("test log has warnings: %s", testLog.allWarnings())
+				if len(testLogHandler.warnings) != 0 {
+					t.Errorf("test log has warnings: %s", testLogHandler.allWarnings())
 				}
 			})
 			itest++

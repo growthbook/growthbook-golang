@@ -49,8 +49,8 @@ func setup(provideSSE bool) *env {
 }
 
 func setupWithDelay(provideSSE bool, delay time.Duration, encryptedFeatures string) *env {
-	SetLogger(&testLog)
-	testLog.reset()
+	SetLogger(testLog)
+	testLogHandler.reset()
 
 	initialValue := "initial"
 	callCount := 0
@@ -123,52 +123,55 @@ func checkFeature(t *testing.T, client *Client, feature string, expected interfa
 }
 
 func checkLogs(t *testing.T) {
-	if len(testLog.errors) != 0 {
-		t.Errorf("test log has errors: %s", testLog.allErrors())
+	if len(testLogHandler.errors) != 0 {
+		t.Errorf("test log has errors: %s", testLogHandler.allErrors())
 	}
-	if len(testLog.warnings) != 0 {
-		t.Errorf("test log has warnings: %s", testLog.allWarnings())
+	if len(testLogHandler.warnings) != 0 {
+		t.Errorf("test log has warnings: %s", testLogHandler.allWarnings())
 	}
 }
 
 func knownWarnings(t *testing.T, count int) {
-	if len(testLog.errors) != 0 {
-		t.Error("found errors when looking for known warnings: ", testLog.allErrors())
+	if len(testLogHandler.errors) != 0 {
+		t.Error("found errors when looking for known warnings: ", testLogHandler.allErrors())
 		return
 	}
-	if len(testLog.warnings) == count {
-		testLog.reset()
+	if len(testLogHandler.warnings) == count {
+		testLogHandler.reset()
 		return
 	}
 
 	t.Errorf("expected %d log warnings, got %d: %s", count,
-		len(testLog.warnings), testLog.allWarnings())
+		len(testLogHandler.warnings), testLogHandler.allWarnings())
 }
 
 func knownErrors(t *testing.T, messages ...string) {
-	if len(testLog.errors) != len(messages) {
-		t.Errorf("expected %d log errors, got %d: %s", len(messages),
-			len(testLog.errors), testLog.allErrors())
-		return
-	}
-
-	for i, msg := range messages {
-		if !strings.HasPrefix(testLog.errors[i], "[ERROR] "+msg) {
-			t.Errorf("expected error message %d '%s...', got '%s'", i+1, msg, testLog.errors[i])
+	for _, error := range testLogHandler.errors {
+		errmsg, ok := error["msg"]
+		if !ok {
+			t.Errorf("missing 'msg' field in log message")
 		}
-	}
-
-	testLog.reset()
-}
-
-func knownSSEErrors(t *testing.T) func() {
-	return func() {
-		for _, msg := range testLog.errors {
-			if !strings.HasPrefix(msg, "SSE error:") {
-				t.Errorf("unexpected error in log: '%s'", msg)
+		errmsgs, ok := errmsg.(string)
+		if !ok {
+			t.Errorf("non-string 'msg' field in log message")
+		}
+		found := false
+		for _, msg := range messages {
+			if strings.HasPrefix(errmsgs, msg) {
+				found = true
+				break
 			}
 		}
+		if !found {
+			t.Errorf("unexpected error message '%s'", errmsgs)
+		}
 	}
+
+	testLogHandler.reset()
+}
+
+func knownSSEErrors(t *testing.T) {
+	knownErrors(t, "SSE error")
 }
 
 func checkReady(t *testing.T, client *Client, expected bool) {
@@ -458,6 +461,7 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
+	defer knownSSEErrors(t)
 
 	cache.Clear()
 
@@ -475,7 +479,6 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	env.checkCalls(t, 1)
 	checkFeature(t, client, "foo", "initial")
-	knownErrors(t, "SSE error")
 
 	cache.Clear()
 }
