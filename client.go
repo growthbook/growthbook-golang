@@ -613,14 +613,20 @@ func (c *Client) getFeatureResult(
 	extraData interface{}) (*FeatureResult, error) {
 	on := truthy(value)
 	off := !on
+	var experimentWithResult *ExperimentWithResult
+	if experiment != nil {
+		experimentWithResult = &ExperimentWithResult{
+			Experiment:       experiment,
+			ExperimentResult: result,
+		}
+	}
 	retval := FeatureResult{
 		Value:            value,
 		On:               on,
 		Off:              off,
 		Source:           source,
 		RuleID:           ruleID,
-		Experiment:       experiment,
-		ExperimentResult: result,
+		ExperimentResult: experimentWithResult,
 	}
 
 	c.trackFeatureUsage(ctx, key, &retval, extraData)
