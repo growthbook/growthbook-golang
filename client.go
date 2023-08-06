@@ -522,12 +522,6 @@ func (c *Client) ClearSavedResults() {
 	c.assigned = make(map[string]*Assignment)
 }
 
-// ClearTrackingData clears out records of calls to the experiment
-// tracking callback.
-func (c *Client) ClearTrackingData() {
-	c.opt.ExperimentTrackingCache.Clear()
-}
-
 // GetAPIInfo gets the hostname and client key for GrowthBook API
 // access.
 func (c *Client) GetAPIInfo() (string, string) {
@@ -592,12 +586,8 @@ func (c *Client) trackFeatureUsage(ctx context.Context,
 		return
 	}
 
-	if c.opt.FeatureUsageTracker == nil {
-		return
-	}
-
 	// Fire user-supplied tracker.
-	if c.opt.FeatureUsageTrackingCache.Check(ctx, c, key, res, extraData) {
+	if c.opt.FeatureUsageTracker != nil {
 		c.opt.FeatureUsageTracker.OnFeatureUsage(ctx, c, key, res, extraData)
 	}
 }
@@ -884,20 +874,16 @@ func (c *Client) mergeOverrides(exp *Experiment) *Experiment {
 	return exp
 }
 
-// Fire Context.TrackingCallback if it's set and the combination of
-// hashAttribute, hashValue, experiment key, and variation ID has not
-// been tracked before.
+// Fire experiment tracking callback if it's set. The tracker itself
+// is responsible for caching: a simple default cache implementation
+// is provided as SingleProcessExperimentTrackingCache.
 func (c *Client) track(ctx context.Context,
 	exp *Experiment, result *Result, extraData interface{}) {
-	if c.opt.ExperimentTracker == nil {
-		return
-	}
-
-	// Make sure tracking callback is only fired once per unique
-	// experiment (or according to whatever application-dependent logic
-	// the user chooses in their implementation of the tracking cache
-	// interface).
-	if c.opt.ExperimentTrackingCache.Check(ctx, c, exp, result, extraData) {
+	if c.opt.ExperimentTracker != nil {
+		// It's up to the tracker to make sure that it only tracks once
+		// per unique experiment (or according to whatever
+		// application-dependent logic the user chooses in their tracker
+		// implementation).
 		c.opt.ExperimentTracker.Track(ctx, c, exp, result, extraData)
 	}
 }

@@ -72,9 +72,10 @@ func TestSubscriptionsUnsubscribe(t *testing.T) {
 func TestSubscriptionsTrack(t *testing.T) {
 	called := 0
 	options := Options{
-		ExperimentTracker: &ExperimentCallback{func(ctx context.Context, exp *Experiment, result *Result) {
-			called++
-		}},
+		ExperimentTracker: NewSingleProcessExperimentTrackingCache(
+			&ExperimentCallback{func(ctx context.Context, exp *Experiment, result *Result) {
+				called++
+			}}),
 	}
 	client := NewClient(&options)
 	exp1 := NewExperiment("experiment-1").WithVariations("result1", "result2")
@@ -121,7 +122,7 @@ func (t *testTracker) Track(ctx context.Context,
 
 func TestSubscriptionsStruct(t *testing.T) {
 	tr := newTestTracker()
-	options := Options{ExperimentTracker: tr}
+	options := Options{ExperimentTracker: NewSingleProcessExperimentTrackingCache(tr)}
 	client := NewClient(&options)
 	exp1 := NewExperiment("experiment-1").WithVariations("result1", "result2")
 	exp2 := NewExperiment("experiment-2").WithVariations("result3", "result4")

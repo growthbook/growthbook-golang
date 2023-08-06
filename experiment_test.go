@@ -32,7 +32,10 @@ func track() *tracker {
 
 func TestExperimentTracking(t *testing.T) {
 	tr := track()
-	client := NewClient(&Options{ExperimentTracker: &ExperimentCallback{tr.cb}})
+	tracker := NewSingleProcessExperimentTrackingCache(
+		&ExperimentCallback{tr.cb},
+	)
+	client := NewClient(&Options{ExperimentTracker: tracker})
 
 	exp1 := NewExperiment("my-tracked-test").WithVariations(0, 1)
 	exp2 := NewExperiment("my-other-tracked-test").WithVariations(0, 1)

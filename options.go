@@ -8,19 +8,17 @@ import (
 // Options contains the options for creating a new GrowthBook client
 // instance.
 type Options struct {
-	Disabled                  bool
-	URL                       *url.URL
-	QAMode                    bool
-	DevMode                   bool
-	ExperimentTracker         ExperimentTracker
-	ExperimentTrackingCache   ExperimentTrackingCache
-	FeatureUsageTracker       FeatureUsageTracker
-	FeatureUsageTrackingCache FeatureUsageTrackingCache
-	Groups                    map[string]bool
-	APIHost                   string
-	ClientKey                 string
-	DecryptionKey             string
-	HTTPClient                *http.Client
+	Disabled            bool
+	URL                 *url.URL
+	QAMode              bool
+	DevMode             bool
+	ExperimentTracker   ExperimentTracker
+	FeatureUsageTracker FeatureUsageTracker
+	Groups              map[string]bool
+	APIHost             string
+	ClientKey           string
+	DecryptionKey       string
+	HTTPClient          *http.Client
 }
 
 func (opt *Options) defaults() {
@@ -32,12 +30,6 @@ func (opt *Options) defaults() {
 	}
 	if opt.HTTPClient == nil {
 		opt.HTTPClient = http.DefaultClient
-	}
-	if opt.ExperimentTrackingCache == nil {
-		opt.ExperimentTrackingCache = newDefaultExperimentTrackingCache()
-	}
-	if opt.FeatureUsageTrackingCache == nil {
-		opt.FeatureUsageTrackingCache = newDefaultFeatureUsageTrackingCache()
 	}
 }
 

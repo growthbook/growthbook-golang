@@ -10,9 +10,13 @@ import (
 // ExperimentTracker is an interface with a callback method that is
 // executed every time a user is included in an Experiment. It is also
 // the type used for subscription functions, which are called whenever
-// Experiment.Run is called and the experiment result changes,
-// independent of whether a user is inncluded in the experiment or
-// not.
+// Experiment.Run is called, independent of whether a user is
+// inncluded in the experiment or not.
+//
+// The tracker itself is responsible for caching behaviour and
+// preventing repeated tracking of experiments. A simple no-delete
+// cache suitable for debug use in a single process is provided (see
+// SingleProcessExperimentTrackingCache).
 
 type ExperimentTracker interface {
 	Track(ctx context.Context, c *Client,
@@ -31,8 +35,75 @@ func (tcb *ExperimentCallback) Track(ctx context.Context,
 	tcb.CB(ctx, exp, result)
 }
 
+// A simple single process experiment tracking cache that can be used
+// if the user doesn't supply one of their own. Simple thread-safe
+// "never evict" cache.
+//
+// Generally, caching machinery should just wrap an ExperimentTracker
+// value, or implement the tracking interface itself directly. A
+// simple default implementation is provided as
+// SingleProcessExperimentTrackingCache, but for long-lived server
+// processes, a LRU cache might be more appropriate; or for horizontal
+// scaling cases, a distributed cache using memcached or Redis might
+// be better. Both cases can be handled by implementing the
+// ExperimentTracker interface.
+//
+// A typical and simplest use might be (`callback` is a callback
+// function):
+//
+// 	  tracker := NewSingleProcessExperimentTrackingCache(
+// 	    &ExperimentCallback{callback},
+// 	  )
+// 	  client := NewClient(&Options{ExperimentTracker: tracker})
+
+type SingleProcessExperimentTrackingCache struct {
+	sync.Mutex
+	trackedExperiments map[string]struct{}
+	tracker            ExperimentTracker
+}
+
+func NewSingleProcessExperimentTrackingCache(tracker ExperimentTracker) *SingleProcessExperimentTrackingCache {
+	return &SingleProcessExperimentTrackingCache{
+		trackedExperiments: make(map[string]struct{}),
+		tracker:            tracker,
+	}
+}
+
+// Implement the ExperimentTracker interface, wrapping the inner
+// tracker.
+
+func (cache *SingleProcessExperimentTrackingCache) Track(ctx context.Context, c *Client,
+	exp *Experiment, result *Result, extraData interface{}) {
+	cache.Lock()
+	defer cache.Unlock()
+
+	// If the experiment already exists in the cache, we don't need to
+	// call the tracker.
+	key := fmt.Sprintf("%s%v%s%d", result.HashAttribute, result.HashValue,
+		exp.Key, result.VariationID)
+	if _, exists := cache.trackedExperiments[key]; exists {
+		return
+	}
+
+	// Add the experiment to the cache and call the tracker.
+	cache.trackedExperiments[key] = struct{}{}
+	cache.tracker.Track(ctx, c, exp, result, extraData)
+}
+
+func (cache *SingleProcessExperimentTrackingCache) Clear() {
+	cache.Lock()
+	defer cache.Unlock()
+
+	cache.trackedExperiments = make(map[string]struct{})
+}
+
 // FeatureUsageTracker is an interface with a callback method that is
 // executed every time a feature is evaluated.
+//
+// The tracker itself is responsible for caching behaviour and
+// preventing repeated tracking of feature usage if this isn't wanted.
+// A simple no-delete cache suitable for debug use in a single process
+// is provided (see SingleProcessFeatureUsageTrackingCache).
 
 type FeatureUsageTracker interface {
 	OnFeatureUsage(ctx context.Context, c *Client,
@@ -51,114 +122,58 @@ func (fcb *FeatureUsageCallback) OnFeatureUsage(ctx context.Context,
 	fcb.CB(ctx, key, result)
 }
 
-// ExperimentTrackingCache is an interface to a cache used for holding
-// records of calls to the experiment tracker. A simple default
-// implementation is provided, but for long-lived server processes, a
-// LRU cache might be more appropriate; or for horizontal scaling
-// cases, a distributed cache using memcached or Redis might be
-// better. Both cases can be handled by implementing this interface.
-
-type ExperimentTrackingCache interface {
-	// Return true if the experiment tracker should be called, and cache
-	// whatever data is required to suppress subsequent unneeded calls
-	// to the tracker.
-	Check(ctx context.Context, c *Client,
-		exp *Experiment, result *Result, extraData interface{}) bool
-
-	// Clear the tracking cache.
-	Clear()
-}
-
-// The default experiment tracking cache used if the user doesn't
-// supply one of their own. Simple thread-safe "never evict" cache.
-
-type defaultExperimentTrackingCache struct {
-	sync.Mutex
-	trackedExperiments map[string]struct{}
-}
-
-func newDefaultExperimentTrackingCache() *defaultExperimentTrackingCache {
-	return &defaultExperimentTrackingCache{
-		trackedExperiments: make(map[string]struct{}),
-	}
-}
-
-func (cache *defaultExperimentTrackingCache) Check(ctx context.Context, c *Client,
-	exp *Experiment, result *Result, extraData interface{}) bool {
-	cache.Lock()
-	defer cache.Unlock()
-
-	// If the experiment already exists in the cache, we don't need to
-	// call the tracker.
-	key := fmt.Sprintf("%s%v%s%d", result.HashAttribute, result.HashValue,
-		exp.Key, result.VariationID)
-	if _, exists := cache.trackedExperiments[key]; exists {
-		return false
-	}
-
-	// Add the experiment to the cache and mark that the tracker should
-	// be called.
-	cache.trackedExperiments[key] = struct{}{}
-	return true
-}
-
-func (cache *defaultExperimentTrackingCache) Clear() {
-	cache.Lock()
-	defer cache.Unlock()
-
-	cache.trackedExperiments = make(map[string]struct{})
-}
-
-// FeatureUsageTrackingCache is an interface to a cache used for
-// holding records of calls to the feature usage tracker. A simple
-// default implementation is provided, but for long-lived server
+// A simple single process feature usage tracking cache that can be
+// used if the user doesn't supply one of their own. Simple
+// thread-safe "never evict" cache.
+//
+// Generally, caching machinery should just wrap a FeatureUsageTracker
+// value, or implement the tracking interface itself directly. A
+// simple default implementation is provided as
+// SingleProcessFeatureUsageTrackingCache, but for long-lived server
 // processes, a LRU cache might be more appropriate; or for horizontal
 // scaling cases, a distributed cache using memcached or Redis might
-// be better. Both cases can be handled by implementing this
-// interface.
+// be better. Both cases can be handled by implementing the
+// ExperimentTracker interface.
+//
+// A typical and simplest use might be (`callback` is a callback
+// function):
+//
+// 	  tracker := NewSingleProcessFeatureUsageTrackingCache(
+// 	    &FeatureUsageCallback{callback},
+// 	  )
+// 	  client := NewClient(&Options{FeatureUsageTracker: tracker})
 
-type FeatureUsageTrackingCache interface {
-	// Return true if the feature usage tracker should be called, and
-	// cache whatever data is required to suppress subsequent unneeded
-	// calls to the tracker.
-	Check(ctx context.Context, c *Client,
-		key string, res *FeatureResult, extraData interface{}) bool
-
-	// Clear the tracking cache.
-	Clear()
-}
-
-// The default experiment tracking cache used if the user doesn't
-// supply one of their own. Simple thread-safe "never evict" cache.
-
-type defaultFeatureUsageTrackingCache struct {
+type SingleProcessFeatureUsageTrackingCache struct {
 	sync.Mutex
 	trackedFeatures map[string]interface{}
+	tracker         FeatureUsageTracker
 }
 
-func newDefaultFeatureUsageTrackingCache() *defaultFeatureUsageTrackingCache {
-	return &defaultFeatureUsageTrackingCache{
+func NewSingleProcessFeatureUsageTrackingCache(tracker FeatureUsageTracker) *SingleProcessFeatureUsageTrackingCache {
+	return &SingleProcessFeatureUsageTrackingCache{
 		trackedFeatures: make(map[string]interface{}),
+		tracker:         tracker,
 	}
 }
 
-func (cache *defaultFeatureUsageTrackingCache) Check(ctx context.Context, c *Client,
-	key string, res *FeatureResult, extraData interface{}) bool {
+// Implement the feature usage tracking interface.
+
+func (cache *SingleProcessFeatureUsageTrackingCache) OnFeatureUsage(ctx context.Context, c *Client,
+	key string, res *FeatureResult, extraData interface{}) {
 	cache.Lock()
 	defer cache.Unlock()
 
 	// Only track a feature once, unless the assigned value changed.
 	if saved, ok := cache.trackedFeatures[key]; ok && reflect.DeepEqual(saved, res.Value) {
-		return false
+		return
 	}
 
-	// Add the feature value to the cache and mark that the tracker
-	// should be called.
+	// Add the feature value to the cache and call the tracker.
 	cache.trackedFeatures[key] = res.Value
-	return true
+	cache.tracker.OnFeatureUsage(ctx, c, key, res, extraData)
 }
 
-func (cache *defaultFeatureUsageTrackingCache) Clear() {
+func (cache *SingleProcessFeatureUsageTrackingCache) Clear() {
 	cache.Lock()
 	defer cache.Unlock()
 
