@@ -497,14 +497,21 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 				logErrorf("SSE event stream disconnected: %s", key)
 				reconnect <- struct{}{}
 			})
-			client.SubscribeChan("features", ch)
+			err := client.SubscribeChan("features", ch)
+			if err != nil {
+				logErrorf("Connecting to SSE stream: %v", err)
+				return
+			}
 
 		case msg := <-ch:
+			if len(msg.Data) == 0 {
+				break
+			}
 			var data FeatureAPIResponse
 			err := json.Unmarshal(msg.Data, &data)
 
 			if err != nil {
-				logErrorf("SSE error: %s", key)
+				logErrorf("SSE error: %s (key: %s)", err.Error(), key)
 			}
 			if err != nil && client != nil {
 				errors++
