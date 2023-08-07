@@ -66,77 +66,84 @@
 <span id="L9" class="ln">     9  </span>const dateLayout = &#34;2006-01-02T15:04:05.000Z&#34;
 <span id="L10" class="ln">    10  </span>
 <span id="L11" class="ln">    11  </span>type FeatureAPIResponse struct {
-<span id="L12" class="ln">    12  </span>	Features          map[string]*Feature `json:&#34;features&#34;`
-<span id="L13" class="ln">    13  </span>	DateUpdated       time.Time           `json:&#34;dateUpdated&#34;`
-<span id="L14" class="ln">    14  </span>	EncryptedFeatures string              `json:&#34;encryptedFeatures&#34;`
-<span id="L15" class="ln">    15  </span>}
-<span id="L16" class="ln">    16  </span>
-<span id="L17" class="ln">    17  </span><span class="comment">// Implement normal JSON marshalling interfaces for convenience.</span>
-<span id="L18" class="ln">    18  </span>
-<span id="L19" class="ln">    19  </span>func (r *FeatureAPIResponse) MarshalJSON() ([]byte, error) {
-<span id="L20" class="ln">    20  </span>	type Alias FeatureAPIResponse
-<span id="L21" class="ln">    21  </span>	return json.Marshal(&amp;struct {
-<span id="L22" class="ln">    22  </span>		*Alias
-<span id="L23" class="ln">    23  </span>		DateUpdated string `json:&#34;dateUpdated&#34;`
-<span id="L24" class="ln">    24  </span>	}{
-<span id="L25" class="ln">    25  </span>		Alias:       (*Alias)(r),
-<span id="L26" class="ln">    26  </span>		DateUpdated: r.DateUpdated.Format(dateLayout),
-<span id="L27" class="ln">    27  </span>	})
-<span id="L28" class="ln">    28  </span>}
-<span id="L29" class="ln">    29  </span>
-<span id="L30" class="ln">    30  </span>func (r *FeatureAPIResponse) UnmarshalJSON(data []byte) error {
-<span id="L31" class="ln">    31  </span>	parsed := ParseFeatureAPIResponse(data)
-<span id="L32" class="ln">    32  </span>	if parsed == nil {
-<span id="L33" class="ln">    33  </span>		return errors.New(&#34;failed to parse feature API response&#34;)
-<span id="L34" class="ln">    34  </span>	}
-<span id="L35" class="ln">    35  </span>	r.Features = parsed.Features
-<span id="L36" class="ln">    36  </span>	r.DateUpdated = parsed.DateUpdated
-<span id="L37" class="ln">    37  </span>	r.EncryptedFeatures = parsed.EncryptedFeatures
-<span id="L38" class="ln">    38  </span>	return nil
-<span id="L39" class="ln">    39  </span>}
-<span id="L40" class="ln">    40  </span>
-<span id="L41" class="ln">    41  </span><span class="comment">// ParseFeature creates a single Feature value from raw JSON input.</span>
-<span id="L42" class="ln">    42  </span>func ParseFeatureAPIResponse(data []byte) *FeatureAPIResponse {
-<span id="L43" class="ln">    43  </span>	dict := make(map[string]interface{})
-<span id="L44" class="ln">    44  </span>	err := json.Unmarshal(data, &amp;dict)
-<span id="L45" class="ln">    45  </span>	if err != nil {
-<span id="L46" class="ln">    46  </span>		logError(&#34;Failed parsing JSON input&#34;, &#34;FeatureAPIResponse&#34;)
-<span id="L47" class="ln">    47  </span>		return nil
-<span id="L48" class="ln">    48  </span>	}
-<span id="L49" class="ln">    49  </span>	return BuildFeatureAPIResponse(dict)
-<span id="L50" class="ln">    50  </span>}
-<span id="L51" class="ln">    51  </span>
-<span id="L52" class="ln">    52  </span><span class="comment">// BuildFeatureAPIResponse creates a FeatureAPIResponse value from a</span>
-<span id="L53" class="ln">    53  </span><span class="comment">// generic JSON value.</span>
-<span id="L54" class="ln">    54  </span>func BuildFeatureAPIResponse(dict map[string]interface{}) *FeatureAPIResponse {
-<span id="L55" class="ln">    55  </span>	apiResponse := FeatureAPIResponse{}
-<span id="L56" class="ln">    56  </span>	for k, v := range dict {
-<span id="L57" class="ln">    57  </span>		switch k {
-<span id="L58" class="ln">    58  </span>		case &#34;features&#34;:
-<span id="L59" class="ln">    59  </span>			apiResponse.Features = BuildFeatures(v)
-<span id="L60" class="ln">    60  </span>		case &#34;dateUpdated&#34;:
-<span id="L61" class="ln">    61  </span>			dateUpdated, ok := jsonString(v, &#34;FeatureAPIResponse&#34;, &#34;dateUpdated&#34;)
-<span id="L62" class="ln">    62  </span>			if !ok {
-<span id="L63" class="ln">    63  </span>				return nil
-<span id="L64" class="ln">    64  </span>			}
-<span id="L65" class="ln">    65  </span>			var err error
-<span id="L66" class="ln">    66  </span>			apiResponse.DateUpdated, err = time.Parse(dateLayout, dateUpdated)
-<span id="L67" class="ln">    67  </span>			if err != nil {
-<span id="L68" class="ln">    68  </span>				return nil
-<span id="L69" class="ln">    69  </span>			}
-<span id="L70" class="ln">    70  </span>		case &#34;encryptedFeatures&#34;:
-<span id="L71" class="ln">    71  </span>			encryptedFeatures, ok := jsonString(v, &#34;FeatureAPIResponse&#34;, &#34;encryptedFeatures&#34;)
-<span id="L72" class="ln">    72  </span>			if !ok {
-<span id="L73" class="ln">    73  </span>				return nil
-<span id="L74" class="ln">    74  </span>			}
-<span id="L75" class="ln">    75  </span>			apiResponse.EncryptedFeatures = encryptedFeatures
-<span id="L76" class="ln">    76  </span>		default:
-<span id="L77" class="ln">    77  </span>			logWarn(&#34;Unknown key in JSON data&#34;, &#34;FeatureAPIResponse&#34;, k)
-<span id="L78" class="ln">    78  </span>		}
-<span id="L79" class="ln">    79  </span>	}
-<span id="L80" class="ln">    80  </span>	return &amp;apiResponse
-<span id="L81" class="ln">    81  </span>}
-<span id="L82" class="ln">    82  </span>
+<span id="L12" class="ln">    12  </span>	Status            int                 `json:&#34;status&#34;`
+<span id="L13" class="ln">    13  </span>	Features          map[string]*Feature `json:&#34;features&#34;`
+<span id="L14" class="ln">    14  </span>	DateUpdated       time.Time           `json:&#34;dateUpdated&#34;`
+<span id="L15" class="ln">    15  </span>	EncryptedFeatures string              `json:&#34;encryptedFeatures&#34;`
+<span id="L16" class="ln">    16  </span>}
+<span id="L17" class="ln">    17  </span>
+<span id="L18" class="ln">    18  </span><span class="comment">// Implement normal JSON marshalling interfaces for convenience.</span>
+<span id="L19" class="ln">    19  </span>
+<span id="L20" class="ln">    20  </span>func (r *FeatureAPIResponse) MarshalJSON() ([]byte, error) {
+<span id="L21" class="ln">    21  </span>	type Alias FeatureAPIResponse
+<span id="L22" class="ln">    22  </span>	return json.Marshal(&amp;struct {
+<span id="L23" class="ln">    23  </span>		*Alias
+<span id="L24" class="ln">    24  </span>		DateUpdated string `json:&#34;dateUpdated&#34;`
+<span id="L25" class="ln">    25  </span>	}{
+<span id="L26" class="ln">    26  </span>		Alias:       (*Alias)(r),
+<span id="L27" class="ln">    27  </span>		DateUpdated: r.DateUpdated.Format(dateLayout),
+<span id="L28" class="ln">    28  </span>	})
+<span id="L29" class="ln">    29  </span>}
+<span id="L30" class="ln">    30  </span>
+<span id="L31" class="ln">    31  </span>func (r *FeatureAPIResponse) UnmarshalJSON(data []byte) error {
+<span id="L32" class="ln">    32  </span>	parsed := ParseFeatureAPIResponse(data)
+<span id="L33" class="ln">    33  </span>	if parsed == nil {
+<span id="L34" class="ln">    34  </span>		return errors.New(&#34;failed to parse feature API response&#34;)
+<span id="L35" class="ln">    35  </span>	}
+<span id="L36" class="ln">    36  </span>	r.Features = parsed.Features
+<span id="L37" class="ln">    37  </span>	r.DateUpdated = parsed.DateUpdated
+<span id="L38" class="ln">    38  </span>	r.EncryptedFeatures = parsed.EncryptedFeatures
+<span id="L39" class="ln">    39  </span>	return nil
+<span id="L40" class="ln">    40  </span>}
+<span id="L41" class="ln">    41  </span>
+<span id="L42" class="ln">    42  </span><span class="comment">// ParseFeature creates a single Feature value from raw JSON input.</span>
+<span id="L43" class="ln">    43  </span>func ParseFeatureAPIResponse(data []byte) *FeatureAPIResponse {
+<span id="L44" class="ln">    44  </span>	dict := make(map[string]interface{})
+<span id="L45" class="ln">    45  </span>	err := json.Unmarshal(data, &amp;dict)
+<span id="L46" class="ln">    46  </span>	if err != nil {
+<span id="L47" class="ln">    47  </span>		logError(&#34;Failed parsing JSON input&#34;, &#34;FeatureAPIResponse&#34;)
+<span id="L48" class="ln">    48  </span>		return nil
+<span id="L49" class="ln">    49  </span>	}
+<span id="L50" class="ln">    50  </span>	return BuildFeatureAPIResponse(dict)
+<span id="L51" class="ln">    51  </span>}
+<span id="L52" class="ln">    52  </span>
+<span id="L53" class="ln">    53  </span><span class="comment">// BuildFeatureAPIResponse creates a FeatureAPIResponse value from a</span>
+<span id="L54" class="ln">    54  </span><span class="comment">// generic JSON value.</span>
+<span id="L55" class="ln">    55  </span>func BuildFeatureAPIResponse(dict map[string]interface{}) *FeatureAPIResponse {
+<span id="L56" class="ln">    56  </span>	apiResponse := FeatureAPIResponse{}
+<span id="L57" class="ln">    57  </span>	for k, v := range dict {
+<span id="L58" class="ln">    58  </span>		switch k {
+<span id="L59" class="ln">    59  </span>		case &#34;status&#34;:
+<span id="L60" class="ln">    60  </span>			status, ok := jsonInt(v, &#34;FeatureAPIResponse&#34;, &#34;status&#34;)
+<span id="L61" class="ln">    61  </span>			if !ok {
+<span id="L62" class="ln">    62  </span>				return nil
+<span id="L63" class="ln">    63  </span>			}
+<span id="L64" class="ln">    64  </span>			apiResponse.Status = status
+<span id="L65" class="ln">    65  </span>		case &#34;features&#34;:
+<span id="L66" class="ln">    66  </span>			apiResponse.Features = BuildFeatures(v)
+<span id="L67" class="ln">    67  </span>		case &#34;dateUpdated&#34;:
+<span id="L68" class="ln">    68  </span>			dateUpdated, ok := jsonString(v, &#34;FeatureAPIResponse&#34;, &#34;dateUpdated&#34;)
+<span id="L69" class="ln">    69  </span>			if !ok {
+<span id="L70" class="ln">    70  </span>				return nil
+<span id="L71" class="ln">    71  </span>			}
+<span id="L72" class="ln">    72  </span>			var err error
+<span id="L73" class="ln">    73  </span>			apiResponse.DateUpdated, err = time.Parse(dateLayout, dateUpdated)
+<span id="L74" class="ln">    74  </span>			if err != nil {
+<span id="L75" class="ln">    75  </span>				return nil
+<span id="L76" class="ln">    76  </span>			}
+<span id="L77" class="ln">    77  </span>		case &#34;encryptedFeatures&#34;:
+<span id="L78" class="ln">    78  </span>			encryptedFeatures, ok := jsonString(v, &#34;FeatureAPIResponse&#34;, &#34;encryptedFeatures&#34;)
+<span id="L79" class="ln">    79  </span>			if !ok {
+<span id="L80" class="ln">    80  </span>				return nil
+<span id="L81" class="ln">    81  </span>			}
+<span id="L82" class="ln">    82  </span>			apiResponse.EncryptedFeatures = encryptedFeatures
+<span id="L83" class="ln">    83  </span>		default:
+<span id="L84" class="ln">    84  </span>			logWarn(&#34;Unknown key in JSON data&#34;, &#34;FeatureAPIResponse&#34;, k)
+<span id="L85" class="ln">    85  </span>		}
+<span id="L86" class="ln">    86  </span>	}
+<span id="L87" class="ln">    87  </span>	return &amp;apiResponse
+<span id="L88" class="ln">    88  </span>}
+<span id="L89" class="ln">    89  </span>
 </pre><p><a href="../../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?m=text">View as plain text</a></p>
 
 <div id="footer"><a href="../../../../docs.zip">Download docs.zip</a> to browse offline - Generated by <a href="https://godoc.org/golang.org/x/tools/godoc" target="_blank">godoc</a> + <a href="https://code.rocketnine.space/tslocum/godoc-static" target="_blank">godoc-static</a></div>

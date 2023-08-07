@@ -1786,13 +1786,14 @@ default.
 		
 			
 			
-			</p><h2 id="FeatureAPIResponse">type <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=114:331#L1">FeatureAPIResponse</a>
+			</p><h2 id="FeatureAPIResponse">type <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=114:386#L1">FeatureAPIResponse</a>
 				<a class="permalink" href="#FeatureAPIResponse">¶</a>
 				
 				
 			</h2>
 			
 			<pre>type FeatureAPIResponse struct {
+<span id="FeatureAPIResponse.Status"></span>    Status            <a href="../../../builtin/#int">int</a>                 `json:&#34;status&#34;`
 <span id="FeatureAPIResponse.Features"></span>    Features          map[<a href="../../../builtin/#string">string</a>]*<a href="#Feature">Feature</a> `json:&#34;features&#34;`
 <span id="FeatureAPIResponse.DateUpdated"></span>    DateUpdated       <a href="../../../time/">time</a>.<a href="../../../time/#Time">Time</a>           `json:&#34;dateUpdated&#34;`
 <span id="FeatureAPIResponse.EncryptedFeatures"></span>    EncryptedFeatures <a href="../../../builtin/#string">string</a>              `json:&#34;encryptedFeatures&#34;`
@@ -1809,7 +1810,7 @@ default.
 
 			
 				
-				<h3 id="BuildFeatureAPIResponse">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=1412:1489#L44">BuildFeatureAPIResponse</a>
+				<h3 id="BuildFeatureAPIResponse">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=1467:1544#L45">BuildFeatureAPIResponse</a>
 					<a class="permalink" href="#BuildFeatureAPIResponse">¶</a>
 					
 					
@@ -1822,7 +1823,7 @@ generic JSON value.
 				
 			
 				
-				</p><h3 id="ParseFeatureAPIResponse">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=1046:1107#L32">ParseFeatureAPIResponse</a>
+				</p><h3 id="ParseFeatureAPIResponse">func <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=1101:1162#L33">ParseFeatureAPIResponse</a>
 					<a class="permalink" href="#ParseFeatureAPIResponse">¶</a>
 					
 					
@@ -1836,7 +1837,7 @@ generic JSON value.
 
 			
 				
-				</p><h3 id="FeatureAPIResponse.MarshalJSON">func (*FeatureAPIResponse) <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=399:457#L9">MarshalJSON</a>
+				</p><h3 id="FeatureAPIResponse.MarshalJSON">func (*FeatureAPIResponse) <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=454:512#L10">MarshalJSON</a>
 					<a class="permalink" href="#FeatureAPIResponse.MarshalJSON">¶</a>
 					
 					
@@ -1848,7 +1849,7 @@ generic JSON value.
 				
 			
 				
-				<h3 id="FeatureAPIResponse.UnmarshalJSON">func (*FeatureAPIResponse) <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=661:722#L20">UnmarshalJSON</a>
+				<h3 id="FeatureAPIResponse.UnmarshalJSON">func (*FeatureAPIResponse) <a href="../../../src/github.com/growthbook/growthbook-golang/feature_api_response.go.html?s=716:777#L21">UnmarshalJSON</a>
 					<a class="permalink" href="#FeatureAPIResponse.UnmarshalJSON">¶</a>
 					
 					
