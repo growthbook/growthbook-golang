@@ -536,7 +536,11 @@ func refreshFromSSE(ctx context.Context, c *Client,
 				logger.Error("SSE event stream disconnected", "key", key)
 				reconnect <- struct{}{}
 			})
-			client.SubscribeChanWithContext(ctx, "features", ch)
+			err := client.SubscribeChanWithContext(ctx, "features", ch)
+			if err != nil {
+				logger.Error("Connecting to SSE stream", "error", err)
+				return
+			}
 
 		case msg := <-ch:
 			if len(msg.Data) == 0 {
@@ -546,7 +550,7 @@ func refreshFromSSE(ctx context.Context, c *Client,
 			err := json.Unmarshal(msg.Data, &data)
 
 			if err != nil {
-				logger.Error("SSE error", "key", key, "error", err)
+				logger.Error("SSE error", "error", err, "key", key)
 			}
 			if err != nil && client != nil {
 				errors++
