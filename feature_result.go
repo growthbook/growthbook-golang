@@ -25,7 +25,7 @@ func (r *FeatureResult) UnmarshalJSON(data []byte) error {
 	type Alias FeatureResult
 	tmp := &struct {
 		*Alias
-		ExperimentResult interface{}
+		ExperimentResult any
 	}{}
 	err := json.Unmarshal(data, &tmp)
 	if err != nil {

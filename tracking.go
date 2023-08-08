@@ -20,7 +20,7 @@ import (
 
 type ExperimentTracker interface {
 	Track(ctx context.Context, c *Client,
-		exp *Experiment, result *Result, extraData interface{})
+		exp *Experiment, result *Result, extraData any)
 }
 
 // ExperimentCallback is a wrapper around a simple callback for
@@ -31,7 +31,7 @@ type ExperimentCallback struct {
 }
 
 func (tcb *ExperimentCallback) Track(ctx context.Context,
-	c *Client, exp *Experiment, result *Result, extraData interface{}) {
+	c *Client, exp *Experiment, result *Result, extraData any) {
 	tcb.CB(ctx, exp, result)
 }
 
@@ -73,7 +73,7 @@ func NewSingleProcessExperimentTrackingCache(tracker ExperimentTracker) *SingleP
 // tracker.
 
 func (cache *SingleProcessExperimentTrackingCache) Track(ctx context.Context, c *Client,
-	exp *Experiment, result *Result, extraData interface{}) {
+	exp *Experiment, result *Result, extraData any) {
 	cache.Lock()
 	defer cache.Unlock()
 
@@ -107,7 +107,7 @@ func (cache *SingleProcessExperimentTrackingCache) Clear() {
 
 type FeatureUsageTracker interface {
 	OnFeatureUsage(ctx context.Context, c *Client,
-		key string, result *FeatureResult, extraData interface{})
+		key string, result *FeatureResult, extraData any)
 }
 
 // FeatureUsageCallback is a wrapper around a simple callback for
@@ -118,7 +118,7 @@ type FeatureUsageCallback struct {
 }
 
 func (fcb *FeatureUsageCallback) OnFeatureUsage(ctx context.Context,
-	c *Client, key string, result *FeatureResult, extraData interface{}) {
+	c *Client, key string, result *FeatureResult, extraData any) {
 	fcb.CB(ctx, key, result)
 }
 
@@ -145,13 +145,13 @@ func (fcb *FeatureUsageCallback) OnFeatureUsage(ctx context.Context,
 
 type SingleProcessFeatureUsageTrackingCache struct {
 	sync.Mutex
-	trackedFeatures map[string]interface{}
+	trackedFeatures map[string]any
 	tracker         FeatureUsageTracker
 }
 
 func NewSingleProcessFeatureUsageTrackingCache(tracker FeatureUsageTracker) *SingleProcessFeatureUsageTrackingCache {
 	return &SingleProcessFeatureUsageTrackingCache{
-		trackedFeatures: make(map[string]interface{}),
+		trackedFeatures: make(map[string]any),
 		tracker:         tracker,
 	}
 }
@@ -159,7 +159,7 @@ func NewSingleProcessFeatureUsageTrackingCache(tracker FeatureUsageTracker) *Sin
 // Implement the feature usage tracking interface.
 
 func (cache *SingleProcessFeatureUsageTrackingCache) OnFeatureUsage(ctx context.Context, c *Client,
-	key string, res *FeatureResult, extraData interface{}) {
+	key string, res *FeatureResult, extraData any) {
 	cache.Lock()
 	defer cache.Unlock()
 
@@ -177,5 +177,5 @@ func (cache *SingleProcessFeatureUsageTrackingCache) Clear() {
 	cache.Lock()
 	defer cache.Unlock()
 
-	cache.trackedFeatures = make(map[string]interface{})
+	cache.trackedFeatures = make(map[string]any)
 }

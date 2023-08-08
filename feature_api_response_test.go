@@ -118,12 +118,12 @@ func TestAPIResponseParsing(t *testing.T) {
 		t.Error("failed to format API response data")
 	}
 
-	check1 := map[string]interface{}{}
+	check1 := map[string]any{}
 	err = json.Unmarshal([]byte(jsonData), &check1)
 	if err != nil {
 		t.Error("failed to parse API response data for checking")
 	}
-	check2 := map[string]interface{}{}
+	check2 := map[string]any{}
 	err = json.Unmarshal(roundTrip, &check2)
 	if err != nil {
 		t.Error("failed to parse API response data for checking")

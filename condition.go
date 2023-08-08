@@ -215,7 +215,7 @@ func (c *notCond) UnmarshalJSON(data []byte) error {
 type baseCond struct {
 	// This is represented in this dynamically typed form to make lax
 	// error handling easier.
-	values map[string]interface{}
+	values map[string]any
 }
 
 // Evaluate base Condition case by iterating over keys and performing
@@ -237,7 +237,7 @@ func (c baseCond) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON deserializes base conditions from JSON.
 func (c *baseCond) UnmarshalJSON(data []byte) error {
-	tmp := map[string]interface{}{}
+	tmp := map[string]any{}
 	err := json.Unmarshal(data, &tmp)
 	if err == nil {
 		c.values = tmp
@@ -249,14 +249,14 @@ func (c *baseCond) UnmarshalJSON(data []byte) error {
 
 // Extract sub-elements of an attribute object using dot-separated
 // paths.
-func getPath(attrs Attributes, path string) interface{} {
+func getPath(attrs Attributes, path string) any {
 	parts := strings.Split(path, ".")
-	var current interface{}
+	var current any
 	for i, p := range parts {
 		if i == 0 {
 			current = attrs[p]
 		} else {
-			m, ok := current.(map[string]interface{})
+			m, ok := current.(map[string]any)
 			if !ok {
 				return nil
 			}
@@ -271,8 +271,8 @@ func getPath(attrs Attributes, path string) interface{} {
 // "$gt", "$elemMatch", etc.), then evaluate as an operator condition.
 // Otherwise, just directly compare the condition value with the
 // attribute value.
-func evalConditionValue(condVal interface{}, attrVal interface{}) bool {
-	condmap, ok := condVal.(map[string]interface{})
+func evalConditionValue(condVal any, attrVal any) bool {
+	condmap, ok := condVal.(map[string]any)
 	if ok && isOperatorObject(condmap) {
 		for k, v := range condmap {
 			if !evalOperatorCondition(k, attrVal, v) {
@@ -287,7 +287,7 @@ func evalConditionValue(condVal interface{}, attrVal interface{}) bool {
 
 // An operator object is a JSON object all of whose keys start with a
 // "$" character, representing comparison operators.
-func isOperatorObject(obj map[string]interface{}) bool {
+func isOperatorObject(obj map[string]any) bool {
 	for k := range obj {
 		if !strings.HasPrefix(k, "$") {
 			return false
@@ -298,7 +298,7 @@ func isOperatorObject(obj map[string]interface{}) bool {
 
 // Evaluate operator conditions. The first parameter here is the
 // operator name.
-func evalOperatorCondition(key string, attrVal interface{}, condVal interface{}) bool {
+func evalOperatorCondition(key string, attrVal any, condVal any) bool {
 	switch key {
 	case "$veq", "$vne", "$vgt", "$vgte", "$vlt", "$vlte":
 		attrstring, attrok := attrVal.(string)
@@ -330,14 +330,14 @@ func evalOperatorCondition(key string, attrVal interface{}, condVal interface{})
 		return re.MatchString(attrstring)
 
 	case "$in":
-		vals, ok := condVal.([]interface{})
+		vals, ok := condVal.([]any)
 		if !ok {
 			return false
 		}
 		return elementIn(attrVal, vals)
 
 	case "$nin":
-		vals, ok := condVal.([]interface{})
+		vals, ok := condVal.([]any)
 		if !ok {
 			return false
 		}
@@ -350,7 +350,7 @@ func evalOperatorCondition(key string, attrVal interface{}, condVal interface{})
 		if getType(attrVal) != "array" {
 			return false
 		}
-		return evalConditionValue(condVal, float64(len(attrVal.([]interface{}))))
+		return evalConditionValue(condVal, float64(len(attrVal.([]any))))
 
 	case "$all":
 		return evalAll(condVal, attrVal)
@@ -370,7 +370,7 @@ func evalOperatorCondition(key string, attrVal interface{}, condVal interface{})
 }
 
 // Get JSON type name for Go representation of JSON objects.
-func getType(v interface{}) string {
+func getType(v any) string {
 	if v == nil {
 		return "null"
 	}
@@ -381,9 +381,9 @@ func getType(v interface{}) string {
 		return "number"
 	case bool:
 		return "boolean"
-	case []interface{}:
+	case []any:
 		return "array"
-	case map[string]interface{}:
+	case map[string]any:
 		return "object"
 	default:
 		return "unknown"
@@ -414,7 +414,7 @@ func versionCompare(comp string, v1 string, v2 string) bool {
 
 // Perform numeric or string ordering comparisons on polymorphic JSON
 // values.
-func compare(comp string, x interface{}, y interface{}) bool {
+func compare(comp string, x any, y any) bool {
 	switch x.(type) {
 	case float64:
 		xn := x.(float64)
@@ -458,8 +458,8 @@ func compare(comp string, x interface{}, y interface{}) bool {
 // Check for membership of a JSON value in a JSON array or
 // intersection of two arrays.
 
-func elementIn(v interface{}, array []interface{}) bool {
-	otherArray, ok := v.([]interface{})
+func elementIn(v any, array []any) bool {
+	otherArray, ok := v.([]any)
 	if ok {
 		// Both arguments are arrays, so look for intersection.
 		return commonElement(array, otherArray)
@@ -476,7 +476,7 @@ func elementIn(v interface{}, array []interface{}) bool {
 
 // Check for common element in two arrays.
 
-func commonElement(a1 []interface{}, a2 []interface{}) bool {
+func commonElement(a1 []any, a2 []any) bool {
 	for _, el1 := range a1 {
 		for _, el2 := range a2 {
 			if reflect.DeepEqual(el1, el2) {
@@ -488,14 +488,14 @@ func commonElement(a1 []interface{}, a2 []interface{}) bool {
 }
 
 // Perform "element matching" operation.
-func elemMatch(attrVal interface{}, condVal interface{}) bool {
+func elemMatch(attrVal any, condVal any) bool {
 	// Check that the attribute and condition values are of the
 	// appropriate types (an array and an object respectively).
-	attrs, ok := attrVal.([]interface{})
+	attrs, ok := attrVal.([]any)
 	if !ok {
 		return false
 	}
-	condmap, ok := condVal.(map[string]interface{})
+	condmap, ok := condVal.(map[string]any)
 	if !ok {
 		return false
 	}
@@ -505,7 +505,7 @@ func elemMatch(attrVal interface{}, condVal interface{}) bool {
 	}
 
 	// Decide on the type of check to perform on the attribute values.
-	check := func(v interface{}) bool { return evalConditionValue(condVal, v) }
+	check := func(v any) bool { return evalConditionValue(condVal, v) }
 	if !isOperatorObject(condmap) {
 		cond := Condition{}
 		err := json.Unmarshal(conddata, &cond)
@@ -513,8 +513,8 @@ func elemMatch(attrVal interface{}, condVal interface{}) bool {
 			return false
 		}
 
-		check = func(v interface{}) bool {
-			vmap, ok := v.(map[string]interface{})
+		check = func(v any) bool {
+			vmap, ok := v.(map[string]any)
 			if !ok {
 				return false
 			}
@@ -533,7 +533,7 @@ func elemMatch(attrVal interface{}, condVal interface{}) bool {
 }
 
 // Perform "exists" operation.
-func existsCheck(condVal interface{}, attrVal interface{}) bool {
+func existsCheck(condVal any, attrVal any) bool {
 	cond, ok := condVal.(bool)
 	if !ok {
 		return false
@@ -545,9 +545,9 @@ func existsCheck(condVal interface{}, attrVal interface{}) bool {
 }
 
 // Perform "all" operation.
-func evalAll(condVal interface{}, attrVal interface{}) bool {
-	conds, okc := condVal.([]interface{})
-	attrs, oka := attrVal.([]interface{})
+func evalAll(condVal any, attrVal any) bool {
+	conds, okc := condVal.([]any)
+	attrs, oka := attrVal.([]any)
 	if !okc || !oka {
 		return false
 	}
@@ -576,7 +576,7 @@ func evalAll(condVal interface{}, attrVal interface{}) bool {
 // within their Go code, and we would like them to compare equal,
 // since that's what happens in the JS SDK.
 
-func jsEqual(a interface{}, b interface{}) bool {
+func jsEqual(a any, b any) bool {
 	if a == nil {
 		return b == nil
 	}
@@ -585,8 +585,8 @@ func jsEqual(a interface{}, b interface{}) bool {
 	}
 	switch reflect.TypeOf(a).Kind() {
 	case reflect.Array, reflect.Slice:
-		aa, aok := a.([]interface{})
-		ba, bok := b.([]interface{})
+		aa, aok := a.([]any)
+		ba, bok := b.([]any)
 		if !aok || !bok {
 			return false
 		}
@@ -601,8 +601,8 @@ func jsEqual(a interface{}, b interface{}) bool {
 		return true
 
 	case reflect.Map:
-		am, aok := a.(map[string]interface{})
-		bm, bok := b.(map[string]interface{})
+		am, aok := a.(map[string]any)
+		bm, bok := b.(map[string]any)
 		if !aok || !bok {
 			return false
 		}
@@ -625,7 +625,7 @@ func jsEqual(a interface{}, b interface{}) bool {
 	}
 }
 
-func normalizeNumber(a interface{}) interface{} {
+func normalizeNumber(a any) any {
 	v := reflect.ValueOf(a)
 	if v.CanFloat() {
 		return v.Float()

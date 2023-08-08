@@ -9,7 +9,7 @@ import (
 
 // Attributes is an arbitrary JSON object containing user and request
 // attributes.
-type Attributes map[string]interface{}
+type Attributes map[string]any
 
 func (attrs Attributes) fixSliceTypes() Attributes {
 	fixed := Attributes{}

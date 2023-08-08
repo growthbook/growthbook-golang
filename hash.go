@@ -6,7 +6,7 @@ import (
 )
 
 // Convert integer or string hash values to strings.
-func convertHashValue(vin interface{}) (string, bool) {
+func convertHashValue(vin any) (string, bool) {
 	hashString, stringOK := vin.(string)
 	if stringOK {
 		if hashString == "" {

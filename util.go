@@ -118,7 +118,7 @@ func unpad(buf []byte) ([]byte, error) {
 
 // This function imitates Javascript's "truthiness" evaluation for Go
 // values of unknown type.
-func truthy(v interface{}) bool {
+func truthy(v any) bool {
 	if v == nil {
 		return false
 	}
@@ -139,17 +139,17 @@ func truthy(v interface{}) bool {
 	return true
 }
 
-// This function converts slices of concrete types to []interface{}.
+// This function converts slices of concrete types to []any.
 // This is needed to handle the common case where a user passes an
 // attribute as a []string (or []int), and this needs to be compared
 // against feature data deserialized from JSON, which always results
-// in []interface{} slices.
-func fixSliceTypes(vin interface{}) interface{} {
-	// Convert all type-specific slices to interface{} slices.
+// in []any slices.
+func fixSliceTypes(vin any) any {
+	// Convert all type-specific slices to any slices.
 	v := reflect.ValueOf(vin)
 	rv := vin
 	if v.Kind() == reflect.Slice || v.Kind() == reflect.Array {
-		srv := make([]interface{}, v.Len())
+		srv := make([]any, v.Len())
 		for i := 0; i < v.Len(); i++ {
 			elem := v.Index(i).Interface()
 			srv[i] = elem

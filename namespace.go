@@ -23,11 +23,11 @@ func (ns *Namespace) clone() *Namespace {
 }
 
 func (ns *Namespace) MarshalJSON() ([]byte, error) {
-	return json.Marshal([]interface{}{ns.ID, ns.Start, ns.End})
+	return json.Marshal([]any{ns.ID, ns.Start, ns.End})
 }
 
 func (ns *Namespace) UnmarshalJSON(b []byte) error {
-	tmp := []interface{}{&ns.ID, &ns.Start, &ns.End}
+	tmp := []any{&ns.ID, &ns.Start, &ns.End}
 	okLen := len(tmp)
 	if err := json.Unmarshal(b, &tmp); err != nil {
 		return err

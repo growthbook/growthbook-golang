@@ -39,9 +39,9 @@ func TestJSON(t *testing.T) {
 func jsonTestEvalCondition(t *testing.T, test []byte) {
 	var name string
 	var condition *Condition
-	var value map[string]interface{}
+	var value map[string]any
 	var expected bool
-	unmarshalTest(test, []interface{}{&name, &condition, &value, &expected})
+	unmarshalTest(test, []any{&name, &condition, &value, &expected})
 
 	attrs := Attributes(value)
 	result := condition.Eval(attrs)
@@ -57,7 +57,7 @@ func jsonTestVersionCompare(t *testing.T, comparison string, test []byte) {
 	var v1 string
 	var v2 string
 	var expected bool
-	unmarshalTest(test, []interface{}{&v1, &v2, &expected})
+	unmarshalTest(test, []any{&v1, &v2, &expected})
 
 	pv1 := paddedVersionString(v1)
 	pv2 := paddedVersionString(v2)
@@ -86,7 +86,7 @@ func jsonTestHash(t *testing.T, test []byte) {
 	var value string
 	var version int
 	var expected *float64
-	unmarshalTest(test, []interface{}{&seed, &value, &version, &expected})
+	unmarshalTest(test, []any{&seed, &value, &version, &expected})
 
 	result := hash(seed, value, version)
 	if expected == nil {
@@ -110,12 +110,12 @@ func jsonTestGetBucketRange(t *testing.T, test []byte) {
 	var name string
 	var args json.RawMessage
 	var result [][]float64
-	unmarshalTest(test, []interface{}{&name, &args, &result})
+	unmarshalTest(test, []any{&name, &args, &result})
 
 	var numVariations int
 	var coverage float64
 	var weights []float64
-	unmarshalTest(args, []interface{}{&numVariations, &coverage, &weights})
+	unmarshalTest(args, []any{&numVariations, &coverage, &weights})
 
 	variations := make([]Range, len(result))
 	for i, v := range result {
@@ -161,7 +161,7 @@ func jsonTestFeature(t *testing.T, test []byte) {
 	var context *testContext
 	var featureKey string
 	var expected FeatureResult
-	unmarshalTest(test, []interface{}{&name, &context, &featureKey, &expected})
+	unmarshalTest(test, []any{&name, &context, &featureKey, &expected})
 	client := NewClient(nil).
 		WithFeatures(context.Features).
 		WithForcedVariations(context.ForcedVariations)
@@ -189,10 +189,10 @@ func jsonTestRun(t *testing.T, test []byte) {
 	var name string
 	var context *testContext
 	var experiment *Experiment
-	var result interface{}
+	var result any
 	var inExperiment bool
 	var hashUsed bool
-	unmarshalTest(test, []interface{}{&name, &context, &experiment, &result, &inExperiment, &hashUsed})
+	unmarshalTest(test, []any{&name, &context, &experiment, &result, &inExperiment, &hashUsed})
 
 	opt := Options{Disabled: !context.Enabled, QAMode: context.QAMode}
 	if context.URL != "" {
@@ -234,7 +234,7 @@ func jsonTestChooseVariation(t *testing.T, test []byte) {
 	var hash float64
 	var ranges [][]float64
 	var result int
-	unmarshalTest(test, []interface{}{&name, &hash, &ranges, &result})
+	unmarshalTest(test, []any{&name, &hash, &ranges, &result})
 
 	variations := make([]Range, len(ranges))
 	for i, v := range ranges {
@@ -256,7 +256,7 @@ func jsonTestQueryStringOverride(t *testing.T, test []byte) {
 	var rawURL string
 	var numVariations int
 	var expected *int
-	unmarshalTest(test, []interface{}{&name, &key, &rawURL, &numVariations, &expected})
+	unmarshalTest(test, []any{&name, &key, &rawURL, &numVariations, &expected})
 	url, err := url.Parse(rawURL)
 	if err != nil {
 		log.Fatal("invalid URL")
@@ -277,7 +277,7 @@ func jsonTestInNamespace(t *testing.T, test []byte) {
 	var id string
 	var namespace *Namespace
 	var expected bool
-	unmarshalTest(test, []interface{}{&name, &id, &namespace, &expected})
+	unmarshalTest(test, []any{&name, &id, &namespace, &expected})
 
 	result := namespace.inNamespace(id)
 	if result != expected {
@@ -291,7 +291,7 @@ func jsonTestInNamespace(t *testing.T, test []byte) {
 func jsonTestGetEqualWeights(t *testing.T, test []byte) {
 	var numVariations int
 	var expected []float64
-	unmarshalTest(test, []interface{}{&numVariations, &expected})
+	unmarshalTest(test, []any{&numVariations, &expected})
 
 	result := getEqualWeights(numVariations)
 	if !reflect.DeepEqual(round(result), round(expected)) {
@@ -307,7 +307,7 @@ func jsonTestDecrypt(t *testing.T, test []byte) {
 	var encrypted string
 	var key string
 	var expected *string
-	unmarshalTest(test, []interface{}{&name, &encrypted, &key, &expected})
+	unmarshalTest(test, []any{&name, &encrypted, &key, &expected})
 
 	result, err := decrypt(encrypted, key)
 	if expected == nil {
@@ -342,14 +342,14 @@ func jsonTest(t *testing.T, label string,
 	}
 
 	// Unmarshal all test cases at once.
-	allCases := map[string]interface{}{}
+	allCases := map[string]any{}
 	err = json.Unmarshal(content, &allCases)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Extract just the test cases for the test type we're working on.
-	cases := allCases[label].([]interface{})
+	cases := allCases[label].([]any)
 
 	// Extract the test data for each case as a JSON array and pass to
 	// the test function.
@@ -358,7 +358,7 @@ func jsonTest(t *testing.T, label string,
 		// with the interpretation of the array entries depending on the
 		// test type.
 		for itest, gtest := range cases {
-			test, ok := gtest.([]interface{})
+			test, ok := gtest.([]any)
 			if !ok {
 				log.Fatal("unpacking JSON test data")
 			}
@@ -399,14 +399,14 @@ func jsonMapTest(t *testing.T, label string,
 	}
 
 	// Unmarshal all test cases at once.
-	allCases := map[string]interface{}{}
+	allCases := map[string]any{}
 	err = json.Unmarshal(content, &allCases)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	// Extract just the test cases for the test type we're working on.
-	cases := allCases[label].(map[string]interface{})
+	cases := allCases[label].(map[string]any)
 
 	// Extract the test data for each case as a JSON array and pass to
 	// the test function.
@@ -416,7 +416,7 @@ func jsonMapTest(t *testing.T, label string,
 		// entries depends on the test type.
 		itest := 1
 		for name, gtest := range cases {
-			tests, ok := gtest.([]interface{})
+			tests, ok := gtest.([]any)
 			if !ok {
 				log.Fatal("unpacking JSON test data")
 			}
@@ -467,7 +467,7 @@ func (ctx *testContext) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func unmarshalTest(in []byte, d []interface{}) {
+func unmarshalTest(in []byte, d []any) {
 	okLen := len(d)
 	if err := json.Unmarshal(in, &d); err != nil {
 		log.Fatal("unpacking test data:", err)

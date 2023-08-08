@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.2.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.2.0) - 2023-08-??
+
+Major overhaul of SDK to a more idiomatic API.
+
+
 ## [v0.1.4](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.1.4) - 2023-08-05
 
 - Fix numeric comparisons to use Javascript semantics.

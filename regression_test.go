@@ -126,7 +126,7 @@ func TestIssue1(t *testing.T) {
 		t.Error("unexpected error:", err)
 	}
 
-	expectedValue := map[string]interface{}{
+	expectedValue := map[string]any{
 		"meal_type": "gf",
 		"dessert":   "French Vanilla Ice Cream",
 	}
@@ -159,7 +159,7 @@ func TestIssue5(t *testing.T) {
 		t.Error("unexpected error:", err)
 	}
 
-	expectedValue := map[string]interface{}{
+	expectedValue := map[string]any{
 		"meal_type": "gf",
 		"dessert":   "French Vanilla Ice Cream",
 	}

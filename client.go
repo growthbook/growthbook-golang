@@ -58,7 +58,7 @@ type Client struct {
 	opt                 *Options
 	forcedVariations    ForcedVariationsMap
 	overrides           ExperimentOverrides
-	forcedFeatureValues map[string]interface{}
+	forcedFeatureValues map[string]any
 	attributeOverrides  Attributes
 	nextSubscriptionID  subscriptionID
 	subscriptions       subscriptions
@@ -160,7 +160,7 @@ func NewClientContext(ctx context.Context, opt *Options) *Client {
 		opt:                 opt,
 		forcedVariations:    ForcedVariationsMap{},
 		overrides:           ExperimentOverrides{},
-		forcedFeatureValues: make(map[string]interface{}),
+		forcedFeatureValues: make(map[string]any),
 		attributeOverrides:  make(Attributes),
 		subscriptions:       make(map[subscriptionID]ExperimentTracker),
 		assigned:            make(assignments),
@@ -182,7 +182,7 @@ func (c *Client) clone() *Client {
 		opt:                 c.opt.clone(),
 		forcedVariations:    deepcopy.MustAnything(c.forcedVariations).(ForcedVariationsMap),
 		overrides:           c.overrides.clone(),
-		forcedFeatureValues: deepcopy.MustAnything(c.forcedFeatureValues).(map[string]interface{}),
+		forcedFeatureValues: deepcopy.MustAnything(c.forcedFeatureValues).(map[string]any),
 		attributeOverrides:  deepcopy.MustAnything(c.attributeOverrides).(Attributes),
 		subscriptions:       c.subscriptions.clone(),
 		assigned:            c.assigned.clone(),
@@ -197,14 +197,14 @@ func (c *Client) Ready() bool {
 }
 
 // ForcedFeatures returns the current forced feature values.
-func (c *Client) ForcedFeatures() map[string]interface{} {
+func (c *Client) ForcedFeatures() map[string]any {
 	return c.forcedFeatureValues
 }
 
 // WithForcedFeatures updates the current forced feature values.
-func (c *Client) WithForcedFeatures(values map[string]interface{}) *Client {
+func (c *Client) WithForcedFeatures(values map[string]any) *Client {
 	if values == nil {
-		values = map[string]interface{}{}
+		values = map[string]any{}
 	}
 	newc := c.clone()
 	newc.forcedFeatureValues = values
@@ -332,7 +332,11 @@ func (fr *FeatureResult) GetValueWithDefault(def FeatureValue) FeatureValue {
 
 // IsOn determines whether a feature is on.
 func (c *Client) IsOn(key string, attrs Attributes) (bool, error) {
-	result, err := c.EvalFeature(key, attrs)
+	return c.IsOnContext(context.Background(), key, attrs, nil)
+}
+
+func (c *Client) IsOnContext(ctx context.Context, key string, attrs Attributes, extraData any) (bool, error) {
+	result, err := c.EvalFeatureContext(ctx, key, attrs, extraData)
 	if err != nil {
 		return false, err
 	}
@@ -341,7 +345,11 @@ func (c *Client) IsOn(key string, attrs Attributes) (bool, error) {
 
 // IsOff determines whether a feature is off.
 func (c *Client) IsOff(key string, attrs Attributes) (bool, error) {
-	result, err := c.EvalFeature(key, attrs)
+	return c.IsOffContext(context.Background(), key, attrs, nil)
+}
+
+func (c *Client) IsOffContext(ctx context.Context, key string, attrs Attributes, extraData any) (bool, error) {
+	result, err := c.EvalFeatureContext(ctx, key, attrs, extraData)
 	if err != nil {
 		return false, err
 	}
@@ -351,8 +359,13 @@ func (c *Client) IsOff(key string, attrs Attributes) (bool, error) {
 // GetFeatureValue returns the result for a feature identified by a
 // string feature key, with an explicit default.
 func (c *Client) GetFeatureValue(key string, attrs Attributes,
-	defaultValue interface{}) (interface{}, error) {
-	featureValue, err := c.EvalFeature(key, attrs)
+	defaultValue any) (any, error) {
+	return c.GetFeatureValueContext(context.Background(), key, attrs, defaultValue, nil)
+}
+
+func (c *Client) GetFeatureValueContext(ctx context.Context, key string, attrs Attributes,
+	defaultValue any, extraData any) (any, error) {
+	featureValue, err := c.EvalFeatureContext(ctx, key, attrs, extraData)
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +400,7 @@ func (c *Client) EvalFeature(id string, attrs Attributes) (*FeatureResult, error
 }
 
 func (c *Client) EvalFeatureContext(ctx context.Context,
-	id string, attrs Attributes, extraData interface{}) (*FeatureResult, error) {
+	id string, attrs Attributes, extraData any) (*FeatureResult, error) {
 	c.features.RLock()
 	defer c.features.RUnlock()
 
@@ -482,7 +495,7 @@ func (c *Client) Run(exp *Experiment, attrs Attributes) (*Result, error) {
 }
 
 func (c *Client) RunContext(ctx context.Context,
-	exp *Experiment, attrs Attributes, extraData interface{}) (*Result, error) {
+	exp *Experiment, attrs Attributes, extraData any) (*Result, error) {
 	c.features.RLock()
 	defer c.features.RUnlock()
 
@@ -580,7 +593,7 @@ func (c *Client) refresh(
 }
 
 func (c *Client) trackFeatureUsage(ctx context.Context,
-	key string, res *FeatureResult, extraData interface{}) {
+	key string, res *FeatureResult, extraData any) {
 	// Don't track feature usage that was forced via an override.
 	if res.Source == OverrideResultSource {
 		return
@@ -600,7 +613,7 @@ func (c *Client) getFeatureResult(
 	ruleID string,
 	experiment *Experiment,
 	result *Result,
-	extraData interface{}) (*FeatureResult, error) {
+	extraData any) (*FeatureResult, error) {
 	on := truthy(value)
 	off := !on
 	var experimentWithResult *ExperimentWithResult
@@ -679,7 +692,7 @@ func (c *Client) getResult(
 }
 
 func (c *Client) fireSubscriptions(ctx context.Context,
-	exp *Experiment, result *Result, extraData interface{}) {
+	exp *Experiment, result *Result, extraData any) {
 	// Determine whether the result changed from the last stored result
 	// for the experiment.
 	changed := false
@@ -704,7 +717,7 @@ func (c *Client) fireSubscriptions(ctx context.Context,
 
 // Worker function to run an experiment.
 func (c *Client) doRun(ctx context.Context,
-	exp *Experiment, featureID string, attrs Attributes, extraData interface{}) (*Result, error) {
+	exp *Experiment, featureID string, attrs Attributes, extraData any) (*Result, error) {
 	// 1. If experiment has fewer than two variations, return default
 	//    result.
 	if len(exp.Variations) < 2 {
@@ -878,7 +891,7 @@ func (c *Client) mergeOverrides(exp *Experiment) *Experiment {
 // is responsible for caching: a simple default cache implementation
 // is provided as SingleProcessExperimentTrackingCache.
 func (c *Client) track(ctx context.Context,
-	exp *Experiment, result *Result, extraData interface{}) {
+	exp *Experiment, result *Result, extraData any) {
 	if c.opt.ExperimentTracker != nil {
 		// It's up to the tracker to make sure that it only tracks once
 		// per unique experiment (or according to whatever
@@ -894,7 +907,7 @@ func (c *Client) getHashAttribute(attr string, attrs Attributes) (string, string
 		hashAttribute = attr
 	}
 
-	var hashValue interface{}
+	var hashValue any
 	ok := false
 	if c.attributeOverrides != nil {
 		hashValue, ok = c.attributeOverrides[hashAttribute]

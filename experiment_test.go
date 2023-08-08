@@ -238,7 +238,7 @@ func TestExperimentURLTargeting(t *testing.T) {
 		WithVariations(0, 1).
 		WithURL(regexp.MustCompile("^/post/[0-9]+"))
 
-	check := func(icase int, url string, inExperiment bool, value interface{}) {
+	check := func(icase int, url string, inExperiment bool, value any) {
 		client := NewClient(&Options{URL: mustParseUrl(url)})
 
 		result, err := client.Run(exp, Attributes{"id": "1"})

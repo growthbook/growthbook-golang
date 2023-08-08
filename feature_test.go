@@ -145,12 +145,12 @@ func TestFeaturesUsesForcedFeatureValues(t *testing.T) {
 	}
 	client := NewClient(nil).
 		WithFeatures(features).
-		WithForcedFeatures(map[string]interface{}{
+		WithForcedFeatures(map[string]any{
 			"feature2": 1.0,
 			"feature3": 1.0,
 		})
 
-	check := func(icase int, feature string, value interface{}) {
+	check := func(icase int, feature string, value any) {
 		result, err := client.EvalFeature(feature, nil)
 		if err != nil {
 			t.Error("unexpected error:", err)

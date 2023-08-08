@@ -27,7 +27,7 @@ func (r *Result) UnmarshalJSON(data []byte) error {
 	type Alias Result
 	tmp := &struct {
 		*Alias
-		HashValue interface{}
+		HashValue any
 	}{}
 	err := json.Unmarshal(data, &tmp)
 	if err != nil {
