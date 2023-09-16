@@ -59,119 +59,116 @@
 <span id="L2" class="ln">     2  </span>
 <span id="L3" class="ln">     3  </span>import (
 <span id="L4" class="ln">     4  </span>	&#34;fmt&#34;
-<span id="L5" class="ln">     5  </span>	&#34;os&#34;
-<span id="L6" class="ln">     6  </span>)
-<span id="L7" class="ln">     7  </span>
-<span id="L8" class="ln">     8  </span><span class="comment">// Logger is a common interface for logging information and warning</span>
-<span id="L9" class="ln">     9  </span><span class="comment">// messages (errors are returned directly by SDK functions, but there</span>
-<span id="L10" class="ln">    10  </span><span class="comment">// is some useful &#34;out of band&#34; data that&#39;s provided via this</span>
-<span id="L11" class="ln">    11  </span><span class="comment">// interface).</span>
-<span id="L12" class="ln">    12  </span>type Logger interface {
-<span id="L13" class="ln">    13  </span>	Error(msg string, args ...interface{})
-<span id="L14" class="ln">    14  </span>	Errorf(format string, args ...interface{})
-<span id="L15" class="ln">    15  </span>	Warn(msg string, args ...interface{})
-<span id="L16" class="ln">    16  </span>	Warnf(format string, args ...interface{})
-<span id="L17" class="ln">    17  </span>	Info(msg string, args ...interface{})
-<span id="L18" class="ln">    18  </span>	Infof(format string, args ...interface{})
-<span id="L19" class="ln">    19  </span>}
-<span id="L20" class="ln">    20  </span>
-<span id="L21" class="ln">    21  </span><span class="comment">// SetLogger sets up the logging interface used throughout. The idea</span>
-<span id="L22" class="ln">    22  </span><span class="comment">// here is to provide developers with the option of handling errors</span>
-<span id="L23" class="ln">    23  </span><span class="comment">// and warnings in a strict way during development and a lenient way</span>
-<span id="L24" class="ln">    24  </span><span class="comment">// in production. For example, in development, setting a logger that</span>
-<span id="L25" class="ln">    25  </span><span class="comment">// prints a message for all logged output and panics on any logged</span>
-<span id="L26" class="ln">    26  </span><span class="comment">// warning or error might be appropriate, while in production, it</span>
-<span id="L27" class="ln">    27  </span><span class="comment">// would make more sense to log only warnings and errors and to</span>
-<span id="L28" class="ln">    28  </span><span class="comment">// proceed without halting. All GrowthBook SDK functions leave values</span>
-<span id="L29" class="ln">    29  </span><span class="comment">// in a sensible default state after errors, so production systems can</span>
-<span id="L30" class="ln">    30  </span><span class="comment">// essentially ignore any errors.</span>
-<span id="L31" class="ln">    31  </span>func SetLogger(userLogger Logger) {
-<span id="L32" class="ln">    32  </span>	logger = userLogger
-<span id="L33" class="ln">    33  </span>}
-<span id="L34" class="ln">    34  </span>
-<span id="L35" class="ln">    35  </span><span class="comment">// Global private logging interface.</span>
-<span id="L36" class="ln">    36  </span>var logger Logger
-<span id="L37" class="ln">    37  </span>
-<span id="L38" class="ln">    38  </span><span class="comment">// Internal logging functions wired up to logging interface.</span>
-<span id="L39" class="ln">    39  </span>
-<span id="L40" class="ln">    40  </span>func logError(msg string, args ...interface{}) {
-<span id="L41" class="ln">    41  </span>	if logger != nil {
-<span id="L42" class="ln">    42  </span>		logger.Error(msg, args...)
-<span id="L43" class="ln">    43  </span>	}
-<span id="L44" class="ln">    44  </span>}
-<span id="L45" class="ln">    45  </span>
-<span id="L46" class="ln">    46  </span>func logErrorf(format string, args ...interface{}) {
-<span id="L47" class="ln">    47  </span>	if logger != nil {
-<span id="L48" class="ln">    48  </span>		logger.Errorf(format, args...)
-<span id="L49" class="ln">    49  </span>	}
-<span id="L50" class="ln">    50  </span>}
-<span id="L51" class="ln">    51  </span>
-<span id="L52" class="ln">    52  </span>func logWarn(msg string, args ...interface{}) {
-<span id="L53" class="ln">    53  </span>	if logger != nil {
-<span id="L54" class="ln">    54  </span>		logger.Warn(msg, args...)
-<span id="L55" class="ln">    55  </span>	}
-<span id="L56" class="ln">    56  </span>}
-<span id="L57" class="ln">    57  </span>
-<span id="L58" class="ln">    58  </span>func logWarnf(format string, args ...interface{}) {
-<span id="L59" class="ln">    59  </span>	if logger != nil {
-<span id="L60" class="ln">    60  </span>		logger.Warnf(format, args...)
-<span id="L61" class="ln">    61  </span>	}
-<span id="L62" class="ln">    62  </span>}
-<span id="L63" class="ln">    63  </span>
-<span id="L64" class="ln">    64  </span>func logInfo(msg string, args ...interface{}) {
-<span id="L65" class="ln">    65  </span>	if logger != nil {
-<span id="L66" class="ln">    66  </span>		logger.Info(msg, args...)
-<span id="L67" class="ln">    67  </span>	}
-<span id="L68" class="ln">    68  </span>}
-<span id="L69" class="ln">    69  </span>
-<span id="L70" class="ln">    70  </span>func logInfof(format string, args ...interface{}) {
-<span id="L71" class="ln">    71  </span>	if logger != nil {
-<span id="L72" class="ln">    72  </span>		logger.Infof(format, args...)
-<span id="L73" class="ln">    73  </span>	}
-<span id="L74" class="ln">    74  </span>}
-<span id="L75" class="ln">    75  </span>
-<span id="L76" class="ln">    76  </span><span class="comment">// DevLogger is a logger instance suitable for use in development. It</span>
-<span id="L77" class="ln">    77  </span><span class="comment">// prints all logged messages to standard output, and exits on errors.</span>
-<span id="L78" class="ln">    78  </span>type DevLogger struct{}
-<span id="L79" class="ln">    79  </span>
-<span id="L80" class="ln">    80  </span>func (log *DevLogger) Error(msg string, args ...interface{}) {
-<span id="L81" class="ln">    81  </span>	fmt.Print(&#34;[ERROR] &#34;, msg)
-<span id="L82" class="ln">    82  </span>	if len(args) &gt; 0 {
-<span id="L83" class="ln">    83  </span>		fmt.Print(&#34;: &#34;)
-<span id="L84" class="ln">    84  </span>		fmt.Println(args...)
-<span id="L85" class="ln">    85  </span>	}
-<span id="L86" class="ln">    86  </span>	os.Exit(1)
-<span id="L87" class="ln">    87  </span>}
-<span id="L88" class="ln">    88  </span>
-<span id="L89" class="ln">    89  </span>func (log *DevLogger) Errorf(format string, args ...interface{}) {
-<span id="L90" class="ln">    90  </span>	fmt.Printf(&#34;[ERROR] &#34;+format+&#34;\n&#34;, args...)
-<span id="L91" class="ln">    91  </span>	os.Exit(1)
-<span id="L92" class="ln">    92  </span>}
-<span id="L93" class="ln">    93  </span>
-<span id="L94" class="ln">    94  </span>func (log *DevLogger) Warn(msg string, args ...interface{}) {
-<span id="L95" class="ln">    95  </span>	fmt.Print(&#34;[WARNING] &#34;, msg)
-<span id="L96" class="ln">    96  </span>	if len(args) &gt; 0 {
-<span id="L97" class="ln">    97  </span>		fmt.Print(&#34;: &#34;)
-<span id="L98" class="ln">    98  </span>		fmt.Println(args...)
-<span id="L99" class="ln">    99  </span>	}
-<span id="L100" class="ln">   100  </span>}
-<span id="L101" class="ln">   101  </span>
-<span id="L102" class="ln">   102  </span>func (log *DevLogger) Warnf(format string, args ...interface{}) {
-<span id="L103" class="ln">   103  </span>	fmt.Printf(&#34;[WARNING] &#34;+format+&#34;\n&#34;, args...)
-<span id="L104" class="ln">   104  </span>}
-<span id="L105" class="ln">   105  </span>
-<span id="L106" class="ln">   106  </span>func (log *DevLogger) Info(msg string, args ...interface{}) {
-<span id="L107" class="ln">   107  </span>	fmt.Print(&#34;[INFO] &#34;, msg)
-<span id="L108" class="ln">   108  </span>	if len(args) &gt; 0 {
-<span id="L109" class="ln">   109  </span>		fmt.Print(&#34;: &#34;)
-<span id="L110" class="ln">   110  </span>		fmt.Println(args...)
-<span id="L111" class="ln">   111  </span>	}
-<span id="L112" class="ln">   112  </span>}
-<span id="L113" class="ln">   113  </span>
-<span id="L114" class="ln">   114  </span>func (log *DevLogger) Infof(format string, args ...interface{}) {
-<span id="L115" class="ln">   115  </span>	fmt.Printf(&#34;[INFO] &#34;+format+&#34;\n&#34;, args...)
-<span id="L116" class="ln">   116  </span>}
-<span id="L117" class="ln">   117  </span>
+<span id="L5" class="ln">     5  </span>)
+<span id="L6" class="ln">     6  </span>
+<span id="L7" class="ln">     7  </span><span class="comment">// Logger is a common interface for logging information and warning</span>
+<span id="L8" class="ln">     8  </span><span class="comment">// messages (errors are returned directly by SDK functions, but there</span>
+<span id="L9" class="ln">     9  </span><span class="comment">// is some useful &#34;out of band&#34; data that&#39;s provided via this</span>
+<span id="L10" class="ln">    10  </span><span class="comment">// interface).</span>
+<span id="L11" class="ln">    11  </span>type Logger interface {
+<span id="L12" class="ln">    12  </span>	Error(msg string, args ...interface{})
+<span id="L13" class="ln">    13  </span>	Errorf(format string, args ...interface{})
+<span id="L14" class="ln">    14  </span>	Warn(msg string, args ...interface{})
+<span id="L15" class="ln">    15  </span>	Warnf(format string, args ...interface{})
+<span id="L16" class="ln">    16  </span>	Info(msg string, args ...interface{})
+<span id="L17" class="ln">    17  </span>	Infof(format string, args ...interface{})
+<span id="L18" class="ln">    18  </span>}
+<span id="L19" class="ln">    19  </span>
+<span id="L20" class="ln">    20  </span><span class="comment">// SetLogger sets up the logging interface used throughout. The idea</span>
+<span id="L21" class="ln">    21  </span><span class="comment">// here is to provide developers with the option of handling errors</span>
+<span id="L22" class="ln">    22  </span><span class="comment">// and warnings in a strict way during development and a lenient way</span>
+<span id="L23" class="ln">    23  </span><span class="comment">// in production. For example, in development, setting a logger that</span>
+<span id="L24" class="ln">    24  </span><span class="comment">// prints a message for all logged output and panics on any logged</span>
+<span id="L25" class="ln">    25  </span><span class="comment">// warning or error might be appropriate, while in production, it</span>
+<span id="L26" class="ln">    26  </span><span class="comment">// would make more sense to log only warnings and errors and to</span>
+<span id="L27" class="ln">    27  </span><span class="comment">// proceed without halting. All GrowthBook SDK functions leave values</span>
+<span id="L28" class="ln">    28  </span><span class="comment">// in a sensible default state after errors, so production systems can</span>
+<span id="L29" class="ln">    29  </span><span class="comment">// essentially ignore any errors.</span>
+<span id="L30" class="ln">    30  </span>func SetLogger(userLogger Logger) {
+<span id="L31" class="ln">    31  </span>	logger = userLogger
+<span id="L32" class="ln">    32  </span>}
+<span id="L33" class="ln">    33  </span>
+<span id="L34" class="ln">    34  </span><span class="comment">// Global private logging interface.</span>
+<span id="L35" class="ln">    35  </span>var logger Logger
+<span id="L36" class="ln">    36  </span>
+<span id="L37" class="ln">    37  </span><span class="comment">// Internal logging functions wired up to logging interface.</span>
+<span id="L38" class="ln">    38  </span>
+<span id="L39" class="ln">    39  </span>func logError(msg string, args ...interface{}) {
+<span id="L40" class="ln">    40  </span>	if logger != nil {
+<span id="L41" class="ln">    41  </span>		logger.Error(msg, args...)
+<span id="L42" class="ln">    42  </span>	}
+<span id="L43" class="ln">    43  </span>}
+<span id="L44" class="ln">    44  </span>
+<span id="L45" class="ln">    45  </span>func logErrorf(format string, args ...interface{}) {
+<span id="L46" class="ln">    46  </span>	if logger != nil {
+<span id="L47" class="ln">    47  </span>		logger.Errorf(format, args...)
+<span id="L48" class="ln">    48  </span>	}
+<span id="L49" class="ln">    49  </span>}
+<span id="L50" class="ln">    50  </span>
+<span id="L51" class="ln">    51  </span>func logWarn(msg string, args ...interface{}) {
+<span id="L52" class="ln">    52  </span>	if logger != nil {
+<span id="L53" class="ln">    53  </span>		logger.Warn(msg, args...)
+<span id="L54" class="ln">    54  </span>	}
+<span id="L55" class="ln">    55  </span>}
+<span id="L56" class="ln">    56  </span>
+<span id="L57" class="ln">    57  </span>func logWarnf(format string, args ...interface{}) {
+<span id="L58" class="ln">    58  </span>	if logger != nil {
+<span id="L59" class="ln">    59  </span>		logger.Warnf(format, args...)
+<span id="L60" class="ln">    60  </span>	}
+<span id="L61" class="ln">    61  </span>}
+<span id="L62" class="ln">    62  </span>
+<span id="L63" class="ln">    63  </span>func logInfo(msg string, args ...interface{}) {
+<span id="L64" class="ln">    64  </span>	if logger != nil {
+<span id="L65" class="ln">    65  </span>		logger.Info(msg, args...)
+<span id="L66" class="ln">    66  </span>	}
+<span id="L67" class="ln">    67  </span>}
+<span id="L68" class="ln">    68  </span>
+<span id="L69" class="ln">    69  </span>func logInfof(format string, args ...interface{}) {
+<span id="L70" class="ln">    70  </span>	if logger != nil {
+<span id="L71" class="ln">    71  </span>		logger.Infof(format, args...)
+<span id="L72" class="ln">    72  </span>	}
+<span id="L73" class="ln">    73  </span>}
+<span id="L74" class="ln">    74  </span>
+<span id="L75" class="ln">    75  </span><span class="comment">// DevLogger is a logger instance suitable for use in development. It</span>
+<span id="L76" class="ln">    76  </span><span class="comment">// prints all logged messages to standard output, and exits on errors.</span>
+<span id="L77" class="ln">    77  </span>type DevLogger struct{}
+<span id="L78" class="ln">    78  </span>
+<span id="L79" class="ln">    79  </span>func (log *DevLogger) Error(msg string, args ...interface{}) {
+<span id="L80" class="ln">    80  </span>	fmt.Print(&#34;[ERROR] &#34;, msg)
+<span id="L81" class="ln">    81  </span>	if len(args) &gt; 0 {
+<span id="L82" class="ln">    82  </span>		fmt.Print(&#34;: &#34;)
+<span id="L83" class="ln">    83  </span>		fmt.Println(args...)
+<span id="L84" class="ln">    84  </span>	}
+<span id="L85" class="ln">    85  </span>}
+<span id="L86" class="ln">    86  </span>
+<span id="L87" class="ln">    87  </span>func (log *DevLogger) Errorf(format string, args ...interface{}) {
+<span id="L88" class="ln">    88  </span>	fmt.Printf(&#34;[ERROR] &#34;+format+&#34;\n&#34;, args...)
+<span id="L89" class="ln">    89  </span>}
+<span id="L90" class="ln">    90  </span>
+<span id="L91" class="ln">    91  </span>func (log *DevLogger) Warn(msg string, args ...interface{}) {
+<span id="L92" class="ln">    92  </span>	fmt.Print(&#34;[WARNING] &#34;, msg)
+<span id="L93" class="ln">    93  </span>	if len(args) &gt; 0 {
+<span id="L94" class="ln">    94  </span>		fmt.Print(&#34;: &#34;)
+<span id="L95" class="ln">    95  </span>		fmt.Println(args...)
+<span id="L96" class="ln">    96  </span>	}
+<span id="L97" class="ln">    97  </span>}
+<span id="L98" class="ln">    98  </span>
+<span id="L99" class="ln">    99  </span>func (log *DevLogger) Warnf(format string, args ...interface{}) {
+<span id="L100" class="ln">   100  </span>	fmt.Printf(&#34;[WARNING] &#34;+format+&#34;\n&#34;, args...)
+<span id="L101" class="ln">   101  </span>}
+<span id="L102" class="ln">   102  </span>
+<span id="L103" class="ln">   103  </span>func (log *DevLogger) Info(msg string, args ...interface{}) {
+<span id="L104" class="ln">   104  </span>	fmt.Print(&#34;[INFO] &#34;, msg)
+<span id="L105" class="ln">   105  </span>	if len(args) &gt; 0 {
+<span id="L106" class="ln">   106  </span>		fmt.Print(&#34;: &#34;)
+<span id="L107" class="ln">   107  </span>		fmt.Println(args...)
+<span id="L108" class="ln">   108  </span>	}
+<span id="L109" class="ln">   109  </span>}
+<span id="L110" class="ln">   110  </span>
+<span id="L111" class="ln">   111  </span>func (log *DevLogger) Infof(format string, args ...interface{}) {
+<span id="L112" class="ln">   112  </span>	fmt.Printf(&#34;[INFO] &#34;+format+&#34;\n&#34;, args...)
+<span id="L113" class="ln">   113  </span>}
+<span id="L114" class="ln">   114  </span>
 </pre><p><a href="../../../../src/github.com/growthbook/growthbook-golang/logging.go.html?m=text">View as plain text</a></p>
 
 <div id="footer"><a href="../../../../docs.zip">Download docs.zip</a> to browse offline - Generated by <a href="https://godoc.org/golang.org/x/tools/godoc" target="_blank">godoc</a> + <a href="https://code.rocketnine.space/tslocum/godoc-static" target="_blank">godoc-static</a></div>

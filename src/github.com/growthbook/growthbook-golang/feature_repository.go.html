@@ -66,7 +66,7 @@
 <span id="L9" class="ln">     9  </span>	&#34;sync&#34;
 <span id="L10" class="ln">    10  </span>	&#34;time&#34;
 <span id="L11" class="ln">    11  </span>
-<span id="L12" class="ln">    12  </span>	&#34;github.com/r3labs/sse/v2&#34;
+<span id="L12" class="ln">    12  </span>	&#34;github.com/ian-ross/sse/v2&#34;
 <span id="L13" class="ln">    13  </span>)
 <span id="L14" class="ln">    14  </span>
 <span id="L15" class="ln">    15  </span><span class="comment">// Alias for names of repositories. Used as key type in various maps.</span>
@@ -549,111 +549,112 @@
 <span id="L492" class="ln">   492  </span>		case &lt;-reconnect:
 <span id="L493" class="ln">   493  </span>			logInfof(&#34;Connecting to SSE stream: %s&#34;, key)
 <span id="L494" class="ln">   494  </span>			errors = 0
-<span id="L495" class="ln">   495  </span>			client := sse.NewClient(apiHost + &#34;/sub/&#34; + clientKey)
+<span id="L495" class="ln">   495  </span>			client = sse.NewClient(apiHost + &#34;/sub/&#34; + clientKey)
 <span id="L496" class="ln">   496  </span>			client.OnDisconnect(func(c *sse.Client) {
-<span id="L497" class="ln">   497  </span>				logErrorf(&#34;SSE event stream disconnected: %s&#34;, key)
-<span id="L498" class="ln">   498  </span>				reconnect &lt;- struct{}{}
-<span id="L499" class="ln">   499  </span>			})
-<span id="L500" class="ln">   500  </span>			err := client.SubscribeChan(&#34;features&#34;, ch)
-<span id="L501" class="ln">   501  </span>			if err != nil {
-<span id="L502" class="ln">   502  </span>				logErrorf(&#34;Connecting to SSE stream: %v&#34;, err)
-<span id="L503" class="ln">   503  </span>				return
-<span id="L504" class="ln">   504  </span>			}
-<span id="L505" class="ln">   505  </span>
-<span id="L506" class="ln">   506  </span>		case msg := &lt;-ch:
-<span id="L507" class="ln">   507  </span>			if len(msg.Data) == 0 {
-<span id="L508" class="ln">   508  </span>				break
-<span id="L509" class="ln">   509  </span>			}
-<span id="L510" class="ln">   510  </span>			var data FeatureAPIResponse
-<span id="L511" class="ln">   511  </span>			err := json.Unmarshal(msg.Data, &amp;data)
-<span id="L512" class="ln">   512  </span>
-<span id="L513" class="ln">   513  </span>			if err != nil {
-<span id="L514" class="ln">   514  </span>				logErrorf(&#34;SSE error: %s (key: %s)&#34;, err.Error(), key)
-<span id="L515" class="ln">   515  </span>			}
-<span id="L516" class="ln">   516  </span>			if err != nil &amp;&amp; client != nil {
-<span id="L517" class="ln">   517  </span>				errors++
-<span id="L518" class="ln">   518  </span>				if errors &gt; 3 {
-<span id="L519" class="ln">   519  </span>					logErrorf(&#34;Multiple SSE errors: disconnecting stream: %s&#34;, key)
-<span id="L520" class="ln">   520  </span>					client.Unsubscribe(ch)
-<span id="L521" class="ln">   521  </span>					client = nil
-<span id="L522" class="ln">   522  </span>
-<span id="L523" class="ln">   523  </span>					<span class="comment">// Exponential backoff after 4 errors, with jitter.</span>
-<span id="L524" class="ln">   524  </span>					msDelay := math.Pow(3, float64(errors-3)) * (1000 + rand.Float64()*1000)
-<span id="L525" class="ln">   525  </span>					delay := time.Duration(msDelay) * time.Millisecond
-<span id="L526" class="ln">   526  </span>
-<span id="L527" class="ln">   527  </span>					<span class="comment">// 5 minutes max.</span>
-<span id="L528" class="ln">   528  </span>					if delay &gt; 5*time.Minute {
-<span id="L529" class="ln">   529  </span>						delay = 5 * time.Minute
-<span id="L530" class="ln">   530  </span>					}
-<span id="L531" class="ln">   531  </span>					logWarnf(&#34;Waiting to reconnect SSE stream: %s (delaying %s)&#34;, key, delay)
-<span id="L532" class="ln">   532  </span>					time.Sleep(delay)
-<span id="L533" class="ln">   533  </span>					reconnect &lt;- struct{}{}
-<span id="L534" class="ln">   534  </span>				}
-<span id="L535" class="ln">   535  </span>				continue
-<span id="L536" class="ln">   536  </span>			}
-<span id="L537" class="ln">   537  </span>			onNewFeatureData(key, &amp;data)
-<span id="L538" class="ln">   538  </span>		}
-<span id="L539" class="ln">   539  </span>	}
-<span id="L540" class="ln">   540  </span>}
-<span id="L541" class="ln">   541  </span>
-<span id="L542" class="ln">   542  </span><span class="comment">// -----------------------------------------------------------------------------</span>
-<span id="L543" class="ln">   543  </span><span class="comment">//</span>
-<span id="L544" class="ln">   544  </span><span class="comment">//  CACHING</span>
-<span id="L545" class="ln">   545  </span><span class="comment">//</span>
-<span id="L546" class="ln">   546  </span>
-<span id="L547" class="ln">   547  </span><span class="comment">// Cache control parameters.</span>
-<span id="L548" class="ln">   548  </span>
-<span id="L549" class="ln">   549  </span>var cacheBackgroundSync bool = true
-<span id="L550" class="ln">   550  </span>var cacheStaleTTL time.Duration = 60 * time.Second
-<span id="L551" class="ln">   551  </span>
-<span id="L552" class="ln">   552  </span><span class="comment">// Default in-memory cache.</span>
-<span id="L553" class="ln">   553  </span>
-<span id="L554" class="ln">   554  </span>type repoCache struct {
-<span id="L555" class="ln">   555  </span>	sync.RWMutex
-<span id="L556" class="ln">   556  </span>	data map[RepositoryKey]*CacheEntry
-<span id="L557" class="ln">   557  </span>}
-<span id="L558" class="ln">   558  </span>
-<span id="L559" class="ln">   559  </span>var cache Cache = &amp;repoCache{data: map[RepositoryKey]*CacheEntry{}}
-<span id="L560" class="ln">   560  </span>
-<span id="L561" class="ln">   561  </span>func (c *repoCache) Initialize() {}
-<span id="L562" class="ln">   562  </span>
-<span id="L563" class="ln">   563  </span>func (c *repoCache) Clear() {
-<span id="L564" class="ln">   564  </span>	c.Lock()
-<span id="L565" class="ln">   565  </span>	defer c.Unlock()
-<span id="L566" class="ln">   566  </span>
-<span id="L567" class="ln">   567  </span>	<span class="comment">// Clear cache, auto-refresh info and outstanding requests.</span>
-<span id="L568" class="ln">   568  </span>	c.data = make(map[RepositoryKey]*CacheEntry)
-<span id="L569" class="ln">   569  </span>	clearAutoRefresh()
-<span id="L570" class="ln">   570  </span>	clearOutstandingRequests()
-<span id="L571" class="ln">   571  </span>}
-<span id="L572" class="ln">   572  </span>
-<span id="L573" class="ln">   573  </span>func (c *repoCache) Get(key RepositoryKey) *CacheEntry {
-<span id="L574" class="ln">   574  </span>	c.RLock()
-<span id="L575" class="ln">   575  </span>	defer c.RUnlock()
-<span id="L576" class="ln">   576  </span>
-<span id="L577" class="ln">   577  </span>	return c.data[key]
-<span id="L578" class="ln">   578  </span>}
-<span id="L579" class="ln">   579  </span>
-<span id="L580" class="ln">   580  </span>func (c *repoCache) Set(key RepositoryKey, entry *CacheEntry) {
-<span id="L581" class="ln">   581  </span>	c.Lock()
-<span id="L582" class="ln">   582  </span>	defer c.Unlock()
-<span id="L583" class="ln">   583  </span>
-<span id="L584" class="ln">   584  </span>	c.data[key] = entry
-<span id="L585" class="ln">   585  </span>}
-<span id="L586" class="ln">   586  </span>
-<span id="L587" class="ln">   587  </span><span class="comment">// -----------------------------------------------------------------------------</span>
-<span id="L588" class="ln">   588  </span><span class="comment">//</span>
-<span id="L589" class="ln">   589  </span><span class="comment">//  REPOSITORY KEY UTILITIES</span>
-<span id="L590" class="ln">   590  </span>
-<span id="L591" class="ln">   591  </span>func getKey(gb *GrowthBook) RepositoryKey {
-<span id="L592" class="ln">   592  </span>	apiHost, clientKey := gb.GetAPIInfo()
-<span id="L593" class="ln">   593  </span>	return RepositoryKey(apiHost + &#34;||&#34; + clientKey)
-<span id="L594" class="ln">   594  </span>}
-<span id="L595" class="ln">   595  </span>
-<span id="L596" class="ln">   596  </span>func makeKey(apiHost string, clientKey string) RepositoryKey {
-<span id="L597" class="ln">   597  </span>	return RepositoryKey(apiHost + &#34;||&#34; + clientKey)
-<span id="L598" class="ln">   598  </span>}
-<span id="L599" class="ln">   599  </span>
+<span id="L497" class="ln">   497  </span>				logWarnf(&#34;SSE event stream disconnected: %s&#34;, key)
+<span id="L498" class="ln">   498  </span>				c.Unsubscribe(ch)
+<span id="L499" class="ln">   499  </span>				reconnect &lt;- struct{}{}
+<span id="L500" class="ln">   500  </span>			})
+<span id="L501" class="ln">   501  </span>			err := client.SubscribeChan(&#34;features&#34;, ch)
+<span id="L502" class="ln">   502  </span>			if err != nil {
+<span id="L503" class="ln">   503  </span>				logErrorf(&#34;Connecting to SSE stream: %v&#34;, err)
+<span id="L504" class="ln">   504  </span>				return
+<span id="L505" class="ln">   505  </span>			}
+<span id="L506" class="ln">   506  </span>
+<span id="L507" class="ln">   507  </span>		case msg := &lt;-ch:
+<span id="L508" class="ln">   508  </span>			if len(msg.Data) == 0 {
+<span id="L509" class="ln">   509  </span>				continue
+<span id="L510" class="ln">   510  </span>			}
+<span id="L511" class="ln">   511  </span>			var data FeatureAPIResponse
+<span id="L512" class="ln">   512  </span>			err := json.Unmarshal(msg.Data, &amp;data)
+<span id="L513" class="ln">   513  </span>
+<span id="L514" class="ln">   514  </span>			if err != nil {
+<span id="L515" class="ln">   515  </span>				logErrorf(&#34;SSE error: %s (key: %s)&#34;, err.Error(), key)
+<span id="L516" class="ln">   516  </span>			}
+<span id="L517" class="ln">   517  </span>			if err != nil &amp;&amp; client != nil {
+<span id="L518" class="ln">   518  </span>				errors++
+<span id="L519" class="ln">   519  </span>				if errors &gt; 3 {
+<span id="L520" class="ln">   520  </span>					logErrorf(&#34;Multiple SSE errors: disconnecting stream: %s&#34;, key)
+<span id="L521" class="ln">   521  </span>					client.Unsubscribe(ch)
+<span id="L522" class="ln">   522  </span>					client = nil
+<span id="L523" class="ln">   523  </span>
+<span id="L524" class="ln">   524  </span>					<span class="comment">// Exponential backoff after 4 errors, with jitter.</span>
+<span id="L525" class="ln">   525  </span>					msDelay := math.Pow(3, float64(errors-3)) * (1000 + rand.Float64()*1000)
+<span id="L526" class="ln">   526  </span>					delay := time.Duration(msDelay) * time.Millisecond
+<span id="L527" class="ln">   527  </span>
+<span id="L528" class="ln">   528  </span>					<span class="comment">// 5 minutes max.</span>
+<span id="L529" class="ln">   529  </span>					if delay &gt; 5*time.Minute {
+<span id="L530" class="ln">   530  </span>						delay = 5 * time.Minute
+<span id="L531" class="ln">   531  </span>					}
+<span id="L532" class="ln">   532  </span>					logWarnf(&#34;Waiting to reconnect SSE stream: %s (delaying %s)&#34;, key, delay)
+<span id="L533" class="ln">   533  </span>					time.Sleep(delay)
+<span id="L534" class="ln">   534  </span>					reconnect &lt;- struct{}{}
+<span id="L535" class="ln">   535  </span>				}
+<span id="L536" class="ln">   536  </span>				continue
+<span id="L537" class="ln">   537  </span>			}
+<span id="L538" class="ln">   538  </span>			onNewFeatureData(key, &amp;data)
+<span id="L539" class="ln">   539  </span>		}
+<span id="L540" class="ln">   540  </span>	}
+<span id="L541" class="ln">   541  </span>}
+<span id="L542" class="ln">   542  </span>
+<span id="L543" class="ln">   543  </span><span class="comment">// -----------------------------------------------------------------------------</span>
+<span id="L544" class="ln">   544  </span><span class="comment">//</span>
+<span id="L545" class="ln">   545  </span><span class="comment">//  CACHING</span>
+<span id="L546" class="ln">   546  </span><span class="comment">//</span>
+<span id="L547" class="ln">   547  </span>
+<span id="L548" class="ln">   548  </span><span class="comment">// Cache control parameters.</span>
+<span id="L549" class="ln">   549  </span>
+<span id="L550" class="ln">   550  </span>var cacheBackgroundSync bool = true
+<span id="L551" class="ln">   551  </span>var cacheStaleTTL time.Duration = 60 * time.Second
+<span id="L552" class="ln">   552  </span>
+<span id="L553" class="ln">   553  </span><span class="comment">// Default in-memory cache.</span>
+<span id="L554" class="ln">   554  </span>
+<span id="L555" class="ln">   555  </span>type repoCache struct {
+<span id="L556" class="ln">   556  </span>	sync.RWMutex
+<span id="L557" class="ln">   557  </span>	data map[RepositoryKey]*CacheEntry
+<span id="L558" class="ln">   558  </span>}
+<span id="L559" class="ln">   559  </span>
+<span id="L560" class="ln">   560  </span>var cache Cache = &amp;repoCache{data: map[RepositoryKey]*CacheEntry{}}
+<span id="L561" class="ln">   561  </span>
+<span id="L562" class="ln">   562  </span>func (c *repoCache) Initialize() {}
+<span id="L563" class="ln">   563  </span>
+<span id="L564" class="ln">   564  </span>func (c *repoCache) Clear() {
+<span id="L565" class="ln">   565  </span>	c.Lock()
+<span id="L566" class="ln">   566  </span>	defer c.Unlock()
+<span id="L567" class="ln">   567  </span>
+<span id="L568" class="ln">   568  </span>	<span class="comment">// Clear cache, auto-refresh info and outstanding requests.</span>
+<span id="L569" class="ln">   569  </span>	c.data = make(map[RepositoryKey]*CacheEntry)
+<span id="L570" class="ln">   570  </span>	clearAutoRefresh()
+<span id="L571" class="ln">   571  </span>	clearOutstandingRequests()
+<span id="L572" class="ln">   572  </span>}
+<span id="L573" class="ln">   573  </span>
+<span id="L574" class="ln">   574  </span>func (c *repoCache) Get(key RepositoryKey) *CacheEntry {
+<span id="L575" class="ln">   575  </span>	c.RLock()
+<span id="L576" class="ln">   576  </span>	defer c.RUnlock()
+<span id="L577" class="ln">   577  </span>
+<span id="L578" class="ln">   578  </span>	return c.data[key]
+<span id="L579" class="ln">   579  </span>}
+<span id="L580" class="ln">   580  </span>
+<span id="L581" class="ln">   581  </span>func (c *repoCache) Set(key RepositoryKey, entry *CacheEntry) {
+<span id="L582" class="ln">   582  </span>	c.Lock()
+<span id="L583" class="ln">   583  </span>	defer c.Unlock()
+<span id="L584" class="ln">   584  </span>
+<span id="L585" class="ln">   585  </span>	c.data[key] = entry
+<span id="L586" class="ln">   586  </span>}
+<span id="L587" class="ln">   587  </span>
+<span id="L588" class="ln">   588  </span><span class="comment">// -----------------------------------------------------------------------------</span>
+<span id="L589" class="ln">   589  </span><span class="comment">//</span>
+<span id="L590" class="ln">   590  </span><span class="comment">//  REPOSITORY KEY UTILITIES</span>
+<span id="L591" class="ln">   591  </span>
+<span id="L592" class="ln">   592  </span>func getKey(gb *GrowthBook) RepositoryKey {
+<span id="L593" class="ln">   593  </span>	apiHost, clientKey := gb.GetAPIInfo()
+<span id="L594" class="ln">   594  </span>	return RepositoryKey(apiHost + &#34;||&#34; + clientKey)
+<span id="L595" class="ln">   595  </span>}
+<span id="L596" class="ln">   596  </span>
+<span id="L597" class="ln">   597  </span>func makeKey(apiHost string, clientKey string) RepositoryKey {
+<span id="L598" class="ln">   598  </span>	return RepositoryKey(apiHost + &#34;||&#34; + clientKey)
+<span id="L599" class="ln">   599  </span>}
+<span id="L600" class="ln">   600  </span>
 </pre><p><a href="../../../../src/github.com/growthbook/growthbook-golang/feature_repository.go.html?m=text">View as plain text</a></p>
 
 <div id="footer"><a href="../../../../docs.zip">Download docs.zip</a> to browse offline - Generated by <a href="https://godoc.org/golang.org/x/tools/godoc" target="_blank">godoc</a> + <a href="https://code.rocketnine.space/tslocum/godoc-static" target="_blank">godoc-static</a></div>
