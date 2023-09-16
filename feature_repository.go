@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/r3labs/sse/v2"
+	"github.com/ian-ross/sse/v2"
 )
 
 // Alias for names of repositories. Used as key type in various maps.
@@ -492,9 +492,10 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 		case <-reconnect:
 			logInfof("Connecting to SSE stream: %s", key)
 			errors = 0
-			client := sse.NewClient(apiHost + "/sub/" + clientKey)
+			client = sse.NewClient(apiHost + "/sub/" + clientKey)
 			client.OnDisconnect(func(c *sse.Client) {
-				logErrorf("SSE event stream disconnected: %s", key)
+				logWarnf("SSE event stream disconnected: %s", key)
+				c.Unsubscribe(ch)
 				reconnect <- struct{}{}
 			})
 			err := client.SubscribeChan("features", ch)
@@ -505,7 +506,7 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 
 		case msg := <-ch:
 			if len(msg.Data) == 0 {
-				break
+				continue
 			}
 			var data FeatureAPIResponse
 			err := json.Unmarshal(msg.Data, &data)

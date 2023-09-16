@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/r3labs/sse/v2"
+	"github.com/ian-ross/sse/v2"
 )
 
 type env struct {

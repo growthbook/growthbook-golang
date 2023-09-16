@@ -2,7 +2,6 @@ package growthbook
 
 import (
 	"fmt"
-	"os"
 )
 
 // Logger is a common interface for logging information and warning
@@ -83,12 +82,10 @@ func (log *DevLogger) Error(msg string, args ...interface{}) {
 		fmt.Print(": ")
 		fmt.Println(args...)
 	}
-	os.Exit(1)
 }
 
 func (log *DevLogger) Errorf(format string, args ...interface{}) {
 	fmt.Printf("[ERROR] "+format+"\n", args...)
-	os.Exit(1)
 }
 
 func (log *DevLogger) Warn(msg string, args ...interface{}) {
