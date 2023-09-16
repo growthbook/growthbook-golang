@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/r3labs/sse/v2"
+	"github.com/ian-ross/sse/v2"
 )
 
 type env struct {
@@ -197,6 +197,11 @@ func TestRepoDebounceFetchRequests(t *testing.T) {
 	client1 := makeClient(env.server.URL, "qwerty1234")
 	client2 := makeClient(env.server.URL, "other")
 	client3 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client1 = nil
+		client2 = nil
+		client3 = nil
+	}()
 
 	err := client1.LoadFeatures(nil)
 	if err != nil {
@@ -236,6 +241,9 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 	defer ConfigureCacheStaleTTL(0)
 
 	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
 	time.Sleep(20 * time.Millisecond)
 
 	// Initial value of feature should be null.
@@ -253,6 +261,9 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 
 	// New instances should get cached value
 	client2 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client2 = nil
+	}()
 	checkFeature(t, client2, "foo", nil)
 	knownWarnings(t, 1)
 	client2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
@@ -260,6 +271,9 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 
 	// Instance without autoRefresh.
 	client3 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client3 = nil
+	}()
 	checkFeature(t, client3, "foo", nil)
 	knownWarnings(t, 1)
 	client3.LoadFeatures(nil)
@@ -292,6 +306,9 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 
 	// New instances should get the new value
 	client4 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client4 = nil
+	}()
 	checkFeature(t, client4, "foo", nil)
 	knownWarnings(t, 1)
 	client4.LoadFeatures(nil)
@@ -309,6 +326,9 @@ func TestRepoUpdatesFeaturesBasedOnSSE1(t *testing.T) {
 	cache.Clear()
 
 	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
 
 	// Load features and check API calls.
 	client.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
@@ -339,10 +359,19 @@ func TestRepoUpdatesFeaturesBasedOnSSE2(t *testing.T) {
 
 	client := makeClient(env.server.URL, "qwerty1234")
 	client2 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+		client2 = nil
+		time.Sleep(20 * time.Millisecond)
+	}()
 
 	// Load features and check API calls.
 	client.LoadFeatures(nil)
 	client2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+	defer func() {
+		client = nil
+		client2 = nil
+	}()
 	env.checkCalls(t, 1)
 
 	// Check feature before SSE message.
@@ -372,6 +401,9 @@ func TestRepoExposesAReadyFlag(t *testing.T) {
 	*env.featureValue = "api"
 
 	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
 
 	if client.Ready() {
 		t.Error("expected ready flag to be false")
@@ -383,6 +415,9 @@ func TestRepoExposesAReadyFlag(t *testing.T) {
 	}
 
 	client2 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client2 = nil
+	}()
 	if client2.Ready() {
 		t.Error("expected ready flag to be false")
 	}
@@ -402,6 +437,9 @@ func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
 	env.fetchFails = true
 
 	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
 	checkReady(t, client, false)
 	err := client.LoadFeatures(nil)
 	if err == nil {
@@ -436,6 +474,9 @@ func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
 	*env.featureValue = "api"
 
 	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
 	checkReady(t, client, false)
 
 	// Doesn't throw errors.
@@ -466,6 +507,9 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 	cache.Clear()
 
 	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
 
 	client.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 	env.checkCalls(t, 1)
@@ -664,6 +708,10 @@ func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
 
 	client := makeClient(env.server.URL, "qwerty1234")
 	client2 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+		client2 = nil
+	}()
 
 	client.LoadFeatures(nil)
 	client2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})

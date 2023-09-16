@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/r3labs/sse/v2"
+	"github.com/ian-ross/sse/v2"
 )
 
 // Alias for names of repositories. Used as key type in various maps.

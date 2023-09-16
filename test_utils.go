@@ -129,7 +129,7 @@ func (h *handler) allErrors() string {
 	ss := []string{}
 	for _, e := range h.errors {
 		b, err := json.Marshal(e)
-		if err != nil {
+		if err == nil {
 			ss = append(ss, string(b))
 		}
 	}
@@ -140,7 +140,7 @@ func (h *handler) allWarnings() string {
 	ss := []string{}
 	for _, e := range h.warnings {
 		b, err := json.Marshal(e)
-		if err != nil {
+		if err == nil {
 			ss = append(ss, string(b))
 		}
 	}
