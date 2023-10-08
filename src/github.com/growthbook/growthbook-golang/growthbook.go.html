@@ -405,647 +405,635 @@
 <span id="L348" class="ln">   348  </span>
 <span id="L349" class="ln">   349  </span><span class="comment">// IsOn determines whether a feature is on.</span>
 <span id="L350" class="ln">   350  </span>func (gb *GrowthBook) IsOn(key string) bool {
-<span id="L351" class="ln">   351  </span>	gb.inner.RLock()
-<span id="L352" class="ln">   352  </span>	defer gb.inner.RUnlock()
+<span id="L351" class="ln">   351  </span>	return gb.EvalFeature(key).On
+<span id="L352" class="ln">   352  </span>}
 <span id="L353" class="ln">   353  </span>
-<span id="L354" class="ln">   354  </span>	return gb.EvalFeature(key).On
-<span id="L355" class="ln">   355  </span>}
-<span id="L356" class="ln">   356  </span>
-<span id="L357" class="ln">   357  </span><span class="comment">// IsOff determines whether a feature is off.</span>
-<span id="L358" class="ln">   358  </span>func (gb *GrowthBook) IsOff(key string) bool {
-<span id="L359" class="ln">   359  </span>	gb.inner.RLock()
-<span id="L360" class="ln">   360  </span>	defer gb.inner.RUnlock()
-<span id="L361" class="ln">   361  </span>
-<span id="L362" class="ln">   362  </span>	return gb.EvalFeature(key).Off
-<span id="L363" class="ln">   363  </span>}
-<span id="L364" class="ln">   364  </span>
-<span id="L365" class="ln">   365  </span><span class="comment">// GetFeatureValue returns the result for a feature identified by a</span>
-<span id="L366" class="ln">   366  </span><span class="comment">// string feature key, with an explicit default.</span>
-<span id="L367" class="ln">   367  </span>func (gb *GrowthBook) GetFeatureValue(key string, defaultValue interface{}) interface{} {
-<span id="L368" class="ln">   368  </span>	gb.inner.RLock()
-<span id="L369" class="ln">   369  </span>	defer gb.inner.RUnlock()
-<span id="L370" class="ln">   370  </span>
-<span id="L371" class="ln">   371  </span>	featureValue := gb.EvalFeature(key).Value
-<span id="L372" class="ln">   372  </span>	if featureValue != nil {
-<span id="L373" class="ln">   373  </span>		return featureValue
-<span id="L374" class="ln">   374  </span>	}
-<span id="L375" class="ln">   375  </span>	return defaultValue
-<span id="L376" class="ln">   376  </span>}
-<span id="L377" class="ln">   377  </span>
-<span id="L378" class="ln">   378  </span><span class="comment">// Deprecated: Use EvalFeature instead. Feature returns the result for</span>
-<span id="L379" class="ln">   379  </span><span class="comment">// a feature identified by a string feature key.</span>
-<span id="L380" class="ln">   380  </span>func (gb *GrowthBook) Feature(key string) *FeatureResult {
-<span id="L381" class="ln">   381  </span>	gb.inner.RLock()
-<span id="L382" class="ln">   382  </span>	defer gb.inner.RUnlock()
-<span id="L383" class="ln">   383  </span>
-<span id="L384" class="ln">   384  </span>	return gb.EvalFeature(key)
-<span id="L385" class="ln">   385  </span>}
-<span id="L386" class="ln">   386  </span>
-<span id="L387" class="ln">   387  </span><span class="comment">// EvalFeature returns the result for a feature identified by a string</span>
-<span id="L388" class="ln">   388  </span><span class="comment">// feature key.</span>
-<span id="L389" class="ln">   389  </span>func (gb *GrowthBook) EvalFeature(id string) *FeatureResult {
-<span id="L390" class="ln">   390  </span>	gb.inner.RLock()
-<span id="L391" class="ln">   391  </span>	defer gb.inner.RUnlock()
-<span id="L392" class="ln">   392  </span>
-<span id="L393" class="ln">   393  </span>	<span class="comment">// Global override.</span>
-<span id="L394" class="ln">   394  </span>	if gb.inner.forcedFeatureValues != nil {
-<span id="L395" class="ln">   395  </span>		if override, ok := gb.inner.forcedFeatureValues[id]; ok {
-<span id="L396" class="ln">   396  </span>			logInfo(&#34;Global override&#34;, id, override)
-<span id="L397" class="ln">   397  </span>			return gb.getFeatureResult(id, override, OverrideResultSource, &#34;&#34;, nil, nil)
-<span id="L398" class="ln">   398  </span>		}
-<span id="L399" class="ln">   399  </span>	}
-<span id="L400" class="ln">   400  </span>
-<span id="L401" class="ln">   401  </span>	<span class="comment">// Handle unknown features.</span>
-<span id="L402" class="ln">   402  </span>	feature, ok := gb.inner.context.Features[id]
-<span id="L403" class="ln">   403  </span>	if !ok {
-<span id="L404" class="ln">   404  </span>		logWarn(&#34;Unknown feature&#34;, id)
-<span id="L405" class="ln">   405  </span>		return gb.getFeatureResult(id, nil, UnknownResultSource, &#34;&#34;, nil, nil)
-<span id="L406" class="ln">   406  </span>	}
-<span id="L407" class="ln">   407  </span>
-<span id="L408" class="ln">   408  </span>	<span class="comment">// Loop through the feature rules.</span>
-<span id="L409" class="ln">   409  </span>	for _, rule := range feature.Rules {
-<span id="L410" class="ln">   410  </span>		<span class="comment">// If the rule has a condition and the condition does not pass,</span>
-<span id="L411" class="ln">   411  </span>		<span class="comment">// skip this rule.</span>
-<span id="L412" class="ln">   412  </span>		if rule.Condition != nil &amp;&amp; !rule.Condition.Eval(gb.Attributes()) {
-<span id="L413" class="ln">   413  </span>			logInfo(&#34;Skip rule because of condition&#34;, id, rule)
-<span id="L414" class="ln">   414  </span>			continue
-<span id="L415" class="ln">   415  </span>		}
-<span id="L416" class="ln">   416  </span>
-<span id="L417" class="ln">   417  </span>		<span class="comment">// Apply any filters for who is included (e.g. namespaces).</span>
-<span id="L418" class="ln">   418  </span>		if rule.Filters != nil &amp;&amp; gb.isFilteredOut(rule.Filters) {
-<span id="L419" class="ln">   419  </span>			logInfo(&#34;Skip rule because of filters&#34;, id, rule)
-<span id="L420" class="ln">   420  </span>			continue
-<span id="L421" class="ln">   421  </span>		}
-<span id="L422" class="ln">   422  </span>
-<span id="L423" class="ln">   423  </span>		<span class="comment">// Feature value is being forced.</span>
-<span id="L424" class="ln">   424  </span>		if rule.Force != nil {
-<span id="L425" class="ln">   425  </span>			<span class="comment">// If this is a percentage rollout, skip if not included.</span>
-<span id="L426" class="ln">   426  </span>			seed := id
-<span id="L427" class="ln">   427  </span>			if rule.Seed != &#34;&#34; {
-<span id="L428" class="ln">   428  </span>				seed = rule.Seed
-<span id="L429" class="ln">   429  </span>			}
-<span id="L430" class="ln">   430  </span>			if !gb.isIncludedInRollout(
-<span id="L431" class="ln">   431  </span>				seed,
-<span id="L432" class="ln">   432  </span>				rule.HashAttribute,
-<span id="L433" class="ln">   433  </span>				rule.Range,
-<span id="L434" class="ln">   434  </span>				rule.Coverage,
-<span id="L435" class="ln">   435  </span>				rule.HashVersion,
-<span id="L436" class="ln">   436  </span>			) {
-<span id="L437" class="ln">   437  </span>				logInfo(&#34;Skip rule because user not included in rollout&#34;, id, rule)
-<span id="L438" class="ln">   438  </span>				continue
-<span id="L439" class="ln">   439  </span>			}
-<span id="L440" class="ln">   440  </span>
-<span id="L441" class="ln">   441  </span>			<span class="comment">// Return forced feature result.</span>
-<span id="L442" class="ln">   442  </span>			logInfo(&#34;Force value from rule&#34;, id, rule)
-<span id="L443" class="ln">   443  </span>			return gb.getFeatureResult(id, rule.Force, ForceResultSource, rule.ID, nil, nil)
-<span id="L444" class="ln">   444  </span>		}
-<span id="L445" class="ln">   445  </span>
-<span id="L446" class="ln">   446  </span>		if rule.Variations == nil {
-<span id="L447" class="ln">   447  </span>			logWarn(&#34;Skip invalid rule&#34;, id, rule)
-<span id="L448" class="ln">   448  </span>			continue
-<span id="L449" class="ln">   449  </span>		}
-<span id="L450" class="ln">   450  </span>
-<span id="L451" class="ln">   451  </span>		<span class="comment">// Otherwise, convert the rule to an Experiment object, copying</span>
-<span id="L452" class="ln">   452  </span>		<span class="comment">// values from the rule as necessary.</span>
-<span id="L453" class="ln">   453  </span>		exp := experimentFromFeatureRule(id, rule)
-<span id="L454" class="ln">   454  </span>
-<span id="L455" class="ln">   455  </span>		<span class="comment">// Run the experiment.</span>
-<span id="L456" class="ln">   456  </span>		result := gb.doRun(exp, id)
-<span id="L457" class="ln">   457  </span>		gb.fireSubscriptions(exp, result)
+<span id="L354" class="ln">   354  </span><span class="comment">// IsOff determines whether a feature is off.</span>
+<span id="L355" class="ln">   355  </span>func (gb *GrowthBook) IsOff(key string) bool {
+<span id="L356" class="ln">   356  </span>	return gb.EvalFeature(key).Off
+<span id="L357" class="ln">   357  </span>}
+<span id="L358" class="ln">   358  </span>
+<span id="L359" class="ln">   359  </span><span class="comment">// GetFeatureValue returns the result for a feature identified by a</span>
+<span id="L360" class="ln">   360  </span><span class="comment">// string feature key, with an explicit default.</span>
+<span id="L361" class="ln">   361  </span>func (gb *GrowthBook) GetFeatureValue(key string, defaultValue interface{}) interface{} {
+<span id="L362" class="ln">   362  </span>	featureValue := gb.EvalFeature(key).Value
+<span id="L363" class="ln">   363  </span>	if featureValue != nil {
+<span id="L364" class="ln">   364  </span>		return featureValue
+<span id="L365" class="ln">   365  </span>	}
+<span id="L366" class="ln">   366  </span>	return defaultValue
+<span id="L367" class="ln">   367  </span>}
+<span id="L368" class="ln">   368  </span>
+<span id="L369" class="ln">   369  </span><span class="comment">// Deprecated: Use EvalFeature instead. Feature returns the result for</span>
+<span id="L370" class="ln">   370  </span><span class="comment">// a feature identified by a string feature key.</span>
+<span id="L371" class="ln">   371  </span>func (gb *GrowthBook) Feature(key string) *FeatureResult {
+<span id="L372" class="ln">   372  </span>	return gb.EvalFeature(key)
+<span id="L373" class="ln">   373  </span>}
+<span id="L374" class="ln">   374  </span>
+<span id="L375" class="ln">   375  </span><span class="comment">// EvalFeature returns the result for a feature identified by a string</span>
+<span id="L376" class="ln">   376  </span><span class="comment">// feature key.</span>
+<span id="L377" class="ln">   377  </span>func (gb *GrowthBook) EvalFeature(id string) *FeatureResult {
+<span id="L378" class="ln">   378  </span>	gb.inner.RLock()
+<span id="L379" class="ln">   379  </span>	defer gb.inner.RUnlock()
+<span id="L380" class="ln">   380  </span>
+<span id="L381" class="ln">   381  </span>	<span class="comment">// Global override.</span>
+<span id="L382" class="ln">   382  </span>	if gb.inner.forcedFeatureValues != nil {
+<span id="L383" class="ln">   383  </span>		if override, ok := gb.inner.forcedFeatureValues[id]; ok {
+<span id="L384" class="ln">   384  </span>			logInfo(&#34;Global override&#34;, id, override)
+<span id="L385" class="ln">   385  </span>			return gb.getFeatureResult(id, override, OverrideResultSource, &#34;&#34;, nil, nil)
+<span id="L386" class="ln">   386  </span>		}
+<span id="L387" class="ln">   387  </span>	}
+<span id="L388" class="ln">   388  </span>
+<span id="L389" class="ln">   389  </span>	<span class="comment">// Handle unknown features.</span>
+<span id="L390" class="ln">   390  </span>	feature, ok := gb.inner.context.Features[id]
+<span id="L391" class="ln">   391  </span>	if !ok {
+<span id="L392" class="ln">   392  </span>		logWarn(&#34;Unknown feature&#34;, id)
+<span id="L393" class="ln">   393  </span>		return gb.getFeatureResult(id, nil, UnknownResultSource, &#34;&#34;, nil, nil)
+<span id="L394" class="ln">   394  </span>	}
+<span id="L395" class="ln">   395  </span>
+<span id="L396" class="ln">   396  </span>	<span class="comment">// Loop through the feature rules.</span>
+<span id="L397" class="ln">   397  </span>	for _, rule := range feature.Rules {
+<span id="L398" class="ln">   398  </span>		<span class="comment">// If the rule has a condition and the condition does not pass,</span>
+<span id="L399" class="ln">   399  </span>		<span class="comment">// skip this rule.</span>
+<span id="L400" class="ln">   400  </span>		if rule.Condition != nil &amp;&amp; !rule.Condition.Eval(gb.Attributes()) {
+<span id="L401" class="ln">   401  </span>			logInfo(&#34;Skip rule because of condition&#34;, id, rule)
+<span id="L402" class="ln">   402  </span>			continue
+<span id="L403" class="ln">   403  </span>		}
+<span id="L404" class="ln">   404  </span>
+<span id="L405" class="ln">   405  </span>		<span class="comment">// Apply any filters for who is included (e.g. namespaces).</span>
+<span id="L406" class="ln">   406  </span>		if rule.Filters != nil &amp;&amp; gb.isFilteredOut(rule.Filters) {
+<span id="L407" class="ln">   407  </span>			logInfo(&#34;Skip rule because of filters&#34;, id, rule)
+<span id="L408" class="ln">   408  </span>			continue
+<span id="L409" class="ln">   409  </span>		}
+<span id="L410" class="ln">   410  </span>
+<span id="L411" class="ln">   411  </span>		<span class="comment">// Feature value is being forced.</span>
+<span id="L412" class="ln">   412  </span>		if rule.Force != nil {
+<span id="L413" class="ln">   413  </span>			<span class="comment">// If this is a percentage rollout, skip if not included.</span>
+<span id="L414" class="ln">   414  </span>			seed := id
+<span id="L415" class="ln">   415  </span>			if rule.Seed != &#34;&#34; {
+<span id="L416" class="ln">   416  </span>				seed = rule.Seed
+<span id="L417" class="ln">   417  </span>			}
+<span id="L418" class="ln">   418  </span>			if !gb.isIncludedInRollout(
+<span id="L419" class="ln">   419  </span>				seed,
+<span id="L420" class="ln">   420  </span>				rule.HashAttribute,
+<span id="L421" class="ln">   421  </span>				rule.Range,
+<span id="L422" class="ln">   422  </span>				rule.Coverage,
+<span id="L423" class="ln">   423  </span>				rule.HashVersion,
+<span id="L424" class="ln">   424  </span>			) {
+<span id="L425" class="ln">   425  </span>				logInfo(&#34;Skip rule because user not included in rollout&#34;, id, rule)
+<span id="L426" class="ln">   426  </span>				continue
+<span id="L427" class="ln">   427  </span>			}
+<span id="L428" class="ln">   428  </span>
+<span id="L429" class="ln">   429  </span>			<span class="comment">// Return forced feature result.</span>
+<span id="L430" class="ln">   430  </span>			logInfo(&#34;Force value from rule&#34;, id, rule)
+<span id="L431" class="ln">   431  </span>			return gb.getFeatureResult(id, rule.Force, ForceResultSource, rule.ID, nil, nil)
+<span id="L432" class="ln">   432  </span>		}
+<span id="L433" class="ln">   433  </span>
+<span id="L434" class="ln">   434  </span>		if rule.Variations == nil {
+<span id="L435" class="ln">   435  </span>			logWarn(&#34;Skip invalid rule&#34;, id, rule)
+<span id="L436" class="ln">   436  </span>			continue
+<span id="L437" class="ln">   437  </span>		}
+<span id="L438" class="ln">   438  </span>
+<span id="L439" class="ln">   439  </span>		<span class="comment">// Otherwise, convert the rule to an Experiment object, copying</span>
+<span id="L440" class="ln">   440  </span>		<span class="comment">// values from the rule as necessary.</span>
+<span id="L441" class="ln">   441  </span>		exp := experimentFromFeatureRule(id, rule)
+<span id="L442" class="ln">   442  </span>
+<span id="L443" class="ln">   443  </span>		<span class="comment">// Run the experiment.</span>
+<span id="L444" class="ln">   444  </span>		result := gb.doRun(exp, id)
+<span id="L445" class="ln">   445  </span>		gb.fireSubscriptions(exp, result)
+<span id="L446" class="ln">   446  </span>
+<span id="L447" class="ln">   447  </span>		<span class="comment">// Only return a value if the user is part of the experiment.</span>
+<span id="L448" class="ln">   448  </span>		<span class="comment">// gb.fireSubscriptions(experiment, result)</span>
+<span id="L449" class="ln">   449  </span>		if result.InExperiment &amp;&amp; !result.Passthrough {
+<span id="L450" class="ln">   450  </span>			return gb.getFeatureResult(id, result.Value, ExperimentResultSource, rule.ID, exp, result)
+<span id="L451" class="ln">   451  </span>		}
+<span id="L452" class="ln">   452  </span>	}
+<span id="L453" class="ln">   453  </span>
+<span id="L454" class="ln">   454  </span>	<span class="comment">// Fall back to using the default value.</span>
+<span id="L455" class="ln">   455  </span>	logInfo(&#34;Use default value&#34;, id, feature.DefaultValue)
+<span id="L456" class="ln">   456  </span>	return gb.getFeatureResult(id, feature.DefaultValue, DefaultValueResultSource, &#34;&#34;, nil, nil)
+<span id="L457" class="ln">   457  </span>}
 <span id="L458" class="ln">   458  </span>
-<span id="L459" class="ln">   459  </span>		<span class="comment">// Only return a value if the user is part of the experiment.</span>
-<span id="L460" class="ln">   460  </span>		<span class="comment">// gb.fireSubscriptions(experiment, result)</span>
-<span id="L461" class="ln">   461  </span>		if result.InExperiment &amp;&amp; !result.Passthrough {
-<span id="L462" class="ln">   462  </span>			return gb.getFeatureResult(id, result.Value, ExperimentResultSource, rule.ID, exp, result)
-<span id="L463" class="ln">   463  </span>		}
-<span id="L464" class="ln">   464  </span>	}
-<span id="L465" class="ln">   465  </span>
-<span id="L466" class="ln">   466  </span>	<span class="comment">// Fall back to using the default value.</span>
-<span id="L467" class="ln">   467  </span>	logInfo(&#34;Use default value&#34;, id, feature.DefaultValue)
-<span id="L468" class="ln">   468  </span>	return gb.getFeatureResult(id, feature.DefaultValue, DefaultValueResultSource, &#34;&#34;, nil, nil)
-<span id="L469" class="ln">   469  </span>}
-<span id="L470" class="ln">   470  </span>
-<span id="L471" class="ln">   471  </span><span class="comment">// Run an experiment. (Uses doRun to make wrapping for subscriptions</span>
-<span id="L472" class="ln">   472  </span><span class="comment">// simple.)</span>
-<span id="L473" class="ln">   473  </span>func (gb *GrowthBook) Run(exp *Experiment) *Result {
-<span id="L474" class="ln">   474  </span>	gb.inner.RLock()
-<span id="L475" class="ln">   475  </span>	defer gb.inner.RUnlock()
+<span id="L459" class="ln">   459  </span><span class="comment">// Run an experiment. (Uses doRun to make wrapping for subscriptions</span>
+<span id="L460" class="ln">   460  </span><span class="comment">// simple.)</span>
+<span id="L461" class="ln">   461  </span>func (gb *GrowthBook) Run(exp *Experiment) *Result {
+<span id="L462" class="ln">   462  </span>	gb.inner.RLock()
+<span id="L463" class="ln">   463  </span>	defer gb.inner.RUnlock()
+<span id="L464" class="ln">   464  </span>
+<span id="L465" class="ln">   465  </span>	result := gb.doRun(exp, &#34;&#34;)
+<span id="L466" class="ln">   466  </span>	gb.fireSubscriptions(exp, result)
+<span id="L467" class="ln">   467  </span>	return result
+<span id="L468" class="ln">   468  </span>}
+<span id="L469" class="ln">   469  </span>
+<span id="L470" class="ln">   470  </span><span class="comment">// Subscribe adds a callback that is called every time GrowthBook.Run</span>
+<span id="L471" class="ln">   471  </span><span class="comment">// is called. This is different from the tracking callback since it</span>
+<span id="L472" class="ln">   472  </span><span class="comment">// also fires when a user is not included in an experiment.</span>
+<span id="L473" class="ln">   473  </span>func (gb *GrowthBook) Subscribe(callback ExperimentCallback) func() {
+<span id="L474" class="ln">   474  </span>	gb.inner.Lock()
+<span id="L475" class="ln">   475  </span>	defer gb.inner.Unlock()
 <span id="L476" class="ln">   476  </span>
-<span id="L477" class="ln">   477  </span>	result := gb.doRun(exp, &#34;&#34;)
-<span id="L478" class="ln">   478  </span>	gb.fireSubscriptions(exp, result)
-<span id="L479" class="ln">   479  </span>	return result
-<span id="L480" class="ln">   480  </span>}
-<span id="L481" class="ln">   481  </span>
-<span id="L482" class="ln">   482  </span><span class="comment">// Subscribe adds a callback that is called every time GrowthBook.Run</span>
-<span id="L483" class="ln">   483  </span><span class="comment">// is called. This is different from the tracking callback since it</span>
-<span id="L484" class="ln">   484  </span><span class="comment">// also fires when a user is not included in an experiment.</span>
-<span id="L485" class="ln">   485  </span>func (gb *GrowthBook) Subscribe(callback ExperimentCallback) func() {
-<span id="L486" class="ln">   486  </span>	gb.inner.Lock()
-<span id="L487" class="ln">   487  </span>	defer gb.inner.Unlock()
-<span id="L488" class="ln">   488  </span>
-<span id="L489" class="ln">   489  </span>	id := gb.inner.nextSubscriptionID
-<span id="L490" class="ln">   490  </span>	gb.inner.subscriptions[id] = callback
-<span id="L491" class="ln">   491  </span>	gb.inner.nextSubscriptionID++
-<span id="L492" class="ln">   492  </span>	return func() {
-<span id="L493" class="ln">   493  </span>		delete(gb.inner.subscriptions, id)
-<span id="L494" class="ln">   494  </span>	}
-<span id="L495" class="ln">   495  </span>}
-<span id="L496" class="ln">   496  </span>
-<span id="L497" class="ln">   497  </span><span class="comment">// GetAllResults returns a map containing all the latest results from</span>
-<span id="L498" class="ln">   498  </span><span class="comment">// all experiments that have been run, indexed by the experiment key.</span>
-<span id="L499" class="ln">   499  </span>func (gb *GrowthBook) GetAllResults() map[string]*Assignment {
-<span id="L500" class="ln">   500  </span>	gb.inner.RLock()
-<span id="L501" class="ln">   501  </span>	defer gb.inner.RUnlock()
-<span id="L502" class="ln">   502  </span>
-<span id="L503" class="ln">   503  </span>	return gb.inner.assigned
-<span id="L504" class="ln">   504  </span>}
-<span id="L505" class="ln">   505  </span>
-<span id="L506" class="ln">   506  </span><span class="comment">// ClearSavedResults clears out any experiment results saved within a</span>
-<span id="L507" class="ln">   507  </span><span class="comment">// GrowthBook instance (used for deciding whether to send data to</span>
-<span id="L508" class="ln">   508  </span><span class="comment">// subscriptions).</span>
-<span id="L509" class="ln">   509  </span>func (gb *GrowthBook) ClearSavedResults() {
-<span id="L510" class="ln">   510  </span>	gb.inner.Lock()
-<span id="L511" class="ln">   511  </span>	defer gb.inner.Unlock()
+<span id="L477" class="ln">   477  </span>	id := gb.inner.nextSubscriptionID
+<span id="L478" class="ln">   478  </span>	gb.inner.subscriptions[id] = callback
+<span id="L479" class="ln">   479  </span>	gb.inner.nextSubscriptionID++
+<span id="L480" class="ln">   480  </span>	return func() {
+<span id="L481" class="ln">   481  </span>		delete(gb.inner.subscriptions, id)
+<span id="L482" class="ln">   482  </span>	}
+<span id="L483" class="ln">   483  </span>}
+<span id="L484" class="ln">   484  </span>
+<span id="L485" class="ln">   485  </span><span class="comment">// GetAllResults returns a map containing all the latest results from</span>
+<span id="L486" class="ln">   486  </span><span class="comment">// all experiments that have been run, indexed by the experiment key.</span>
+<span id="L487" class="ln">   487  </span>func (gb *GrowthBook) GetAllResults() map[string]*Assignment {
+<span id="L488" class="ln">   488  </span>	gb.inner.RLock()
+<span id="L489" class="ln">   489  </span>	defer gb.inner.RUnlock()
+<span id="L490" class="ln">   490  </span>
+<span id="L491" class="ln">   491  </span>	return gb.inner.assigned
+<span id="L492" class="ln">   492  </span>}
+<span id="L493" class="ln">   493  </span>
+<span id="L494" class="ln">   494  </span><span class="comment">// ClearSavedResults clears out any experiment results saved within a</span>
+<span id="L495" class="ln">   495  </span><span class="comment">// GrowthBook instance (used for deciding whether to send data to</span>
+<span id="L496" class="ln">   496  </span><span class="comment">// subscriptions).</span>
+<span id="L497" class="ln">   497  </span>func (gb *GrowthBook) ClearSavedResults() {
+<span id="L498" class="ln">   498  </span>	gb.inner.Lock()
+<span id="L499" class="ln">   499  </span>	defer gb.inner.Unlock()
+<span id="L500" class="ln">   500  </span>
+<span id="L501" class="ln">   501  </span>	gb.inner.assigned = make(map[string]*Assignment)
+<span id="L502" class="ln">   502  </span>}
+<span id="L503" class="ln">   503  </span>
+<span id="L504" class="ln">   504  </span><span class="comment">// ClearTrackingData clears out records of calls to the experiment</span>
+<span id="L505" class="ln">   505  </span><span class="comment">// tracking callback.</span>
+<span id="L506" class="ln">   506  </span>func (gb *GrowthBook) ClearTrackingData() {
+<span id="L507" class="ln">   507  </span>	gb.inner.Lock()
+<span id="L508" class="ln">   508  </span>	defer gb.inner.Unlock()
+<span id="L509" class="ln">   509  </span>
+<span id="L510" class="ln">   510  </span>	gb.inner.trackedExperiments = make(map[string]bool)
+<span id="L511" class="ln">   511  </span>}
 <span id="L512" class="ln">   512  </span>
-<span id="L513" class="ln">   513  </span>	gb.inner.assigned = make(map[string]*Assignment)
-<span id="L514" class="ln">   514  </span>}
-<span id="L515" class="ln">   515  </span>
-<span id="L516" class="ln">   516  </span><span class="comment">// ClearTrackingData clears out records of calls to the experiment</span>
-<span id="L517" class="ln">   517  </span><span class="comment">// tracking callback.</span>
-<span id="L518" class="ln">   518  </span>func (gb *GrowthBook) ClearTrackingData() {
-<span id="L519" class="ln">   519  </span>	gb.inner.Lock()
-<span id="L520" class="ln">   520  </span>	defer gb.inner.Unlock()
-<span id="L521" class="ln">   521  </span>
-<span id="L522" class="ln">   522  </span>	gb.inner.trackedExperiments = make(map[string]bool)
-<span id="L523" class="ln">   523  </span>}
-<span id="L524" class="ln">   524  </span>
-<span id="L525" class="ln">   525  </span><span class="comment">// GetAPIInfo gets the hostname and client key for GrowthBook API</span>
-<span id="L526" class="ln">   526  </span><span class="comment">// access.</span>
-<span id="L527" class="ln">   527  </span>func (gb *GrowthBook) GetAPIInfo() (string, string) {
-<span id="L528" class="ln">   528  </span>	gb.inner.RLock()
-<span id="L529" class="ln">   529  </span>	defer gb.inner.RUnlock()
-<span id="L530" class="ln">   530  </span>
-<span id="L531" class="ln">   531  </span>	apiHost := gb.inner.context.APIHost
-<span id="L532" class="ln">   532  </span>	if apiHost == &#34;&#34; {
-<span id="L533" class="ln">   533  </span>		apiHost = &#34;https://cdn.growthbook.io&#34;
-<span id="L534" class="ln">   534  </span>	}
-<span id="L535" class="ln">   535  </span>
-<span id="L536" class="ln">   536  </span>	return strings.TrimRight(apiHost, &#34;/&#34;), gb.inner.context.ClientKey
-<span id="L537" class="ln">   537  </span>}
-<span id="L538" class="ln">   538  </span>
-<span id="L539" class="ln">   539  </span>type FeatureRepoOptions struct {
-<span id="L540" class="ln">   540  </span>	AutoRefresh bool
-<span id="L541" class="ln">   541  </span>	Timeout     time.Duration
-<span id="L542" class="ln">   542  </span>	SkipCache   bool
-<span id="L543" class="ln">   543  </span>}
-<span id="L544" class="ln">   544  </span>
-<span id="L545" class="ln">   545  </span>func (gb *GrowthBook) LoadFeatures(options *FeatureRepoOptions) {
-<span id="L546" class="ln">   546  </span>	gb.refresh(options, true, true)
-<span id="L547" class="ln">   547  </span>	if options != nil &amp;&amp; options.AutoRefresh {
-<span id="L548" class="ln">   548  </span>		repoSubscribe(gb)
-<span id="L549" class="ln">   549  </span>	}
-<span id="L550" class="ln">   550  </span>}
-<span id="L551" class="ln">   551  </span>
-<span id="L552" class="ln">   552  </span>func (gb *GrowthBook) LatestFeatureUpdate() *time.Time {
-<span id="L553" class="ln">   553  </span>	return repoLatestUpdate(gb)
-<span id="L554" class="ln">   554  </span>}
-<span id="L555" class="ln">   555  </span>
-<span id="L556" class="ln">   556  </span>func (gb *GrowthBook) RefreshFeatures(options *FeatureRepoOptions) {
-<span id="L557" class="ln">   557  </span>	gb.refresh(options, false, true)
-<span id="L558" class="ln">   558  </span>}
-<span id="L559" class="ln">   559  </span>
-<span id="L560" class="ln">   560  </span><span class="comment">//-- PRIVATE FUNCTIONS START HERE ----------------------------------------------</span>
-<span id="L561" class="ln">   561  </span>
-<span id="L562" class="ln">   562  </span>func (gb *GrowthBook) refresh(
-<span id="L563" class="ln">   563  </span>	options *FeatureRepoOptions, allowStale bool, updateInstance bool) {
-<span id="L564" class="ln">   564  </span>
-<span id="L565" class="ln">   565  </span>	if gb.inner.context.ClientKey == &#34;&#34; {
-<span id="L566" class="ln">   566  </span>		logError(&#34;Missing clientKey&#34;)
-<span id="L567" class="ln">   567  </span>		return
-<span id="L568" class="ln">   568  </span>	}
-<span id="L569" class="ln">   569  </span>	var timeout time.Duration
-<span id="L570" class="ln">   570  </span>	skipCache := gb.inner.context.DevMode
-<span id="L571" class="ln">   571  </span>	if options != nil {
-<span id="L572" class="ln">   572  </span>		timeout = options.Timeout
-<span id="L573" class="ln">   573  </span>		skipCache = skipCache || options.SkipCache
-<span id="L574" class="ln">   574  </span>	}
-<span id="L575" class="ln">   575  </span>	configureCacheStaleTTL(gb.inner.context.CacheTTL)
-<span id="L576" class="ln">   576  </span>	repoRefreshFeatures(gb, timeout, skipCache, allowStale, updateInstance)
-<span id="L577" class="ln">   577  </span>}
+<span id="L513" class="ln">   513  </span><span class="comment">// GetAPIInfo gets the hostname and client key for GrowthBook API</span>
+<span id="L514" class="ln">   514  </span><span class="comment">// access.</span>
+<span id="L515" class="ln">   515  </span>func (gb *GrowthBook) GetAPIInfo() (string, string) {
+<span id="L516" class="ln">   516  </span>	gb.inner.RLock()
+<span id="L517" class="ln">   517  </span>	defer gb.inner.RUnlock()
+<span id="L518" class="ln">   518  </span>
+<span id="L519" class="ln">   519  </span>	apiHost := gb.inner.context.APIHost
+<span id="L520" class="ln">   520  </span>	if apiHost == &#34;&#34; {
+<span id="L521" class="ln">   521  </span>		apiHost = &#34;https://cdn.growthbook.io&#34;
+<span id="L522" class="ln">   522  </span>	}
+<span id="L523" class="ln">   523  </span>
+<span id="L524" class="ln">   524  </span>	return strings.TrimRight(apiHost, &#34;/&#34;), gb.inner.context.ClientKey
+<span id="L525" class="ln">   525  </span>}
+<span id="L526" class="ln">   526  </span>
+<span id="L527" class="ln">   527  </span>type FeatureRepoOptions struct {
+<span id="L528" class="ln">   528  </span>	AutoRefresh bool
+<span id="L529" class="ln">   529  </span>	Timeout     time.Duration
+<span id="L530" class="ln">   530  </span>	SkipCache   bool
+<span id="L531" class="ln">   531  </span>}
+<span id="L532" class="ln">   532  </span>
+<span id="L533" class="ln">   533  </span>func (gb *GrowthBook) LoadFeatures(options *FeatureRepoOptions) {
+<span id="L534" class="ln">   534  </span>	gb.refresh(options, true, true)
+<span id="L535" class="ln">   535  </span>	if options != nil &amp;&amp; options.AutoRefresh {
+<span id="L536" class="ln">   536  </span>		repoSubscribe(gb)
+<span id="L537" class="ln">   537  </span>	}
+<span id="L538" class="ln">   538  </span>}
+<span id="L539" class="ln">   539  </span>
+<span id="L540" class="ln">   540  </span>func (gb *GrowthBook) LatestFeatureUpdate() *time.Time {
+<span id="L541" class="ln">   541  </span>	return repoLatestUpdate(gb)
+<span id="L542" class="ln">   542  </span>}
+<span id="L543" class="ln">   543  </span>
+<span id="L544" class="ln">   544  </span>func (gb *GrowthBook) RefreshFeatures(options *FeatureRepoOptions) {
+<span id="L545" class="ln">   545  </span>	gb.refresh(options, false, true)
+<span id="L546" class="ln">   546  </span>}
+<span id="L547" class="ln">   547  </span>
+<span id="L548" class="ln">   548  </span><span class="comment">//-- PRIVATE FUNCTIONS START HERE ----------------------------------------------</span>
+<span id="L549" class="ln">   549  </span>
+<span id="L550" class="ln">   550  </span>func (gb *GrowthBook) refresh(
+<span id="L551" class="ln">   551  </span>	options *FeatureRepoOptions, allowStale bool, updateInstance bool) {
+<span id="L552" class="ln">   552  </span>
+<span id="L553" class="ln">   553  </span>	if gb.inner.context.ClientKey == &#34;&#34; {
+<span id="L554" class="ln">   554  </span>		logError(&#34;Missing clientKey&#34;)
+<span id="L555" class="ln">   555  </span>		return
+<span id="L556" class="ln">   556  </span>	}
+<span id="L557" class="ln">   557  </span>	var timeout time.Duration
+<span id="L558" class="ln">   558  </span>	skipCache := gb.inner.context.DevMode
+<span id="L559" class="ln">   559  </span>	if options != nil {
+<span id="L560" class="ln">   560  </span>		timeout = options.Timeout
+<span id="L561" class="ln">   561  </span>		skipCache = skipCache || options.SkipCache
+<span id="L562" class="ln">   562  </span>	}
+<span id="L563" class="ln">   563  </span>	configureCacheStaleTTL(gb.inner.context.CacheTTL)
+<span id="L564" class="ln">   564  </span>	repoRefreshFeatures(gb, timeout, skipCache, allowStale, updateInstance)
+<span id="L565" class="ln">   565  </span>}
+<span id="L566" class="ln">   566  </span>
+<span id="L567" class="ln">   567  </span>func (gb *GrowthBook) trackFeatureUsage(key string, res *FeatureResult) {
+<span id="L568" class="ln">   568  </span>	<span class="comment">// Don&#39;t track feature usage that was forced via an override.</span>
+<span id="L569" class="ln">   569  </span>	if res.Source == OverrideResultSource {
+<span id="L570" class="ln">   570  </span>		return
+<span id="L571" class="ln">   571  </span>	}
+<span id="L572" class="ln">   572  </span>
+<span id="L573" class="ln">   573  </span>	<span class="comment">// Only track a feature once, unless the assigned value changed.</span>
+<span id="L574" class="ln">   574  </span>	if saved, ok := gb.inner.trackedFeatures[key]; ok &amp;&amp; reflect.DeepEqual(saved, res.Value) {
+<span id="L575" class="ln">   575  </span>		return
+<span id="L576" class="ln">   576  </span>	}
+<span id="L577" class="ln">   577  </span>	gb.inner.trackedFeatures[key] = res.Value
 <span id="L578" class="ln">   578  </span>
-<span id="L579" class="ln">   579  </span>func (gb *GrowthBook) trackFeatureUsage(key string, res *FeatureResult) {
-<span id="L580" class="ln">   580  </span>	<span class="comment">// Don&#39;t track feature usage that was forced via an override.</span>
-<span id="L581" class="ln">   581  </span>	if res.Source == OverrideResultSource {
-<span id="L582" class="ln">   582  </span>		return
-<span id="L583" class="ln">   583  </span>	}
+<span id="L579" class="ln">   579  </span>	<span class="comment">// Fire user-supplied callback</span>
+<span id="L580" class="ln">   580  </span>	if gb.inner.context.OnFeatureUsage != nil {
+<span id="L581" class="ln">   581  </span>		gb.inner.context.OnFeatureUsage(key, res)
+<span id="L582" class="ln">   582  </span>	}
+<span id="L583" class="ln">   583  </span>}
 <span id="L584" class="ln">   584  </span>
-<span id="L585" class="ln">   585  </span>	<span class="comment">// Only track a feature once, unless the assigned value changed.</span>
-<span id="L586" class="ln">   586  </span>	if saved, ok := gb.inner.trackedFeatures[key]; ok &amp;&amp; reflect.DeepEqual(saved, res.Value) {
-<span id="L587" class="ln">   587  </span>		return
-<span id="L588" class="ln">   588  </span>	}
-<span id="L589" class="ln">   589  </span>	gb.inner.trackedFeatures[key] = res.Value
-<span id="L590" class="ln">   590  </span>
-<span id="L591" class="ln">   591  </span>	<span class="comment">// Fire user-supplied callback</span>
-<span id="L592" class="ln">   592  </span>	if gb.inner.context.OnFeatureUsage != nil {
-<span id="L593" class="ln">   593  </span>		gb.inner.context.OnFeatureUsage(key, res)
-<span id="L594" class="ln">   594  </span>	}
-<span id="L595" class="ln">   595  </span>}
-<span id="L596" class="ln">   596  </span>
-<span id="L597" class="ln">   597  </span>func (gb *GrowthBook) getFeatureResult(
-<span id="L598" class="ln">   598  </span>	key string,
-<span id="L599" class="ln">   599  </span>	value FeatureValue,
-<span id="L600" class="ln">   600  </span>	source FeatureResultSource,
-<span id="L601" class="ln">   601  </span>	ruleID string,
-<span id="L602" class="ln">   602  </span>	experiment *Experiment,
-<span id="L603" class="ln">   603  </span>	result *Result) *FeatureResult {
-<span id="L604" class="ln">   604  </span>	on := truthy(value)
-<span id="L605" class="ln">   605  </span>	off := !on
-<span id="L606" class="ln">   606  </span>	retval := FeatureResult{
-<span id="L607" class="ln">   607  </span>		Value:            value,
-<span id="L608" class="ln">   608  </span>		On:               on,
-<span id="L609" class="ln">   609  </span>		Off:              off,
-<span id="L610" class="ln">   610  </span>		Source:           source,
-<span id="L611" class="ln">   611  </span>		RuleID:           ruleID,
-<span id="L612" class="ln">   612  </span>		Experiment:       experiment,
-<span id="L613" class="ln">   613  </span>		ExperimentResult: result,
-<span id="L614" class="ln">   614  </span>	}
-<span id="L615" class="ln">   615  </span>
-<span id="L616" class="ln">   616  </span>	gb.trackFeatureUsage(key, &amp;retval)
-<span id="L617" class="ln">   617  </span>
-<span id="L618" class="ln">   618  </span>	return &amp;retval
-<span id="L619" class="ln">   619  </span>}
+<span id="L585" class="ln">   585  </span>func (gb *GrowthBook) getFeatureResult(
+<span id="L586" class="ln">   586  </span>	key string,
+<span id="L587" class="ln">   587  </span>	value FeatureValue,
+<span id="L588" class="ln">   588  </span>	source FeatureResultSource,
+<span id="L589" class="ln">   589  </span>	ruleID string,
+<span id="L590" class="ln">   590  </span>	experiment *Experiment,
+<span id="L591" class="ln">   591  </span>	result *Result) *FeatureResult {
+<span id="L592" class="ln">   592  </span>	on := truthy(value)
+<span id="L593" class="ln">   593  </span>	off := !on
+<span id="L594" class="ln">   594  </span>	retval := FeatureResult{
+<span id="L595" class="ln">   595  </span>		Value:            value,
+<span id="L596" class="ln">   596  </span>		On:               on,
+<span id="L597" class="ln">   597  </span>		Off:              off,
+<span id="L598" class="ln">   598  </span>		Source:           source,
+<span id="L599" class="ln">   599  </span>		RuleID:           ruleID,
+<span id="L600" class="ln">   600  </span>		Experiment:       experiment,
+<span id="L601" class="ln">   601  </span>		ExperimentResult: result,
+<span id="L602" class="ln">   602  </span>	}
+<span id="L603" class="ln">   603  </span>
+<span id="L604" class="ln">   604  </span>	gb.trackFeatureUsage(key, &amp;retval)
+<span id="L605" class="ln">   605  </span>
+<span id="L606" class="ln">   606  </span>	return &amp;retval
+<span id="L607" class="ln">   607  </span>}
+<span id="L608" class="ln">   608  </span>
+<span id="L609" class="ln">   609  </span>func (gb *GrowthBook) getResult(
+<span id="L610" class="ln">   610  </span>	exp *Experiment, variationIndex int,
+<span id="L611" class="ln">   611  </span>	hashUsed bool, featureID string, bucket *float64) *Result {
+<span id="L612" class="ln">   612  </span>	inExperiment := true
+<span id="L613" class="ln">   613  </span>
+<span id="L614" class="ln">   614  </span>	<span class="comment">// If assigned variation is not valid, use the baseline and mark the</span>
+<span id="L615" class="ln">   615  </span>	<span class="comment">// user as not in the experiment</span>
+<span id="L616" class="ln">   616  </span>	if variationIndex &lt; 0 || variationIndex &gt;= len(exp.Variations) {
+<span id="L617" class="ln">   617  </span>		variationIndex = 0
+<span id="L618" class="ln">   618  </span>		inExperiment = false
+<span id="L619" class="ln">   619  </span>	}
 <span id="L620" class="ln">   620  </span>
-<span id="L621" class="ln">   621  </span>func (gb *GrowthBook) getResult(
-<span id="L622" class="ln">   622  </span>	exp *Experiment, variationIndex int,
-<span id="L623" class="ln">   623  </span>	hashUsed bool, featureID string, bucket *float64) *Result {
-<span id="L624" class="ln">   624  </span>	inExperiment := true
-<span id="L625" class="ln">   625  </span>
-<span id="L626" class="ln">   626  </span>	<span class="comment">// If assigned variation is not valid, use the baseline and mark the</span>
-<span id="L627" class="ln">   627  </span>	<span class="comment">// user as not in the experiment</span>
-<span id="L628" class="ln">   628  </span>	if variationIndex &lt; 0 || variationIndex &gt;= len(exp.Variations) {
-<span id="L629" class="ln">   629  </span>		variationIndex = 0
-<span id="L630" class="ln">   630  </span>		inExperiment = false
-<span id="L631" class="ln">   631  </span>	}
-<span id="L632" class="ln">   632  </span>
-<span id="L633" class="ln">   633  </span>	<span class="comment">// Get the hashAttribute and hashValue</span>
-<span id="L634" class="ln">   634  </span>	hashAttribute, hashString := gb.getHashAttribute(exp.HashAttribute)
-<span id="L635" class="ln">   635  </span>
-<span id="L636" class="ln">   636  </span>	var meta *VariationMeta
-<span id="L637" class="ln">   637  </span>	if exp.Meta != nil {
-<span id="L638" class="ln">   638  </span>		if variationIndex &lt; len(exp.Meta) {
-<span id="L639" class="ln">   639  </span>			meta = &amp;exp.Meta[variationIndex]
-<span id="L640" class="ln">   640  </span>		}
-<span id="L641" class="ln">   641  </span>	}
-<span id="L642" class="ln">   642  </span>
-<span id="L643" class="ln">   643  </span>	<span class="comment">// Return</span>
-<span id="L644" class="ln">   644  </span>	var value FeatureValue
-<span id="L645" class="ln">   645  </span>	if variationIndex &lt; len(exp.Variations) {
-<span id="L646" class="ln">   646  </span>		value = exp.Variations[variationIndex]
+<span id="L621" class="ln">   621  </span>	<span class="comment">// Get the hashAttribute and hashValue</span>
+<span id="L622" class="ln">   622  </span>	hashAttribute, hashString := gb.getHashAttribute(exp.HashAttribute)
+<span id="L623" class="ln">   623  </span>
+<span id="L624" class="ln">   624  </span>	var meta *VariationMeta
+<span id="L625" class="ln">   625  </span>	if exp.Meta != nil {
+<span id="L626" class="ln">   626  </span>		if variationIndex &lt; len(exp.Meta) {
+<span id="L627" class="ln">   627  </span>			meta = &amp;exp.Meta[variationIndex]
+<span id="L628" class="ln">   628  </span>		}
+<span id="L629" class="ln">   629  </span>	}
+<span id="L630" class="ln">   630  </span>
+<span id="L631" class="ln">   631  </span>	<span class="comment">// Return</span>
+<span id="L632" class="ln">   632  </span>	var value FeatureValue
+<span id="L633" class="ln">   633  </span>	if variationIndex &lt; len(exp.Variations) {
+<span id="L634" class="ln">   634  </span>		value = exp.Variations[variationIndex]
+<span id="L635" class="ln">   635  </span>	}
+<span id="L636" class="ln">   636  </span>	key := fmt.Sprint(variationIndex)
+<span id="L637" class="ln">   637  </span>	name := &#34;&#34;
+<span id="L638" class="ln">   638  </span>	passthrough := false
+<span id="L639" class="ln">   639  </span>	if meta != nil {
+<span id="L640" class="ln">   640  </span>		if meta.Key != &#34;&#34; {
+<span id="L641" class="ln">   641  </span>			key = meta.Key
+<span id="L642" class="ln">   642  </span>		}
+<span id="L643" class="ln">   643  </span>		if meta.Name != &#34;&#34; {
+<span id="L644" class="ln">   644  </span>			name = meta.Name
+<span id="L645" class="ln">   645  </span>		}
+<span id="L646" class="ln">   646  </span>		passthrough = meta.Passthrough
 <span id="L647" class="ln">   647  </span>	}
-<span id="L648" class="ln">   648  </span>	key := fmt.Sprint(variationIndex)
-<span id="L649" class="ln">   649  </span>	name := &#34;&#34;
-<span id="L650" class="ln">   650  </span>	passthrough := false
-<span id="L651" class="ln">   651  </span>	if meta != nil {
-<span id="L652" class="ln">   652  </span>		if meta.Key != &#34;&#34; {
-<span id="L653" class="ln">   653  </span>			key = meta.Key
-<span id="L654" class="ln">   654  </span>		}
-<span id="L655" class="ln">   655  </span>		if meta.Name != &#34;&#34; {
-<span id="L656" class="ln">   656  </span>			name = meta.Name
-<span id="L657" class="ln">   657  </span>		}
-<span id="L658" class="ln">   658  </span>		passthrough = meta.Passthrough
-<span id="L659" class="ln">   659  </span>	}
-<span id="L660" class="ln">   660  </span>	return &amp;Result{
-<span id="L661" class="ln">   661  </span>		Key:           key,
-<span id="L662" class="ln">   662  </span>		FeatureID:     featureID,
-<span id="L663" class="ln">   663  </span>		InExperiment:  inExperiment,
-<span id="L664" class="ln">   664  </span>		HashUsed:      hashUsed,
-<span id="L665" class="ln">   665  </span>		VariationID:   variationIndex,
-<span id="L666" class="ln">   666  </span>		Value:         value,
-<span id="L667" class="ln">   667  </span>		HashAttribute: hashAttribute,
-<span id="L668" class="ln">   668  </span>		HashValue:     hashString,
-<span id="L669" class="ln">   669  </span>		Bucket:        bucket,
-<span id="L670" class="ln">   670  </span>		Name:          name,
-<span id="L671" class="ln">   671  </span>		Passthrough:   passthrough,
-<span id="L672" class="ln">   672  </span>	}
-<span id="L673" class="ln">   673  </span>}
+<span id="L648" class="ln">   648  </span>	return &amp;Result{
+<span id="L649" class="ln">   649  </span>		Key:           key,
+<span id="L650" class="ln">   650  </span>		FeatureID:     featureID,
+<span id="L651" class="ln">   651  </span>		InExperiment:  inExperiment,
+<span id="L652" class="ln">   652  </span>		HashUsed:      hashUsed,
+<span id="L653" class="ln">   653  </span>		VariationID:   variationIndex,
+<span id="L654" class="ln">   654  </span>		Value:         value,
+<span id="L655" class="ln">   655  </span>		HashAttribute: hashAttribute,
+<span id="L656" class="ln">   656  </span>		HashValue:     hashString,
+<span id="L657" class="ln">   657  </span>		Bucket:        bucket,
+<span id="L658" class="ln">   658  </span>		Name:          name,
+<span id="L659" class="ln">   659  </span>		Passthrough:   passthrough,
+<span id="L660" class="ln">   660  </span>	}
+<span id="L661" class="ln">   661  </span>}
+<span id="L662" class="ln">   662  </span>
+<span id="L663" class="ln">   663  </span>func (gb *GrowthBook) fireSubscriptions(exp *Experiment, result *Result) {
+<span id="L664" class="ln">   664  </span>	<span class="comment">// Determine whether the result changed from the last stored result</span>
+<span id="L665" class="ln">   665  </span>	<span class="comment">// for the experiment.</span>
+<span id="L666" class="ln">   666  </span>	changed := false
+<span id="L667" class="ln">   667  </span>	storedResult, exists := gb.inner.assigned[exp.Key]
+<span id="L668" class="ln">   668  </span>	if exists {
+<span id="L669" class="ln">   669  </span>		if storedResult.Result.InExperiment != result.InExperiment ||
+<span id="L670" class="ln">   670  </span>			storedResult.Result.VariationID != result.VariationID {
+<span id="L671" class="ln">   671  </span>			changed = true
+<span id="L672" class="ln">   672  </span>		}
+<span id="L673" class="ln">   673  </span>	}
 <span id="L674" class="ln">   674  </span>
-<span id="L675" class="ln">   675  </span>func (gb *GrowthBook) fireSubscriptions(exp *Experiment, result *Result) {
-<span id="L676" class="ln">   676  </span>	<span class="comment">// Determine whether the result changed from the last stored result</span>
-<span id="L677" class="ln">   677  </span>	<span class="comment">// for the experiment.</span>
-<span id="L678" class="ln">   678  </span>	changed := false
-<span id="L679" class="ln">   679  </span>	storedResult, exists := gb.inner.assigned[exp.Key]
-<span id="L680" class="ln">   680  </span>	if exists {
-<span id="L681" class="ln">   681  </span>		if storedResult.Result.InExperiment != result.InExperiment ||
-<span id="L682" class="ln">   682  </span>			storedResult.Result.VariationID != result.VariationID {
-<span id="L683" class="ln">   683  </span>			changed = true
-<span id="L684" class="ln">   684  </span>		}
-<span id="L685" class="ln">   685  </span>	}
-<span id="L686" class="ln">   686  </span>
-<span id="L687" class="ln">   687  </span>	<span class="comment">// Store the experiment result.</span>
-<span id="L688" class="ln">   688  </span>	gb.inner.assigned[exp.Key] = &amp;Assignment{exp, result}
-<span id="L689" class="ln">   689  </span>
-<span id="L690" class="ln">   690  </span>	<span class="comment">// If the result changed, trigger all subscriptions.</span>
-<span id="L691" class="ln">   691  </span>	if changed || !exists {
-<span id="L692" class="ln">   692  </span>		for _, sub := range gb.inner.subscriptions {
-<span id="L693" class="ln">   693  </span>			sub(exp, result)
-<span id="L694" class="ln">   694  </span>		}
-<span id="L695" class="ln">   695  </span>	}
-<span id="L696" class="ln">   696  </span>}
-<span id="L697" class="ln">   697  </span>
-<span id="L698" class="ln">   698  </span><span class="comment">// Worker function to run an experiment.</span>
-<span id="L699" class="ln">   699  </span>func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
-<span id="L700" class="ln">   700  </span>	<span class="comment">// 1. If experiment has fewer than two variations, return default</span>
-<span id="L701" class="ln">   701  </span>	<span class="comment">//    result.</span>
-<span id="L702" class="ln">   702  </span>	if len(exp.Variations) &lt; 2 {
-<span id="L703" class="ln">   703  </span>		logWarn(&#34;Invalid experiment&#34;, exp.Key)
-<span id="L704" class="ln">   704  </span>		return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L705" class="ln">   705  </span>	}
-<span id="L706" class="ln">   706  </span>
-<span id="L707" class="ln">   707  </span>	<span class="comment">// 2. If the context is disabled, return default result.</span>
-<span id="L708" class="ln">   708  </span>	if !gb.inner.context.Enabled {
-<span id="L709" class="ln">   709  </span>		logInfo(&#34;Context disabled&#34;, exp.Key)
-<span id="L710" class="ln">   710  </span>		return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L711" class="ln">   711  </span>	}
-<span id="L712" class="ln">   712  </span>
-<span id="L713" class="ln">   713  </span>	<span class="comment">// 2.5. Merge in experiment overrides from the context</span>
-<span id="L714" class="ln">   714  </span>	exp = gb.mergeOverrides(exp)
-<span id="L715" class="ln">   715  </span>
-<span id="L716" class="ln">   716  </span>	<span class="comment">// 3. If a variation is forced from a querystring, return the forced</span>
-<span id="L717" class="ln">   717  </span>	<span class="comment">//    variation.</span>
-<span id="L718" class="ln">   718  </span>	if gb.inner.context.URL != nil {
-<span id="L719" class="ln">   719  </span>		qsOverride := getQueryStringOverride(exp.Key, gb.inner.context.URL, len(exp.Variations))
-<span id="L720" class="ln">   720  </span>		if qsOverride != nil {
-<span id="L721" class="ln">   721  </span>			logInfo(&#34;Force via querystring&#34;, exp.Key, qsOverride)
-<span id="L722" class="ln">   722  </span>			return gb.getResult(exp, *qsOverride, false, featureID, nil)
-<span id="L723" class="ln">   723  </span>		}
-<span id="L724" class="ln">   724  </span>	}
-<span id="L725" class="ln">   725  </span>
-<span id="L726" class="ln">   726  </span>	<span class="comment">// 4. If a variation is forced in the context, return the forced</span>
-<span id="L727" class="ln">   727  </span>	<span class="comment">//    variation.</span>
-<span id="L728" class="ln">   728  </span>	if gb.inner.context.ForcedVariations != nil {
-<span id="L729" class="ln">   729  </span>		force, forced := gb.inner.context.ForcedVariations[exp.Key]
-<span id="L730" class="ln">   730  </span>		if forced {
-<span id="L731" class="ln">   731  </span>			logInfo(&#34;Forced variation&#34;, exp.Key, force)
-<span id="L732" class="ln">   732  </span>			return gb.getResult(exp, force, false, featureID, nil)
-<span id="L733" class="ln">   733  </span>		}
-<span id="L734" class="ln">   734  </span>	}
-<span id="L735" class="ln">   735  </span>
-<span id="L736" class="ln">   736  </span>	<span class="comment">// 5. Exclude inactive experiments and return default result.</span>
-<span id="L737" class="ln">   737  </span>	if exp.Status == DraftStatus || !exp.Active {
-<span id="L738" class="ln">   738  </span>		logInfo(&#34;Skip because inactive&#34;, exp.Key)
-<span id="L739" class="ln">   739  </span>		return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L740" class="ln">   740  </span>	}
-<span id="L741" class="ln">   741  </span>
-<span id="L742" class="ln">   742  </span>	<span class="comment">// 6. Get the user hash value and return if empty.</span>
-<span id="L743" class="ln">   743  </span>	_, hashString := gb.getHashAttribute(exp.HashAttribute)
-<span id="L744" class="ln">   744  </span>	if hashString == &#34;&#34; {
-<span id="L745" class="ln">   745  </span>		logInfo(&#34;Skip because of missing hash attribute&#34;, exp.Key)
-<span id="L746" class="ln">   746  </span>		return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L747" class="ln">   747  </span>	}
-<span id="L748" class="ln">   748  </span>
-<span id="L749" class="ln">   749  </span>	<span class="comment">// 7. If exp.Namespace is set, return if not in range.</span>
-<span id="L750" class="ln">   750  </span>	if exp.Filters != nil {
-<span id="L751" class="ln">   751  </span>		if gb.isFilteredOut(exp.Filters) {
-<span id="L752" class="ln">   752  </span>			logInfo(&#34;Skip because of filters&#34;, exp.Key)
-<span id="L753" class="ln">   753  </span>			return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L754" class="ln">   754  </span>		}
-<span id="L755" class="ln">   755  </span>	} else if exp.Namespace != nil {
-<span id="L756" class="ln">   756  </span>		if !exp.Namespace.inNamespace(hashString) {
-<span id="L757" class="ln">   757  </span>			logInfo(&#34;Skip because of namespace&#34;, exp.Key)
-<span id="L758" class="ln">   758  </span>			return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L759" class="ln">   759  </span>		}
-<span id="L760" class="ln">   760  </span>	}
-<span id="L761" class="ln">   761  </span>
-<span id="L762" class="ln">   762  </span>	<span class="comment">// 7.5. Exclude if include function returns false.</span>
-<span id="L763" class="ln">   763  </span>	if exp.Include != nil &amp;&amp; !exp.Include() {
-<span id="L764" class="ln">   764  </span>		logInfo(&#34;Skip because of include function&#34;, exp.Key)
-<span id="L765" class="ln">   765  </span>		return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L766" class="ln">   766  </span>	}
-<span id="L767" class="ln">   767  </span>
-<span id="L768" class="ln">   768  </span>	<span class="comment">// 8. Exclude if condition is false.</span>
-<span id="L769" class="ln">   769  </span>	if exp.Condition != nil {
-<span id="L770" class="ln">   770  </span>		if !exp.Condition.Eval(gb.inner.context.Attributes) {
-<span id="L771" class="ln">   771  </span>			logInfo(&#34;Skip because of condition&#34;, exp.Key)
-<span id="L772" class="ln">   772  </span>			return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L773" class="ln">   773  </span>		}
+<span id="L675" class="ln">   675  </span>	<span class="comment">// Store the experiment result.</span>
+<span id="L676" class="ln">   676  </span>	gb.inner.assigned[exp.Key] = &amp;Assignment{exp, result}
+<span id="L677" class="ln">   677  </span>
+<span id="L678" class="ln">   678  </span>	<span class="comment">// If the result changed, trigger all subscriptions.</span>
+<span id="L679" class="ln">   679  </span>	if changed || !exists {
+<span id="L680" class="ln">   680  </span>		for _, sub := range gb.inner.subscriptions {
+<span id="L681" class="ln">   681  </span>			sub(exp, result)
+<span id="L682" class="ln">   682  </span>		}
+<span id="L683" class="ln">   683  </span>	}
+<span id="L684" class="ln">   684  </span>}
+<span id="L685" class="ln">   685  </span>
+<span id="L686" class="ln">   686  </span><span class="comment">// Worker function to run an experiment.</span>
+<span id="L687" class="ln">   687  </span>func (gb *GrowthBook) doRun(exp *Experiment, featureID string) *Result {
+<span id="L688" class="ln">   688  </span>	<span class="comment">// 1. If experiment has fewer than two variations, return default</span>
+<span id="L689" class="ln">   689  </span>	<span class="comment">//    result.</span>
+<span id="L690" class="ln">   690  </span>	if len(exp.Variations) &lt; 2 {
+<span id="L691" class="ln">   691  </span>		logWarn(&#34;Invalid experiment&#34;, exp.Key)
+<span id="L692" class="ln">   692  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L693" class="ln">   693  </span>	}
+<span id="L694" class="ln">   694  </span>
+<span id="L695" class="ln">   695  </span>	<span class="comment">// 2. If the context is disabled, return default result.</span>
+<span id="L696" class="ln">   696  </span>	if !gb.inner.context.Enabled {
+<span id="L697" class="ln">   697  </span>		logInfo(&#34;Context disabled&#34;, exp.Key)
+<span id="L698" class="ln">   698  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L699" class="ln">   699  </span>	}
+<span id="L700" class="ln">   700  </span>
+<span id="L701" class="ln">   701  </span>	<span class="comment">// 2.5. Merge in experiment overrides from the context</span>
+<span id="L702" class="ln">   702  </span>	exp = gb.mergeOverrides(exp)
+<span id="L703" class="ln">   703  </span>
+<span id="L704" class="ln">   704  </span>	<span class="comment">// 3. If a variation is forced from a querystring, return the forced</span>
+<span id="L705" class="ln">   705  </span>	<span class="comment">//    variation.</span>
+<span id="L706" class="ln">   706  </span>	if gb.inner.context.URL != nil {
+<span id="L707" class="ln">   707  </span>		qsOverride := getQueryStringOverride(exp.Key, gb.inner.context.URL, len(exp.Variations))
+<span id="L708" class="ln">   708  </span>		if qsOverride != nil {
+<span id="L709" class="ln">   709  </span>			logInfo(&#34;Force via querystring&#34;, exp.Key, qsOverride)
+<span id="L710" class="ln">   710  </span>			return gb.getResult(exp, *qsOverride, false, featureID, nil)
+<span id="L711" class="ln">   711  </span>		}
+<span id="L712" class="ln">   712  </span>	}
+<span id="L713" class="ln">   713  </span>
+<span id="L714" class="ln">   714  </span>	<span class="comment">// 4. If a variation is forced in the context, return the forced</span>
+<span id="L715" class="ln">   715  </span>	<span class="comment">//    variation.</span>
+<span id="L716" class="ln">   716  </span>	if gb.inner.context.ForcedVariations != nil {
+<span id="L717" class="ln">   717  </span>		force, forced := gb.inner.context.ForcedVariations[exp.Key]
+<span id="L718" class="ln">   718  </span>		if forced {
+<span id="L719" class="ln">   719  </span>			logInfo(&#34;Forced variation&#34;, exp.Key, force)
+<span id="L720" class="ln">   720  </span>			return gb.getResult(exp, force, false, featureID, nil)
+<span id="L721" class="ln">   721  </span>		}
+<span id="L722" class="ln">   722  </span>	}
+<span id="L723" class="ln">   723  </span>
+<span id="L724" class="ln">   724  </span>	<span class="comment">// 5. Exclude inactive experiments and return default result.</span>
+<span id="L725" class="ln">   725  </span>	if exp.Status == DraftStatus || !exp.Active {
+<span id="L726" class="ln">   726  </span>		logInfo(&#34;Skip because inactive&#34;, exp.Key)
+<span id="L727" class="ln">   727  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L728" class="ln">   728  </span>	}
+<span id="L729" class="ln">   729  </span>
+<span id="L730" class="ln">   730  </span>	<span class="comment">// 6. Get the user hash value and return if empty.</span>
+<span id="L731" class="ln">   731  </span>	_, hashString := gb.getHashAttribute(exp.HashAttribute)
+<span id="L732" class="ln">   732  </span>	if hashString == &#34;&#34; {
+<span id="L733" class="ln">   733  </span>		logInfo(&#34;Skip because of missing hash attribute&#34;, exp.Key)
+<span id="L734" class="ln">   734  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L735" class="ln">   735  </span>	}
+<span id="L736" class="ln">   736  </span>
+<span id="L737" class="ln">   737  </span>	<span class="comment">// 7. If exp.Namespace is set, return if not in range.</span>
+<span id="L738" class="ln">   738  </span>	if exp.Filters != nil {
+<span id="L739" class="ln">   739  </span>		if gb.isFilteredOut(exp.Filters) {
+<span id="L740" class="ln">   740  </span>			logInfo(&#34;Skip because of filters&#34;, exp.Key)
+<span id="L741" class="ln">   741  </span>			return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L742" class="ln">   742  </span>		}
+<span id="L743" class="ln">   743  </span>	} else if exp.Namespace != nil {
+<span id="L744" class="ln">   744  </span>		if !exp.Namespace.inNamespace(hashString) {
+<span id="L745" class="ln">   745  </span>			logInfo(&#34;Skip because of namespace&#34;, exp.Key)
+<span id="L746" class="ln">   746  </span>			return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L747" class="ln">   747  </span>		}
+<span id="L748" class="ln">   748  </span>	}
+<span id="L749" class="ln">   749  </span>
+<span id="L750" class="ln">   750  </span>	<span class="comment">// 7.5. Exclude if include function returns false.</span>
+<span id="L751" class="ln">   751  </span>	if exp.Include != nil &amp;&amp; !exp.Include() {
+<span id="L752" class="ln">   752  </span>		logInfo(&#34;Skip because of include function&#34;, exp.Key)
+<span id="L753" class="ln">   753  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L754" class="ln">   754  </span>	}
+<span id="L755" class="ln">   755  </span>
+<span id="L756" class="ln">   756  </span>	<span class="comment">// 8. Exclude if condition is false.</span>
+<span id="L757" class="ln">   757  </span>	if exp.Condition != nil {
+<span id="L758" class="ln">   758  </span>		if !exp.Condition.Eval(gb.inner.context.Attributes) {
+<span id="L759" class="ln">   759  </span>			logInfo(&#34;Skip because of condition&#34;, exp.Key)
+<span id="L760" class="ln">   760  </span>			return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L761" class="ln">   761  </span>		}
+<span id="L762" class="ln">   762  </span>	}
+<span id="L763" class="ln">   763  </span>
+<span id="L764" class="ln">   764  </span>	<span class="comment">// 8.1. Exclude if user is not in a required group.</span>
+<span id="L765" class="ln">   765  </span>	if exp.Groups != nil &amp;&amp; !gb.hasGroupOverlap(exp.Groups) {
+<span id="L766" class="ln">   766  </span>		logInfo(&#34;Skip because of groups&#34;, exp.Key)
+<span id="L767" class="ln">   767  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L768" class="ln">   768  </span>	}
+<span id="L769" class="ln">   769  </span>
+<span id="L770" class="ln">   770  </span>	<span class="comment">// 8.2. Old style URL targeting.</span>
+<span id="L771" class="ln">   771  </span>	if exp.URL != nil &amp;&amp; !gb.urlIsValid(exp.URL) {
+<span id="L772" class="ln">   772  </span>		logInfo(&#34;Skip because of URL&#34;, exp.Key)
+<span id="L773" class="ln">   773  </span>		return gb.getResult(exp, -1, false, featureID, nil)
 <span id="L774" class="ln">   774  </span>	}
 <span id="L775" class="ln">   775  </span>
-<span id="L776" class="ln">   776  </span>	<span class="comment">// 8.1. Exclude if user is not in a required group.</span>
-<span id="L777" class="ln">   777  </span>	if exp.Groups != nil &amp;&amp; !gb.hasGroupOverlap(exp.Groups) {
-<span id="L778" class="ln">   778  </span>		logInfo(&#34;Skip because of groups&#34;, exp.Key)
+<span id="L776" class="ln">   776  </span>	<span class="comment">// 8.3. New, more powerful URL targeting</span>
+<span id="L777" class="ln">   777  </span>	if exp.URLPatterns != nil &amp;&amp; !isURLTargeted(gb.inner.context.URL, exp.URLPatterns) {
+<span id="L778" class="ln">   778  </span>		logInfo(&#34;Skip because of URL targeting&#34;, exp.Key)
 <span id="L779" class="ln">   779  </span>		return gb.getResult(exp, -1, false, featureID, nil)
 <span id="L780" class="ln">   780  </span>	}
 <span id="L781" class="ln">   781  </span>
-<span id="L782" class="ln">   782  </span>	<span class="comment">// 8.2. Old style URL targeting.</span>
-<span id="L783" class="ln">   783  </span>	if exp.URL != nil &amp;&amp; !gb.urlIsValid(exp.URL) {
-<span id="L784" class="ln">   784  </span>		logInfo(&#34;Skip because of URL&#34;, exp.Key)
-<span id="L785" class="ln">   785  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L782" class="ln">   782  </span>	<span class="comment">// 9. Calculate bucket ranges for the variations and choose one.</span>
+<span id="L783" class="ln">   783  </span>	seed := exp.Key
+<span id="L784" class="ln">   784  </span>	if exp.Seed != &#34;&#34; {
+<span id="L785" class="ln">   785  </span>		seed = exp.Seed
 <span id="L786" class="ln">   786  </span>	}
-<span id="L787" class="ln">   787  </span>
-<span id="L788" class="ln">   788  </span>	<span class="comment">// 8.3. New, more powerful URL targeting</span>
-<span id="L789" class="ln">   789  </span>	if exp.URLPatterns != nil &amp;&amp; !isURLTargeted(gb.inner.context.URL, exp.URLPatterns) {
-<span id="L790" class="ln">   790  </span>		logInfo(&#34;Skip because of URL targeting&#34;, exp.Key)
-<span id="L791" class="ln">   791  </span>		return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L792" class="ln">   792  </span>	}
-<span id="L793" class="ln">   793  </span>
-<span id="L794" class="ln">   794  </span>	<span class="comment">// 9. Calculate bucket ranges for the variations and choose one.</span>
-<span id="L795" class="ln">   795  </span>	seed := exp.Key
-<span id="L796" class="ln">   796  </span>	if exp.Seed != &#34;&#34; {
-<span id="L797" class="ln">   797  </span>		seed = exp.Seed
-<span id="L798" class="ln">   798  </span>	}
-<span id="L799" class="ln">   799  </span>	hv := 1
-<span id="L800" class="ln">   800  </span>	if exp.HashVersion != 0 {
-<span id="L801" class="ln">   801  </span>		hv = exp.HashVersion
-<span id="L802" class="ln">   802  </span>	}
-<span id="L803" class="ln">   803  </span>	n := hash(seed, hashString, hv)
-<span id="L804" class="ln">   804  </span>	if n == nil {
-<span id="L805" class="ln">   805  </span>		logWarn(&#34;Skip because of invalid hash version&#34;, exp.Key)
-<span id="L806" class="ln">   806  </span>		return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L807" class="ln">   807  </span>	}
-<span id="L808" class="ln">   808  </span>	coverage := float64(1)
-<span id="L809" class="ln">   809  </span>	if exp.Coverage != nil {
-<span id="L810" class="ln">   810  </span>		coverage = *exp.Coverage
-<span id="L811" class="ln">   811  </span>	}
-<span id="L812" class="ln">   812  </span>	ranges := exp.Ranges
-<span id="L813" class="ln">   813  </span>	if ranges == nil {
-<span id="L814" class="ln">   814  </span>		ranges = getBucketRanges(len(exp.Variations), coverage, exp.Weights)
+<span id="L787" class="ln">   787  </span>	hv := 1
+<span id="L788" class="ln">   788  </span>	if exp.HashVersion != 0 {
+<span id="L789" class="ln">   789  </span>		hv = exp.HashVersion
+<span id="L790" class="ln">   790  </span>	}
+<span id="L791" class="ln">   791  </span>	n := hash(seed, hashString, hv)
+<span id="L792" class="ln">   792  </span>	if n == nil {
+<span id="L793" class="ln">   793  </span>		logWarn(&#34;Skip because of invalid hash version&#34;, exp.Key)
+<span id="L794" class="ln">   794  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L795" class="ln">   795  </span>	}
+<span id="L796" class="ln">   796  </span>	coverage := float64(1)
+<span id="L797" class="ln">   797  </span>	if exp.Coverage != nil {
+<span id="L798" class="ln">   798  </span>		coverage = *exp.Coverage
+<span id="L799" class="ln">   799  </span>	}
+<span id="L800" class="ln">   800  </span>	ranges := exp.Ranges
+<span id="L801" class="ln">   801  </span>	if ranges == nil {
+<span id="L802" class="ln">   802  </span>		ranges = getBucketRanges(len(exp.Variations), coverage, exp.Weights)
+<span id="L803" class="ln">   803  </span>	}
+<span id="L804" class="ln">   804  </span>	assigned := chooseVariation(*n, ranges)
+<span id="L805" class="ln">   805  </span>
+<span id="L806" class="ln">   806  </span>	<span class="comment">// 10. If assigned == -1, return default result.</span>
+<span id="L807" class="ln">   807  </span>	if assigned == -1 {
+<span id="L808" class="ln">   808  </span>		logInfo(&#34;Skip because of coverage&#34;, exp.Key)
+<span id="L809" class="ln">   809  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L810" class="ln">   810  </span>	}
+<span id="L811" class="ln">   811  </span>
+<span id="L812" class="ln">   812  </span>	<span class="comment">// 11. If experiment has a forced variation, return it.</span>
+<span id="L813" class="ln">   813  </span>	if exp.Force != nil {
+<span id="L814" class="ln">   814  </span>		return gb.getResult(exp, *exp.Force, false, featureID, nil)
 <span id="L815" class="ln">   815  </span>	}
-<span id="L816" class="ln">   816  </span>	assigned := chooseVariation(*n, ranges)
-<span id="L817" class="ln">   817  </span>
-<span id="L818" class="ln">   818  </span>	<span class="comment">// 10. If assigned == -1, return default result.</span>
-<span id="L819" class="ln">   819  </span>	if assigned == -1 {
-<span id="L820" class="ln">   820  </span>		logInfo(&#34;Skip because of coverage&#34;, exp.Key)
-<span id="L821" class="ln">   821  </span>		return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L822" class="ln">   822  </span>	}
-<span id="L823" class="ln">   823  </span>
-<span id="L824" class="ln">   824  </span>	<span class="comment">// 11. If experiment has a forced variation, return it.</span>
-<span id="L825" class="ln">   825  </span>	if exp.Force != nil {
-<span id="L826" class="ln">   826  </span>		return gb.getResult(exp, *exp.Force, false, featureID, nil)
-<span id="L827" class="ln">   827  </span>	}
-<span id="L828" class="ln">   828  </span>
-<span id="L829" class="ln">   829  </span>	<span class="comment">// 12. If in QA mode, return default result.</span>
-<span id="L830" class="ln">   830  </span>	if gb.inner.context.QAMode {
-<span id="L831" class="ln">   831  </span>		return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L832" class="ln">   832  </span>	}
+<span id="L816" class="ln">   816  </span>
+<span id="L817" class="ln">   817  </span>	<span class="comment">// 12. If in QA mode, return default result.</span>
+<span id="L818" class="ln">   818  </span>	if gb.inner.context.QAMode {
+<span id="L819" class="ln">   819  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L820" class="ln">   820  </span>	}
+<span id="L821" class="ln">   821  </span>
+<span id="L822" class="ln">   822  </span>	<span class="comment">// 12.5. Exclude if experiment is stopped.</span>
+<span id="L823" class="ln">   823  </span>	if exp.Status == StoppedStatus {
+<span id="L824" class="ln">   824  </span>		logInfo(&#34;Skip because stopped&#34;, exp.Key)
+<span id="L825" class="ln">   825  </span>		return gb.getResult(exp, -1, false, featureID, nil)
+<span id="L826" class="ln">   826  </span>	}
+<span id="L827" class="ln">   827  </span>
+<span id="L828" class="ln">   828  </span>	<span class="comment">// 13. Build the result object.</span>
+<span id="L829" class="ln">   829  </span>	result := gb.getResult(exp, assigned, true, featureID, n)
+<span id="L830" class="ln">   830  </span>
+<span id="L831" class="ln">   831  </span>	<span class="comment">// 14. Fire tracking callback if required.</span>
+<span id="L832" class="ln">   832  </span>	gb.track(exp, result)
 <span id="L833" class="ln">   833  </span>
-<span id="L834" class="ln">   834  </span>	<span class="comment">// 12.5. Exclude if experiment is stopped.</span>
-<span id="L835" class="ln">   835  </span>	if exp.Status == StoppedStatus {
-<span id="L836" class="ln">   836  </span>		logInfo(&#34;Skip because stopped&#34;, exp.Key)
-<span id="L837" class="ln">   837  </span>		return gb.getResult(exp, -1, false, featureID, nil)
-<span id="L838" class="ln">   838  </span>	}
-<span id="L839" class="ln">   839  </span>
-<span id="L840" class="ln">   840  </span>	<span class="comment">// 13. Build the result object.</span>
-<span id="L841" class="ln">   841  </span>	result := gb.getResult(exp, assigned, true, featureID, n)
-<span id="L842" class="ln">   842  </span>
-<span id="L843" class="ln">   843  </span>	<span class="comment">// 14. Fire tracking callback if required.</span>
-<span id="L844" class="ln">   844  </span>	gb.track(exp, result)
-<span id="L845" class="ln">   845  </span>
-<span id="L846" class="ln">   846  </span>	logInfo(&#34;In experiment&#34;, fmt.Sprintf(&#34;%s[%d]&#34;, exp.Key, result.VariationID))
-<span id="L847" class="ln">   847  </span>	return result
-<span id="L848" class="ln">   848  </span>}
-<span id="L849" class="ln">   849  </span>
-<span id="L850" class="ln">   850  </span>func (gb *GrowthBook) mergeOverrides(exp *Experiment) *Experiment {
-<span id="L851" class="ln">   851  </span>	if gb.inner.context.Overrides == nil {
-<span id="L852" class="ln">   852  </span>		return exp
-<span id="L853" class="ln">   853  </span>	}
-<span id="L854" class="ln">   854  </span>	if override, ok := gb.inner.context.Overrides[exp.Key]; ok {
-<span id="L855" class="ln">   855  </span>		exp = exp.applyOverride(override)
-<span id="L856" class="ln">   856  </span>	}
-<span id="L857" class="ln">   857  </span>	return exp
-<span id="L858" class="ln">   858  </span>}
-<span id="L859" class="ln">   859  </span>
-<span id="L860" class="ln">   860  </span><span class="comment">// Fire Context.TrackingCallback if it&#39;s set and the combination of</span>
-<span id="L861" class="ln">   861  </span><span class="comment">// hashAttribute, hashValue, experiment key, and variation ID has not</span>
-<span id="L862" class="ln">   862  </span><span class="comment">// been tracked before.</span>
-<span id="L863" class="ln">   863  </span>func (gb *GrowthBook) track(exp *Experiment, result *Result) {
-<span id="L864" class="ln">   864  </span>	if gb.inner.context.TrackingCallback == nil {
-<span id="L865" class="ln">   865  </span>		return
-<span id="L866" class="ln">   866  </span>	}
+<span id="L834" class="ln">   834  </span>	logInfo(&#34;In experiment&#34;, fmt.Sprintf(&#34;%s[%d]&#34;, exp.Key, result.VariationID))
+<span id="L835" class="ln">   835  </span>	return result
+<span id="L836" class="ln">   836  </span>}
+<span id="L837" class="ln">   837  </span>
+<span id="L838" class="ln">   838  </span>func (gb *GrowthBook) mergeOverrides(exp *Experiment) *Experiment {
+<span id="L839" class="ln">   839  </span>	if gb.inner.context.Overrides == nil {
+<span id="L840" class="ln">   840  </span>		return exp
+<span id="L841" class="ln">   841  </span>	}
+<span id="L842" class="ln">   842  </span>	if override, ok := gb.inner.context.Overrides[exp.Key]; ok {
+<span id="L843" class="ln">   843  </span>		exp = exp.applyOverride(override)
+<span id="L844" class="ln">   844  </span>	}
+<span id="L845" class="ln">   845  </span>	return exp
+<span id="L846" class="ln">   846  </span>}
+<span id="L847" class="ln">   847  </span>
+<span id="L848" class="ln">   848  </span><span class="comment">// Fire Context.TrackingCallback if it&#39;s set and the combination of</span>
+<span id="L849" class="ln">   849  </span><span class="comment">// hashAttribute, hashValue, experiment key, and variation ID has not</span>
+<span id="L850" class="ln">   850  </span><span class="comment">// been tracked before.</span>
+<span id="L851" class="ln">   851  </span>func (gb *GrowthBook) track(exp *Experiment, result *Result) {
+<span id="L852" class="ln">   852  </span>	if gb.inner.context.TrackingCallback == nil {
+<span id="L853" class="ln">   853  </span>		return
+<span id="L854" class="ln">   854  </span>	}
+<span id="L855" class="ln">   855  </span>
+<span id="L856" class="ln">   856  </span>	<span class="comment">// Make sure tracking callback is only fired once per unique</span>
+<span id="L857" class="ln">   857  </span>	<span class="comment">// experiment.</span>
+<span id="L858" class="ln">   858  </span>	key := result.HashAttribute + result.HashValue +
+<span id="L859" class="ln">   859  </span>		exp.Key + strconv.Itoa(result.VariationID)
+<span id="L860" class="ln">   860  </span>	if _, exists := gb.inner.trackedExperiments[key]; exists {
+<span id="L861" class="ln">   861  </span>		return
+<span id="L862" class="ln">   862  </span>	}
+<span id="L863" class="ln">   863  </span>
+<span id="L864" class="ln">   864  </span>	gb.inner.trackedExperiments[key] = true
+<span id="L865" class="ln">   865  </span>	gb.inner.context.TrackingCallback(exp, result)
+<span id="L866" class="ln">   866  </span>}
 <span id="L867" class="ln">   867  </span>
-<span id="L868" class="ln">   868  </span>	<span class="comment">// Make sure tracking callback is only fired once per unique</span>
-<span id="L869" class="ln">   869  </span>	<span class="comment">// experiment.</span>
-<span id="L870" class="ln">   870  </span>	key := result.HashAttribute + result.HashValue +
-<span id="L871" class="ln">   871  </span>		exp.Key + strconv.Itoa(result.VariationID)
-<span id="L872" class="ln">   872  </span>	if _, exists := gb.inner.trackedExperiments[key]; exists {
-<span id="L873" class="ln">   873  </span>		return
-<span id="L874" class="ln">   874  </span>	}
-<span id="L875" class="ln">   875  </span>
-<span id="L876" class="ln">   876  </span>	gb.inner.trackedExperiments[key] = true
-<span id="L877" class="ln">   877  </span>	gb.inner.context.TrackingCallback(exp, result)
-<span id="L878" class="ln">   878  </span>}
-<span id="L879" class="ln">   879  </span>
-<span id="L880" class="ln">   880  </span>func (gb *GrowthBook) getHashAttribute(attr string) (string, string) {
-<span id="L881" class="ln">   881  </span>	hashAttribute := &#34;id&#34;
-<span id="L882" class="ln">   882  </span>	if attr != &#34;&#34; {
-<span id="L883" class="ln">   883  </span>		hashAttribute = attr
-<span id="L884" class="ln">   884  </span>	}
-<span id="L885" class="ln">   885  </span>
-<span id="L886" class="ln">   886  </span>	var hashValue interface{}
-<span id="L887" class="ln">   887  </span>	ok := false
-<span id="L888" class="ln">   888  </span>	if gb.inner.attributeOverrides != nil {
-<span id="L889" class="ln">   889  </span>		hashValue, ok = gb.inner.attributeOverrides[hashAttribute]
-<span id="L890" class="ln">   890  </span>	}
-<span id="L891" class="ln">   891  </span>	if !ok {
-<span id="L892" class="ln">   892  </span>		if gb.inner.context.Attributes != nil {
-<span id="L893" class="ln">   893  </span>			hashValue, ok = gb.inner.context.Attributes[hashAttribute]
-<span id="L894" class="ln">   894  </span>		} else if gb.inner.context.UserAttributes != nil {
-<span id="L895" class="ln">   895  </span>			hashValue, ok = gb.inner.context.UserAttributes[hashAttribute]
-<span id="L896" class="ln">   896  </span>		}
-<span id="L897" class="ln">   897  </span>		if !ok {
-<span id="L898" class="ln">   898  </span>			return &#34;&#34;, &#34;&#34;
-<span id="L899" class="ln">   899  </span>		}
-<span id="L900" class="ln">   900  </span>	}
-<span id="L901" class="ln">   901  </span>	hashString, ok := convertHashValue(hashValue)
-<span id="L902" class="ln">   902  </span>	if !ok {
-<span id="L903" class="ln">   903  </span>		return &#34;&#34;, &#34;&#34;
-<span id="L904" class="ln">   904  </span>	}
-<span id="L905" class="ln">   905  </span>
-<span id="L906" class="ln">   906  </span>	return hashAttribute, hashString
-<span id="L907" class="ln">   907  </span>}
-<span id="L908" class="ln">   908  </span>
-<span id="L909" class="ln">   909  </span>func (gb *GrowthBook) isIncludedInRollout(
-<span id="L910" class="ln">   910  </span>	seed string,
-<span id="L911" class="ln">   911  </span>	hashAttribute string,
-<span id="L912" class="ln">   912  </span>	rng *Range,
-<span id="L913" class="ln">   913  </span>	coverage *float64,
-<span id="L914" class="ln">   914  </span>	hashVersion int,
-<span id="L915" class="ln">   915  </span>) bool {
-<span id="L916" class="ln">   916  </span>	if rng == nil &amp;&amp; coverage == nil {
-<span id="L917" class="ln">   917  </span>		return true
-<span id="L918" class="ln">   918  </span>	}
-<span id="L919" class="ln">   919  </span>
-<span id="L920" class="ln">   920  </span>	_, hashValue := gb.getHashAttribute(hashAttribute)
-<span id="L921" class="ln">   921  </span>	if hashValue == &#34;&#34; {
-<span id="L922" class="ln">   922  </span>		return false
-<span id="L923" class="ln">   923  </span>	}
-<span id="L924" class="ln">   924  </span>
-<span id="L925" class="ln">   925  </span>	hv := 1
-<span id="L926" class="ln">   926  </span>	if hashVersion != 0 {
-<span id="L927" class="ln">   927  </span>		hv = hashVersion
-<span id="L928" class="ln">   928  </span>	}
-<span id="L929" class="ln">   929  </span>	n := hash(seed, hashValue, hv)
-<span id="L930" class="ln">   930  </span>	if n == nil {
-<span id="L931" class="ln">   931  </span>		return false
-<span id="L932" class="ln">   932  </span>	}
-<span id="L933" class="ln">   933  </span>
-<span id="L934" class="ln">   934  </span>	if rng != nil {
-<span id="L935" class="ln">   935  </span>		return rng.InRange(*n)
-<span id="L936" class="ln">   936  </span>	}
-<span id="L937" class="ln">   937  </span>	if coverage != nil {
-<span id="L938" class="ln">   938  </span>		return *n &lt;= *coverage
-<span id="L939" class="ln">   939  </span>	}
-<span id="L940" class="ln">   940  </span>	return true
-<span id="L941" class="ln">   941  </span>}
-<span id="L942" class="ln">   942  </span>
-<span id="L943" class="ln">   943  </span>func (gb *GrowthBook) isFilteredOut(filters []Filter) bool {
-<span id="L944" class="ln">   944  </span>	for _, filter := range filters {
-<span id="L945" class="ln">   945  </span>		_, hashValue := gb.getHashAttribute(filter.Attribute)
-<span id="L946" class="ln">   946  </span>		if hashValue == &#34;&#34; {
-<span id="L947" class="ln">   947  </span>			return true
-<span id="L948" class="ln">   948  </span>		}
-<span id="L949" class="ln">   949  </span>		hv := 2
-<span id="L950" class="ln">   950  </span>		if filter.HashVersion != 0 {
-<span id="L951" class="ln">   951  </span>			hv = filter.HashVersion
-<span id="L952" class="ln">   952  </span>		}
-<span id="L953" class="ln">   953  </span>		n := hash(filter.Seed, hashValue, hv)
-<span id="L954" class="ln">   954  </span>		if n == nil {
-<span id="L955" class="ln">   955  </span>			return true
+<span id="L868" class="ln">   868  </span>func (gb *GrowthBook) getHashAttribute(attr string) (string, string) {
+<span id="L869" class="ln">   869  </span>	hashAttribute := &#34;id&#34;
+<span id="L870" class="ln">   870  </span>	if attr != &#34;&#34; {
+<span id="L871" class="ln">   871  </span>		hashAttribute = attr
+<span id="L872" class="ln">   872  </span>	}
+<span id="L873" class="ln">   873  </span>
+<span id="L874" class="ln">   874  </span>	var hashValue interface{}
+<span id="L875" class="ln">   875  </span>	ok := false
+<span id="L876" class="ln">   876  </span>	if gb.inner.attributeOverrides != nil {
+<span id="L877" class="ln">   877  </span>		hashValue, ok = gb.inner.attributeOverrides[hashAttribute]
+<span id="L878" class="ln">   878  </span>	}
+<span id="L879" class="ln">   879  </span>	if !ok {
+<span id="L880" class="ln">   880  </span>		if gb.inner.context.Attributes != nil {
+<span id="L881" class="ln">   881  </span>			hashValue, ok = gb.inner.context.Attributes[hashAttribute]
+<span id="L882" class="ln">   882  </span>		} else if gb.inner.context.UserAttributes != nil {
+<span id="L883" class="ln">   883  </span>			hashValue, ok = gb.inner.context.UserAttributes[hashAttribute]
+<span id="L884" class="ln">   884  </span>		}
+<span id="L885" class="ln">   885  </span>		if !ok {
+<span id="L886" class="ln">   886  </span>			return &#34;&#34;, &#34;&#34;
+<span id="L887" class="ln">   887  </span>		}
+<span id="L888" class="ln">   888  </span>	}
+<span id="L889" class="ln">   889  </span>	hashString, ok := convertHashValue(hashValue)
+<span id="L890" class="ln">   890  </span>	if !ok {
+<span id="L891" class="ln">   891  </span>		return &#34;&#34;, &#34;&#34;
+<span id="L892" class="ln">   892  </span>	}
+<span id="L893" class="ln">   893  </span>
+<span id="L894" class="ln">   894  </span>	return hashAttribute, hashString
+<span id="L895" class="ln">   895  </span>}
+<span id="L896" class="ln">   896  </span>
+<span id="L897" class="ln">   897  </span>func (gb *GrowthBook) isIncludedInRollout(
+<span id="L898" class="ln">   898  </span>	seed string,
+<span id="L899" class="ln">   899  </span>	hashAttribute string,
+<span id="L900" class="ln">   900  </span>	rng *Range,
+<span id="L901" class="ln">   901  </span>	coverage *float64,
+<span id="L902" class="ln">   902  </span>	hashVersion int,
+<span id="L903" class="ln">   903  </span>) bool {
+<span id="L904" class="ln">   904  </span>	if rng == nil &amp;&amp; coverage == nil {
+<span id="L905" class="ln">   905  </span>		return true
+<span id="L906" class="ln">   906  </span>	}
+<span id="L907" class="ln">   907  </span>
+<span id="L908" class="ln">   908  </span>	_, hashValue := gb.getHashAttribute(hashAttribute)
+<span id="L909" class="ln">   909  </span>	if hashValue == &#34;&#34; {
+<span id="L910" class="ln">   910  </span>		return false
+<span id="L911" class="ln">   911  </span>	}
+<span id="L912" class="ln">   912  </span>
+<span id="L913" class="ln">   913  </span>	hv := 1
+<span id="L914" class="ln">   914  </span>	if hashVersion != 0 {
+<span id="L915" class="ln">   915  </span>		hv = hashVersion
+<span id="L916" class="ln">   916  </span>	}
+<span id="L917" class="ln">   917  </span>	n := hash(seed, hashValue, hv)
+<span id="L918" class="ln">   918  </span>	if n == nil {
+<span id="L919" class="ln">   919  </span>		return false
+<span id="L920" class="ln">   920  </span>	}
+<span id="L921" class="ln">   921  </span>
+<span id="L922" class="ln">   922  </span>	if rng != nil {
+<span id="L923" class="ln">   923  </span>		return rng.InRange(*n)
+<span id="L924" class="ln">   924  </span>	}
+<span id="L925" class="ln">   925  </span>	if coverage != nil {
+<span id="L926" class="ln">   926  </span>		return *n &lt;= *coverage
+<span id="L927" class="ln">   927  </span>	}
+<span id="L928" class="ln">   928  </span>	return true
+<span id="L929" class="ln">   929  </span>}
+<span id="L930" class="ln">   930  </span>
+<span id="L931" class="ln">   931  </span>func (gb *GrowthBook) isFilteredOut(filters []Filter) bool {
+<span id="L932" class="ln">   932  </span>	for _, filter := range filters {
+<span id="L933" class="ln">   933  </span>		_, hashValue := gb.getHashAttribute(filter.Attribute)
+<span id="L934" class="ln">   934  </span>		if hashValue == &#34;&#34; {
+<span id="L935" class="ln">   935  </span>			return true
+<span id="L936" class="ln">   936  </span>		}
+<span id="L937" class="ln">   937  </span>		hv := 2
+<span id="L938" class="ln">   938  </span>		if filter.HashVersion != 0 {
+<span id="L939" class="ln">   939  </span>			hv = filter.HashVersion
+<span id="L940" class="ln">   940  </span>		}
+<span id="L941" class="ln">   941  </span>		n := hash(filter.Seed, hashValue, hv)
+<span id="L942" class="ln">   942  </span>		if n == nil {
+<span id="L943" class="ln">   943  </span>			return true
+<span id="L944" class="ln">   944  </span>		}
+<span id="L945" class="ln">   945  </span>		if filter.Ranges != nil {
+<span id="L946" class="ln">   946  </span>			inRange := false
+<span id="L947" class="ln">   947  </span>			for _, rng := range filter.Ranges {
+<span id="L948" class="ln">   948  </span>				if rng.InRange(*n) {
+<span id="L949" class="ln">   949  </span>					inRange = true
+<span id="L950" class="ln">   950  </span>					break
+<span id="L951" class="ln">   951  </span>				}
+<span id="L952" class="ln">   952  </span>			}
+<span id="L953" class="ln">   953  </span>			if !inRange {
+<span id="L954" class="ln">   954  </span>				return true
+<span id="L955" class="ln">   955  </span>			}
 <span id="L956" class="ln">   956  </span>		}
-<span id="L957" class="ln">   957  </span>		if filter.Ranges != nil {
-<span id="L958" class="ln">   958  </span>			inRange := false
-<span id="L959" class="ln">   959  </span>			for _, rng := range filter.Ranges {
-<span id="L960" class="ln">   960  </span>				if rng.InRange(*n) {
-<span id="L961" class="ln">   961  </span>					inRange = true
-<span id="L962" class="ln">   962  </span>					break
-<span id="L963" class="ln">   963  </span>				}
-<span id="L964" class="ln">   964  </span>			}
-<span id="L965" class="ln">   965  </span>			if !inRange {
-<span id="L966" class="ln">   966  </span>				return true
-<span id="L967" class="ln">   967  </span>			}
-<span id="L968" class="ln">   968  </span>		}
-<span id="L969" class="ln">   969  </span>	}
-<span id="L970" class="ln">   970  </span>	return false
-<span id="L971" class="ln">   971  </span>}
-<span id="L972" class="ln">   972  </span>
-<span id="L973" class="ln">   973  </span>func (gb *GrowthBook) hasGroupOverlap(groups []string) bool {
-<span id="L974" class="ln">   974  </span>	for _, g := range groups {
-<span id="L975" class="ln">   975  </span>		if val, ok := gb.inner.context.Groups[g]; ok &amp;&amp; val {
-<span id="L976" class="ln">   976  </span>			return true
-<span id="L977" class="ln">   977  </span>		}
-<span id="L978" class="ln">   978  </span>	}
-<span id="L979" class="ln">   979  </span>	return false
-<span id="L980" class="ln">   980  </span>}
-<span id="L981" class="ln">   981  </span>
-<span id="L982" class="ln">   982  </span>func (gb *GrowthBook) urlIsValid(urlRegexp *regexp.Regexp) bool {
-<span id="L983" class="ln">   983  </span>	url := gb.inner.context.URL
-<span id="L984" class="ln">   984  </span>	if url == nil {
-<span id="L985" class="ln">   985  </span>		return false
-<span id="L986" class="ln">   986  </span>	}
-<span id="L987" class="ln">   987  </span>
-<span id="L988" class="ln">   988  </span>	return urlRegexp.MatchString(url.String()) ||
-<span id="L989" class="ln">   989  </span>		urlRegexp.MatchString(url.Path)
-<span id="L990" class="ln">   990  </span>}
-<span id="L991" class="ln">   991  </span>
+<span id="L957" class="ln">   957  </span>	}
+<span id="L958" class="ln">   958  </span>	return false
+<span id="L959" class="ln">   959  </span>}
+<span id="L960" class="ln">   960  </span>
+<span id="L961" class="ln">   961  </span>func (gb *GrowthBook) hasGroupOverlap(groups []string) bool {
+<span id="L962" class="ln">   962  </span>	for _, g := range groups {
+<span id="L963" class="ln">   963  </span>		if val, ok := gb.inner.context.Groups[g]; ok &amp;&amp; val {
+<span id="L964" class="ln">   964  </span>			return true
+<span id="L965" class="ln">   965  </span>		}
+<span id="L966" class="ln">   966  </span>	}
+<span id="L967" class="ln">   967  </span>	return false
+<span id="L968" class="ln">   968  </span>}
+<span id="L969" class="ln">   969  </span>
+<span id="L970" class="ln">   970  </span>func (gb *GrowthBook) urlIsValid(urlRegexp *regexp.Regexp) bool {
+<span id="L971" class="ln">   971  </span>	url := gb.inner.context.URL
+<span id="L972" class="ln">   972  </span>	if url == nil {
+<span id="L973" class="ln">   973  </span>		return false
+<span id="L974" class="ln">   974  </span>	}
+<span id="L975" class="ln">   975  </span>
+<span id="L976" class="ln">   976  </span>	return urlRegexp.MatchString(url.String()) ||
+<span id="L977" class="ln">   977  </span>		urlRegexp.MatchString(url.Path)
+<span id="L978" class="ln">   978  </span>}
+<span id="L979" class="ln">   979  </span>
 </pre><p><a href="../../../../src/github.com/growthbook/growthbook-golang/growthbook.go.html?m=text">View as plain text</a></p>
 
 <div id="footer"><a href="../../../../docs.zip">Download docs.zip</a> to browse offline - Generated by <a href="https://godoc.org/golang.org/x/tools/godoc" target="_blank">godoc</a> + <a href="https://code.rocketnine.space/tslocum/godoc-static" target="_blank">godoc-static</a></div>
