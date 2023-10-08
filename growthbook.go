@@ -348,26 +348,17 @@ func (fr *FeatureResult) GetValueWithDefault(def FeatureValue) FeatureValue {
 
 // IsOn determines whether a feature is on.
 func (gb *GrowthBook) IsOn(key string) bool {
-	gb.inner.RLock()
-	defer gb.inner.RUnlock()
-
 	return gb.EvalFeature(key).On
 }
 
 // IsOff determines whether a feature is off.
 func (gb *GrowthBook) IsOff(key string) bool {
-	gb.inner.RLock()
-	defer gb.inner.RUnlock()
-
 	return gb.EvalFeature(key).Off
 }
 
 // GetFeatureValue returns the result for a feature identified by a
 // string feature key, with an explicit default.
 func (gb *GrowthBook) GetFeatureValue(key string, defaultValue interface{}) interface{} {
-	gb.inner.RLock()
-	defer gb.inner.RUnlock()
-
 	featureValue := gb.EvalFeature(key).Value
 	if featureValue != nil {
 		return featureValue
@@ -378,9 +369,6 @@ func (gb *GrowthBook) GetFeatureValue(key string, defaultValue interface{}) inte
 // Deprecated: Use EvalFeature instead. Feature returns the result for
 // a feature identified by a string feature key.
 func (gb *GrowthBook) Feature(key string) *FeatureResult {
-	gb.inner.RLock()
-	defer gb.inner.RUnlock()
-
 	return gb.EvalFeature(key)
 }
 
