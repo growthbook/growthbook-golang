@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -300,6 +301,14 @@ func TestRepoUpdatesFeaturesBasedOnSSE1(t *testing.T) {
 
 	gb := makeGB(env.server.URL, "qwerty1234", 0)
 
+	// This is needed just to force cleanup of the SSE refresh goroutine
+	// at test exit. This shouldn't be a problem in long-lived server
+	// processes.
+	defer func() {
+		gb = nil
+		runtime.GC()
+	}()
+
 	// Load features and check API calls.
 	gb.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 	env.checkCalls(t, 1)
@@ -329,6 +338,15 @@ func TestRepoUpdatesFeaturesBasedOnSSE2(t *testing.T) {
 
 	gb := makeGB(env.server.URL, "qwerty1234", 0)
 	gb2 := makeGB(env.server.URL, "qwerty1234", 0)
+
+	// This is needed just to force cleanup of the SSE refresh goroutine
+	// at test exit. This shouldn't be a problem in long-lived server
+	// processes.
+	defer func() {
+		gb = nil
+		gb2 = nil
+		runtime.GC()
+	}()
 
 	// Load features and check API calls.
 	gb.LoadFeatures(nil)
