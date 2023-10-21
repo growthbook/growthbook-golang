@@ -531,9 +531,10 @@ func refreshFromSSE(ctx context.Context, c *Client,
 		case <-reconnect:
 			logger.Info("Connecting to SSE stream", "apiHost", apiHost)
 			errors = 0
-			client := sse.NewClient(apiHost + "/sub/" + clientKey)
+			client = sse.NewClient(apiHost + "/sub/" + clientKey)
 			client.OnDisconnect(func(c *sse.Client) {
 				logger.Error("SSE event stream disconnected", "key", key)
+				c.Unsubscribe(ch)
 				reconnect <- struct{}{}
 			})
 			err := client.SubscribeChanWithContext(ctx, "features", ch)
@@ -544,7 +545,7 @@ func refreshFromSSE(ctx context.Context, c *Client,
 
 		case msg := <-ch:
 			if len(msg.Data) == 0 {
-				break
+				continue
 			}
 			var data FeatureAPIResponse
 			err := json.Unmarshal(msg.Data, &data)
