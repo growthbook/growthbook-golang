@@ -48,8 +48,8 @@ func setup(provideSSE bool) *env {
 }
 
 func setupWithDelay(provideSSE bool, delay time.Duration, encryptedFeatures string) *env {
-	SetLogger(&testLog)
-	testLog.reset()
+	SetLogger(testLog)
+	testLogHandler.reset()
 
 	initialValue := "initial"
 	callCount := 0
@@ -104,88 +104,91 @@ func setupWithDelay(provideSSE bool, delay time.Duration, encryptedFeatures stri
 	return &env
 }
 
-func makeGB(apiHost string, clientKey string, ttl time.Duration) *GrowthBook {
-	context := NewContext().
-		WithAPIHost(apiHost).
-		WithClientKey(clientKey)
-	if ttl != 0 {
-		context = context.WithCacheTTL(ttl)
-	}
-	return New(context)
+func makeClient(apiHost string, clientKey string) *Client {
+	return NewClient(&Options{
+		APIHost:   apiHost,
+		ClientKey: clientKey,
+	})
 }
 
-func checkFeature(t *testing.T, gb *GrowthBook, feature string, expected interface{}) {
-	value := gb.EvalFeature(feature).Value
-	if value != expected {
-		t.Errorf("feature value, expected %v, got %v", expected, value)
+func checkFeature(t *testing.T, client *Client, feature string, expected interface{}) {
+	value, err := client.EvalFeature(feature, nil)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	if value.Value != expected {
+		t.Errorf("feature value, expected %v, got %v", expected, value.Value)
 	}
 }
 
 func checkLogs(t *testing.T) {
-	if len(testLog.errors) != 0 {
-		t.Errorf("test log has errors: %s", testLog.allErrors())
-	}
-	if len(testLog.warnings) != 0 {
+	if len(testLogHandler.errors) != 0 {
 		bad := false
-		for _, e := range testLog.errors {
-			if !strings.Contains(e, "SSE event stream disconnected") {
+		for _, e := range testLogHandler.errors {
+			if !strings.Contains(e["msg"].(string), "SSE event stream disconnected") {
 				bad = true
 			}
 		}
 		if bad {
-			t.Errorf("test log has warnings: %s", testLog.allWarnings())
+			t.Errorf("test log has errors: %s", testLogHandler.allErrors())
 		}
+	}
+	if len(testLogHandler.warnings) != 0 {
+		t.Errorf("test log has warnings: %s", testLogHandler.allWarnings())
 	}
 }
 
 func knownWarnings(t *testing.T, count int) {
-	if len(testLog.errors) != 0 {
-		t.Error("found errors when looking for known warnings: ", testLog.allErrors())
+	if len(testLogHandler.errors) != 0 {
+		t.Error("found errors when looking for known warnings: ", testLogHandler.allErrors())
 		return
 	}
-	if len(testLog.warnings) == count {
-		testLog.reset()
+	if len(testLogHandler.warnings) == count {
+		testLogHandler.reset()
 		return
 	}
 
 	t.Errorf("expected %d log warnings, got %d: %s", count,
-		len(testLog.warnings), testLog.allWarnings())
+		len(testLogHandler.warnings), testLogHandler.allWarnings())
 }
 
 func knownErrors(t *testing.T, messages ...string) {
-	if len(testLog.errors) != len(messages) {
-		t.Errorf("expected %d log errors, got %d: %s", len(messages),
-			len(testLog.errors), testLog.allErrors())
-		return
-	}
-
-	for i, msg := range messages {
-		if !strings.HasPrefix(testLog.errors[i], msg) {
-			t.Errorf("expected error message %d '%s...', got '%s'", i+1, msg, testLog.errors[i])
+	for _, error := range testLogHandler.errors {
+		errmsg, ok := error["msg"]
+		if !ok {
+			t.Errorf("missing 'msg' field in log message")
 		}
-	}
-
-	testLog.reset()
-}
-
-func knownSSEErrors(t *testing.T) func() {
-	return func() {
-		for _, msg := range testLog.errors {
-			if !strings.HasPrefix(msg, "SSE error:") {
-				t.Errorf("unexpected error in log: '%s'", msg)
+		errmsgs, ok := errmsg.(string)
+		if !ok {
+			t.Errorf("non-string 'msg' field in log message")
+		}
+		found := false
+		for _, msg := range messages {
+			if strings.HasPrefix(errmsgs, msg) {
+				found = true
+				break
 			}
 		}
+		if !found {
+			t.Errorf("unexpected error message '%s'", errmsgs)
+		}
 	}
+
+	testLogHandler.reset()
 }
 
-func checkReady(t *testing.T, gb *GrowthBook, expected bool) {
-	if gb.Ready() != expected {
+func knownSSEErrors(t *testing.T) {
+	knownErrors(t, "SSE", "Multiple SSE")
+}
+
+func checkReady(t *testing.T, client *Client, expected bool) {
+	if client.Ready() != expected {
 		t.Errorf("expected ready flag to be %v", expected)
 	}
 }
 
-func checkEmptyFeatures(t *testing.T, gb *GrowthBook) {
-	if len(gb.Features()) != 0 {
+func checkEmptyFeatures(t *testing.T, client *Client) {
+	if len(client.Features()) != 0 {
 		t.Error("expected feature map to be empty")
 	}
 }
@@ -198,13 +201,27 @@ func TestRepoDebounceFetchRequests(t *testing.T) {
 
 	cache.Clear()
 
-	gb1 := makeGB(env.server.URL, "qwerty1234", 0)
-	gb2 := makeGB(env.server.URL, "other", 0)
-	gb3 := makeGB(env.server.URL, "qwerty1234", 0)
+	client1 := makeClient(env.server.URL, "qwerty1234")
+	client2 := makeClient(env.server.URL, "other")
+	client3 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client1 = nil
+		client2 = nil
+		client3 = nil
+	}()
 
-	gb1.LoadFeatures(nil)
-	gb2.LoadFeatures(nil)
-	gb3.LoadFeatures(nil)
+	err := client1.LoadFeatures(nil)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	err = client2.LoadFeatures(nil)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	err = client3.LoadFeatures(nil)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
 	env.checkCalls(t, 2)
 	if env.urls["/api/features/other"] != 1 ||
@@ -212,9 +229,9 @@ func TestRepoDebounceFetchRequests(t *testing.T) {
 		t.Errorf("unexpected URL calls: %v", env.urls)
 	}
 
-	checkFeature(t, gb1, "foo", "initial")
-	checkFeature(t, gb2, "foo", "initial")
-	checkFeature(t, gb3, "foo", "initial")
+	checkFeature(t, client1, "foo", "initial")
+	checkFeature(t, client2, "foo", "initial")
+	checkFeature(t, client3, "foo", "initial")
 }
 
 func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
@@ -225,68 +242,84 @@ func TestRepoUsesCacheAndCanRefreshManually(t *testing.T) {
 
 	cache.Clear()
 
-	// Set cache TTL short so we can test expiry.
-	gb := makeGB(env.server.URL, "qwerty1234", 100*time.Millisecond)
+	// Set cache TTL short so we can test expiry and reset it to the
+	// default when we're done.
+	ConfigureCacheStaleTTL(100 * time.Millisecond)
+	defer ConfigureCacheStaleTTL(0)
+
+	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
 	time.Sleep(20 * time.Millisecond)
 
 	// Initial value of feature should be null.
-	checkFeature(t, gb, "foo", nil)
+	checkFeature(t, client, "foo", nil)
 	env.checkCalls(t, 1)
 	knownWarnings(t, 1)
 
 	// Once features are loaded, value should be from the fetch request.
-	gb.LoadFeatures(nil)
-	checkFeature(t, gb, "foo", "initial")
+	client.LoadFeatures(nil)
+	checkFeature(t, client, "foo", "initial")
 	env.checkCalls(t, 1)
 
 	// Value changes in API
 	*env.featureValue = "changed"
 
 	// New instances should get cached value
-	gb2 := makeGB(env.server.URL, "qwerty1234", 100*time.Millisecond)
-	checkFeature(t, gb2, "foo", nil)
+	client2 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client2 = nil
+	}()
+	checkFeature(t, client2, "foo", nil)
 	knownWarnings(t, 1)
-	gb2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
-	checkFeature(t, gb2, "foo", "initial")
+	client2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+	checkFeature(t, client2, "foo", "initial")
 
 	// Instance without autoRefresh.
-	gb3 := makeGB(env.server.URL, "qwerty1234", 100*time.Millisecond)
-	checkFeature(t, gb3, "foo", nil)
+	client3 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client3 = nil
+	}()
+	checkFeature(t, client3, "foo", nil)
 	knownWarnings(t, 1)
-	gb3.LoadFeatures(nil)
-	checkFeature(t, gb3, "foo", "initial")
+	client3.LoadFeatures(nil)
+	checkFeature(t, client3, "foo", "initial")
 
 	env.checkCalls(t, 1)
 
 	// Old instances should also get cached value.
-	checkFeature(t, gb, "foo", "initial")
+	checkFeature(t, client, "foo", "initial")
 
 	// Refreshing while cache is fresh should not cause a new network
 	// request.
-	gb.RefreshFeatures(nil)
+	client.RefreshFeatures(nil)
 	env.checkCalls(t, 1)
 
 	// Wait a bit for cache to become stale and refresh again.
 	time.Sleep(100 * time.Millisecond)
-	gb.RefreshFeatures(nil)
+	client.RefreshFeatures(nil)
 	env.checkCalls(t, 2)
 
 	// The instance being updated should get the new value.
-	checkFeature(t, gb, "foo", "changed")
+	checkFeature(t, client, "foo", "changed")
 
 	// The instance with auto-refresh should now have the new value.
-	checkFeature(t, gb2, "foo", "changed")
+	checkFeature(t, client2, "foo", "changed")
 
 	// The instance without auto-refresh should continue to have the old
 	// value.
-	checkFeature(t, gb3, "foo", "initial")
+	checkFeature(t, client3, "foo", "initial")
 
 	// New instances should get the new value
-	gb4 := makeGB(env.server.URL, "qwerty1234", 100*time.Millisecond)
-	checkFeature(t, gb4, "foo", nil)
+	client4 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client4 = nil
+	}()
+	checkFeature(t, client4, "foo", nil)
 	knownWarnings(t, 1)
-	gb4.LoadFeatures(nil)
-	checkFeature(t, gb4, "foo", "changed")
+	client4.LoadFeatures(nil)
+	checkFeature(t, client4, "foo", "changed")
 
 	env.checkCalls(t, 2)
 }
@@ -299,22 +332,25 @@ func TestRepoUpdatesFeaturesBasedOnSSE1(t *testing.T) {
 
 	cache.Clear()
 
-	gb := makeGB(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
 
 	// This is needed just to force cleanup of the SSE refresh goroutine
 	// at test exit. This shouldn't be a problem in long-lived server
 	// processes.
 	defer func() {
-		gb = nil
+		client = nil
 		runtime.GC()
 	}()
 
 	// Load features and check API calls.
-	gb.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+	client.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 	env.checkCalls(t, 1)
 
 	// Check feature before SSE message.
-	checkFeature(t, gb, "foo", "initial")
+	checkFeature(t, client, "foo", "initial")
 
 	// Trigger mock SSE send.
 	featuresJson := `{"features": {"foo": {"defaultValue": "changed"}}}`
@@ -324,7 +360,7 @@ func TestRepoUpdatesFeaturesBasedOnSSE1(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Check feature after SSE message.
-	checkFeature(t, gb, "foo", "changed")
+	checkFeature(t, client, "foo", "changed")
 	env.checkCalls(t, 1)
 }
 
@@ -336,26 +372,35 @@ func TestRepoUpdatesFeaturesBasedOnSSE2(t *testing.T) {
 
 	cache.Clear()
 
-	gb := makeGB(env.server.URL, "qwerty1234", 0)
-	gb2 := makeGB(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
+	client2 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+		client2 = nil
+		time.Sleep(20 * time.Millisecond)
+	}()
 
 	// This is needed just to force cleanup of the SSE refresh goroutine
 	// at test exit. This shouldn't be a problem in long-lived server
 	// processes.
 	defer func() {
-		gb = nil
-		gb2 = nil
+		client = nil
+		client2 = nil
 		runtime.GC()
 	}()
 
 	// Load features and check API calls.
-	gb.LoadFeatures(nil)
-	gb2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+	client.LoadFeatures(nil)
+	client2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+	defer func() {
+		client = nil
+		client2 = nil
+	}()
 	env.checkCalls(t, 1)
 
 	// Check feature before SSE message.
-	checkFeature(t, gb, "foo", "initial")
-	checkFeature(t, gb2, "foo", "initial")
+	checkFeature(t, client, "foo", "initial")
+	checkFeature(t, client2, "foo", "initial")
 
 	// Trigger mock SSE send.
 	featuresJson := `{"features": {"foo": {"defaultValue": "changed"}}}`
@@ -365,8 +410,8 @@ func TestRepoUpdatesFeaturesBasedOnSSE2(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 
 	// Check feature after SSE message.
-	checkFeature(t, gb, "foo", "initial")
-	checkFeature(t, gb2, "foo", "changed")
+	checkFeature(t, client, "foo", "initial")
+	checkFeature(t, client2, "foo", "changed")
 	env.checkCalls(t, 1)
 }
 
@@ -379,23 +424,29 @@ func TestRepoExposesAReadyFlag(t *testing.T) {
 	cache.Clear()
 	*env.featureValue = "api"
 
-	gb := makeGB(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
 
-	if gb.Ready() {
+	if client.Ready() {
 		t.Error("expected ready flag to be false")
 	}
-	gb.LoadFeatures(nil)
+	client.LoadFeatures(nil)
 	env.checkCalls(t, 1)
-	if !gb.Ready() {
+	if !client.Ready() {
 		t.Error("expected ready flag to be true")
 	}
 
-	gb2 := makeGB(env.server.URL, "qwerty1234", 0)
-	if gb2.Ready() {
+	client2 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client2 = nil
+	}()
+	if client2.Ready() {
 		t.Error("expected ready flag to be false")
 	}
-	gb2.WithFeatures(FeatureMap{"foo": &Feature{DefaultValue: "manual"}})
-	if !gb2.Ready() {
+	client2 = client2.WithFeatures(FeatureMap{"foo": &Feature{DefaultValue: "manual"}})
+	if !client2.Ready() {
 		t.Error("expected ready flag to be false")
 	}
 }
@@ -409,23 +460,30 @@ func TestRepoHandlesBrokenFetchResponses(t *testing.T) {
 	cache.Clear()
 	env.fetchFails = true
 
-	gb := makeGB(env.server.URL, "qwerty1234", 0)
-	checkReady(t, gb, false)
-	gb.LoadFeatures(nil)
+	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
+	checkReady(t, client, false)
+	err := client.LoadFeatures(nil)
+	if err == nil {
+		t.Error("expected error, but didn't get one")
+	}
 
 	// Attempts network request, logs the error.
 	env.checkCalls(t, 1)
-	knownErrors(t, "Error fetching features")
 
 	// Ready state changes to true
-	checkReady(t, gb, true)
-	checkEmptyFeatures(t, gb)
+	checkReady(t, client, true)
+	checkEmptyFeatures(t, client)
 
 	// Logs the error, doesn't cache result.
-	gb.RefreshFeatures(nil)
-	checkEmptyFeatures(t, gb)
+	err = client.RefreshFeatures(nil)
+	if err == nil {
+		t.Error("expected error, but didn't get one")
+	}
+	checkEmptyFeatures(t, client)
 	env.checkCalls(t, 2)
-	knownErrors(t, "Error fetching features")
 
 	checkLogs(t)
 }
@@ -439,25 +497,28 @@ func TestRepoHandlesSuperLongAPIRequests(t *testing.T) {
 	cache.Clear()
 	*env.featureValue = "api"
 
-	gb := makeGB(env.server.URL, "qwerty1234", 0)
-	checkReady(t, gb, false)
+	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
+	checkReady(t, client, false)
 
 	// Doesn't throw errors.
-	gb.LoadFeatures(&FeatureRepoOptions{Timeout: 20 * time.Millisecond})
+	client.LoadFeatures(&FeatureRepoOptions{Timeout: 20 * time.Millisecond})
 	env.checkCalls(t, 1)
 	checkLogs(t)
 
 	// Ready state remains false.
-	checkReady(t, gb, false)
-	checkEmptyFeatures(t, gb)
+	checkReady(t, client, false)
+	checkEmptyFeatures(t, client)
 
 	// After fetch finished in the background, refreshing should
 	// actually finish in time.
 	time.Sleep(100 * time.Millisecond)
-	gb.RefreshFeatures(&FeatureRepoOptions{Timeout: 20 * time.Millisecond})
+	client.RefreshFeatures(&FeatureRepoOptions{Timeout: 20 * time.Millisecond})
 	env.checkCalls(t, 1)
-	checkReady(t, gb, true)
-	checkFeature(t, gb, "foo", "api")
+	checkReady(t, client, true)
+	checkFeature(t, client, "foo", "api")
 }
 
 func TestRepoHandlesSSEErrors(t *testing.T) {
@@ -465,14 +526,18 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 	defer cache.Clear()
 	defer checkLogs(t)
 	defer env.close()
+	defer knownSSEErrors(t)
 
 	cache.Clear()
 
-	gb := makeGB(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+	}()
 
-	gb.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+	client.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 	env.checkCalls(t, 1)
-	checkFeature(t, gb, "foo", "initial")
+	checkFeature(t, client, "foo", "initial")
 
 	// Simulate SSE data.
 	env.sseServer.Publish("features", &sse.Event{Data: []byte("broken(response")})
@@ -481,8 +546,7 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 	// remain the same.
 	time.Sleep(20 * time.Millisecond)
 	env.checkCalls(t, 1)
-	checkFeature(t, gb, "foo", "initial")
-	knownErrors(t, "SSE error")
+	checkFeature(t, client, "foo", "initial")
 
 	cache.Clear()
 }
@@ -511,20 +575,29 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 
 // 	var wg sync.WaitGroup
 
+// 	// For collecting errors during tests.
+// 	testErrors := []error{}
+// 	errCh := make(chan error)
+
 // 	// Test function to run in a goroutine: evaluates features at
 // 	// randomly spaced intervals, storing the results and the sample
 // 	// times, until told to stop.
-// 	tester := func(gb *GrowthBook, doneCh chan struct{}, vals *[]*record) {
+// 	tester := func(id int, client *Client, doneCh chan struct{}, vals *[]*record) {
 // 		defer wg.Done()
 // 		tick := time.NewTicker(time.Duration(100+rand.Intn(100)) * time.Millisecond)
-// 		gb.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+// 		client.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 // 		for {
 // 			select {
 // 			case <-doneCh:
 // 				return
 
 // 			case <-tick.C:
-// 				f, _ := gb.EvalFeature("foo").Value.(string)
+// 				res, err := client.EvalFeature("foo", nil)
+// 				if err != nil {
+// 					errCh <- err
+// 					continue
+// 				}
+// 				f, _ := res.Value.(string)
 // 				*vals = append(*vals, &record{f, time.Now()})
 // 			}
 // 		}
@@ -532,15 +605,30 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 
 // 	// Set up test goroutines, each with an independent GrowthBook
 // 	// instance, cancellation channel and result storage.
-// 	gbs := make([]*GrowthBook, 10)
+// 	clients := make([]*Client, 10)
 // 	doneChs := make([]chan struct{}, 10)
+// 	errDoneCh := make(chan struct{})
 // 	vals := make([][]*record, 10)
-// 	wg.Add(10)
+// 	wg.Add(11)
+
+// 	go func() {
+// 		defer wg.Done()
+// 		for {
+// 			select {
+// 			case <-errDoneCh:
+// 				return
+
+// 			case err := <-errCh:
+// 				testErrors = append(testErrors, err)
+// 			}
+// 		}
+// 	}()
+
 // 	for i := 0; i < 10; i++ {
-// 		gbs[i] = makeGB(env.server.URL, "qwerty1234", 0)
+// 		clients[i] = makeClient(env.server.URL, "qwerty1234")
 // 		doneChs[i] = make(chan struct{})
 // 		vals[i] = []*record{}
-// 		go tester(gbs[i], doneChs[i], &vals[i])
+// 		go tester(i, clients[i], doneChs[i], &vals[i])
 // 	}
 
 // 	// Command storage.
@@ -574,14 +662,9 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 // 		time.Sleep(time.Duration(50+rand.Intn(50)) * time.Millisecond)
 // 	}
 
-// 	// Stop the test goroutines and zero their GrowthBook instances so
-// 	// that finalizers will run and background SSE refresh will stop
-// 	// too.
-// 	for i := 0; i < 10; i++ {
-// 		doneChs[i] <- struct{}{}
-// 		gbs[i] = nil
+// 	if len(testErrors) > 0 {
+// 		t.Error("unexpected errors:", testErrors)
 // 	}
-// 	wg.Wait()
 
 // 	// Check the results from the test goroutines by finding the
 // 	// relevant times in the command history. Allow some slack for small
@@ -627,6 +710,17 @@ func TestRepoHandlesSSEErrors(t *testing.T) {
 // 			}
 // 		}
 // 	}
+
+// 	// Stop the test goroutines and zero their GrowthBook instances so
+// 	// that finalizers will run and background SSE refresh will stop
+// 	// too.
+// 	for i := 0; i < 10; i++ {
+// 		doneChs[i] <- struct{}{}
+// 		clients[i] = nil
+// 	}
+// 	errDoneCh <- struct{}{}
+// 	wg.Wait()
+// 	runtime.GC()
 // }
 
 func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
@@ -639,16 +733,20 @@ func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
 	ConfigureCacheBackgroundSync(false)
 	defer ConfigureCacheBackgroundSync(true)
 
-	gb := makeGB(env.server.URL, "qwerty1234", 0)
-	gb2 := makeGB(env.server.URL, "qwerty1234", 0)
+	client := makeClient(env.server.URL, "qwerty1234")
+	client2 := makeClient(env.server.URL, "qwerty1234")
+	defer func() {
+		client = nil
+		client2 = nil
+	}()
 
-	gb.LoadFeatures(nil)
-	gb2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
+	client.LoadFeatures(nil)
+	client2.LoadFeatures(&FeatureRepoOptions{AutoRefresh: true})
 
 	// Initial value from API.
 	env.checkCalls(t, 1)
-	checkFeature(t, gb, "foo", "initial")
-	checkFeature(t, gb2, "foo", "initial")
+	checkFeature(t, client, "foo", "initial")
+	checkFeature(t, client2, "foo", "initial")
 
 	// Trigger mock SSE send.
 	featuresJson := `{"features": {"foo": {"defaultValue": "changed"}}}`
@@ -656,8 +754,8 @@ func TestRepoDoesntDoBackgroundSyncWhenDisabled(t *testing.T) {
 
 	// SSE update is ignored.
 	time.Sleep(100 * time.Millisecond)
-	checkFeature(t, gb, "foo", "initial")
-	checkFeature(t, gb2, "foo", "initial")
+	checkFeature(t, client, "foo", "initial")
+	checkFeature(t, client2, "foo", "initial")
 	env.checkCalls(t, 1)
 }
 
@@ -671,13 +769,13 @@ func TestRepoDecryptsFeatures(t *testing.T) {
 
 	cache.Clear()
 
-	context := NewContext().
-		WithAPIHost(env.server.URL).
-		WithClientKey("qwerty1234").
-		WithDecryptionKey("Ns04T5n9+59rl2x3SlNHtQ==")
-	gb := New(context)
+	client := NewClient(&Options{
+		APIHost:       env.server.URL,
+		ClientKey:     "qwerty1234",
+		DecryptionKey: "Ns04T5n9+59rl2x3SlNHtQ==",
+	})
 
-	gb.LoadFeatures(nil)
+	client.LoadFeatures(nil)
 
 	env.checkCalls(t, 1)
 
@@ -687,8 +785,12 @@ func TestRepoDecryptsFeatures(t *testing.T) {
       "rules": [{"condition": { "id": "1234" }, "force": false}]
     }
   }`
-	expected := ParseFeatureMap([]byte(expectedJson))
-	actual := gb.Features()
+	expected := FeatureMap{}
+	err := json.Unmarshal([]byte(expectedJson), &expected)
+	if err != nil {
+		t.Errorf("failed to parse expected JSON: %s", expectedJson)
+	}
+	actual := client.Features()
 
 	if !reflect.DeepEqual(actual, expected) {
 		t.Error("unexpected features value: ", actual)

@@ -6,11 +6,11 @@ import (
 )
 
 // Convert integer or string hash values to strings.
-func convertHashValue(vin interface{}) (string, bool) {
+func convertHashValue(vin any) (string, bool) {
 	hashString, stringOK := vin.(string)
 	if stringOK {
 		if hashString == "" {
-			logInfo("Skip because of empty hash attribute")
+			logger.Info("Skip because of empty hash attribute")
 			return "", false
 		}
 		return hashString, true

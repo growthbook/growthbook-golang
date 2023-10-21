@@ -1,25 +1,26 @@
 package growthbook
 
 import (
-	"fmt"
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"math"
 	"strings"
 	"testing"
+
+	"golang.org/x/exp/slog"
 )
 
 // Some test functions generate warnings in the log. We need to check
 // the expected ones, and not miss any unexpected ones.
 
 func handleExpectedWarnings(
-	t *testing.T, test []interface{}, expectedWarnings map[string]int) {
-	name, ok := test[0].(string)
-	if !ok {
-		t.Errorf("can't extract test name!")
-	}
+	t *testing.T, name string, expectedWarnings map[string]int) {
 	warnings, ok := expectedWarnings[name]
 	if ok {
-		if len(testLog.errors) == 0 && len(testLog.warnings) == warnings {
-			testLog.reset()
+		if len(testLogHandler.errors) == 0 && len(testLogHandler.warnings) == warnings {
+			testLogHandler.reset()
 		} else {
 			t.Errorf("expected log warning")
 		}
@@ -47,81 +48,103 @@ func round(vals []float64) []float64 {
 	return result
 }
 
-// Logger to capture error and log messages.
-type testLogger struct {
-	errors   []string
-	warnings []string
-	info     []string
+var testLogHandler *handler = newHandler()
+
+var testLog *slog.Logger = slog.New(testLogHandler)
+
+// Log handler to capture error and warning messages.
+type handler struct {
+	errors     []map[string]any
+	warnings   []map[string]any
+	buf        *bytes.Buffer
+	subHandler slog.Handler
 }
 
-var testLog = testLogger{}
-
-func (log *testLogger) allErrors() string {
-	return strings.Join(log.errors, ", ")
+func newHandler() *handler {
+	buf := bytes.Buffer{}
+	h := slog.NewJSONHandler(&buf, nil)
+	return &handler{
+		errors:     []map[string]any{},
+		warnings:   []map[string]any{},
+		buf:        &buf,
+		subHandler: h,
+	}
 }
 
-func (log *testLogger) allWarnings() string {
-	return strings.Join(log.warnings, ", ")
+func (h *handler) Enabled(ctx context.Context, level slog.Level) bool {
+	return h.subHandler.Enabled(ctx, level)
 }
 
-func (log *testLogger) allInfo() string {
-	return strings.Join(log.info, ", ")
+func (h *handler) Handle(ctx context.Context, r slog.Record) error {
+	err := h.subHandler.Handle(ctx, r)
+	if err != nil {
+		return err
+	}
+	v := map[string]any{}
+	err = json.Unmarshal(h.buf.Bytes(), &v)
+	h.buf.Reset()
+	if err != nil {
+		return err
+	}
+	level, ok := v["level"]
+	if !ok {
+		return errors.New("no level in log message")
+	}
+	switch level {
+	case "ERROR":
+		h.errors = append(h.errors, v)
+	case "WARN":
+		h.warnings = append(h.warnings, v)
+	}
+	return nil
 }
 
-func (log *testLogger) reset() {
-	log.errors = []string{}
-	log.warnings = []string{}
-	log.info = []string{}
+func (h *handler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	newSubHandler := h.subHandler.WithAttrs(attrs)
+	return &handler{
+		errors:     h.errors,
+		warnings:   h.warnings,
+		buf:        h.buf,
+		subHandler: newSubHandler,
+	}
 }
 
-func formatArgs(args ...interface{}) string {
-	s := ""
-	for i, a := range args {
-		if i != 0 {
-			s += " "
+func (h *handler) WithGroup(name string) slog.Handler {
+	newSubHandler := h.subHandler.WithGroup(name)
+	return &handler{
+		errors:     h.errors,
+		warnings:   h.warnings,
+		buf:        h.buf,
+		subHandler: newSubHandler,
+	}
+}
+
+func (h *handler) reset() {
+	h.errors = []map[string]any{}
+	h.warnings = []map[string]any{}
+	h.buf.Reset()
+}
+
+func (h *handler) allErrors() string {
+	ss := []string{}
+	for _, e := range h.errors {
+		b, err := json.Marshal(e)
+		if err == nil {
+			ss = append(ss, string(b))
 		}
-		s += fmt.Sprint(a)
 	}
-	return s
+	return strings.Join(ss, ", ")
 }
 
-func (log *testLogger) Error(msg string, args ...interface{}) {
-	s := msg
-	if len(args) > 0 {
-		s += ": " + formatArgs(args...)
+func (h *handler) allWarnings() string {
+	ss := []string{}
+	for _, e := range h.warnings {
+		b, err := json.Marshal(e)
+		if err == nil {
+			ss = append(ss, string(b))
+		}
 	}
-	log.errors = append(log.errors, s)
-}
-
-func (log *testLogger) Errorf(format string, args ...interface{}) {
-	s := fmt.Sprintf(format, args...)
-	log.errors = append(log.errors, s)
-}
-
-func (log *testLogger) Warn(msg string, args ...interface{}) {
-	s := msg
-	if len(args) > 0 {
-		s += ": " + formatArgs(args...)
-	}
-	log.warnings = append(log.warnings, s)
-}
-
-func (log *testLogger) Warnf(format string, args ...interface{}) {
-	s := fmt.Sprintf(format, args...)
-	log.warnings = append(log.warnings, s)
-}
-
-func (log *testLogger) Info(msg string, args ...interface{}) {
-	s := msg
-	if len(args) > 0 {
-		s += ": " + fmt.Sprint(args...)
-	}
-	log.info = append(log.info, s)
-}
-
-func (log *testLogger) Infof(format string, args ...interface{}) {
-	s := fmt.Sprintf(format, args...)
-	log.info = append(log.info, s)
+	return strings.Join(ss, ", ")
 }
 
 // Polyfill from Go v1.20 sort.

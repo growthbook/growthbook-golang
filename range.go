@@ -1,12 +1,35 @@
 package growthbook
 
+import (
+	"encoding/json"
+	"errors"
+)
+
 // Range represents a single bucket range.
 type Range struct {
 	Min float64
 	Max float64
 }
 
-func (r *Range) InRange(n float64) bool {
+func (r Range) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]float64{r.Min, r.Max})
+}
+
+func (r *Range) UnmarshalJSON(data []byte) error {
+	tmp := []float64{}
+	err := json.Unmarshal(data, &tmp)
+	if err != nil {
+		return err
+	}
+	if len(tmp) != 2 {
+		return errors.New("invalid array for range")
+	}
+	r.Min = tmp[0]
+	r.Max = tmp[1]
+	return nil
+}
+
+func (r Range) InRange(n float64) bool {
 	return n >= r.Min && n < r.Max
 }
 
@@ -15,11 +38,11 @@ func (r *Range) InRange(n float64) bool {
 func getBucketRanges(numVariations int, coverage float64, weights []float64) []Range {
 	// Make sure coverage is within bounds.
 	if coverage < 0 {
-		logWarn("Experiment coverage must be greater than or equal to 0")
+		logger.Warn("Experiment coverage must be in the range [0, 1]")
 		coverage = 0
 	}
 	if coverage > 1 {
-		logWarn("Experiment coverage must be less than or equal to 1")
+		logger.Warn("Experiment coverage must be in the range [0, 1]")
 		coverage = 1
 	}
 
@@ -28,7 +51,7 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []R
 		weights = getEqualWeights(numVariations)
 	}
 	if len(weights) != numVariations {
-		logWarn("Experiment weights and variations arrays must be the same length")
+		logger.Warn("Experiment weights and variations arrays must be the same length")
 		weights = getEqualWeights(numVariations)
 	}
 
@@ -38,7 +61,7 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []R
 		totalWeight += weights[i]
 	}
 	if totalWeight < 0.99 || totalWeight > 1.01 {
-		logWarn("Experiment weights must add up to 1")
+		logger.Warn("Experiment weights must add up to 1")
 		weights = getEqualWeights(numVariations)
 	}
 
@@ -61,30 +84,4 @@ func chooseVariation(n float64, ranges []Range) int {
 		}
 	}
 	return -1
-}
-
-func jsonRange(v interface{}, typeName string, fieldName string) (*Range, bool) {
-	vals, ok := jsonFloatArray(v, typeName, fieldName)
-	if !ok || vals == nil || len(vals) != 2 {
-		logError("Invalid JSON data type", typeName, fieldName)
-		return nil, false
-	}
-	return &Range{vals[0], vals[1]}, true
-}
-
-func jsonRangeArray(v interface{}, typeName string, fieldName string) ([]Range, bool) {
-	vals, ok := v.([]interface{})
-	if !ok {
-		logError("Invalid JSON data type", typeName, fieldName)
-		return nil, false
-	}
-	ranges := make([]Range, len(vals))
-	for i := range vals {
-		tmp, ok := jsonRange(vals[i], typeName, fieldName)
-		if !ok || tmp == nil {
-			return nil, false
-		}
-		ranges[i] = *tmp
-	}
-	return ranges, true
 }

@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -112,23 +113,26 @@ func TestIssue1(t *testing.T) {
 		"dietaryRestrictions": []string{"gluten_free"},
 	}
 
-	features := ParseFeatureMap([]byte(issue1FeaturesJson))
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(issue1FeaturesJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse features JSON: %s", issue1FeaturesJson)
+	}
 
-	context := NewContext().
-		WithFeatures(features).
-		WithAttributes(attrs)
+	client := NewClient(nil).WithFeatures(features)
 
-	gb := New(context)
+	value, err := client.EvalFeature("meal_overrides_gluten_free", attrs)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
-	value := gb.Feature("meal_overrides_gluten_free").Value
-
-	expectedValue := map[string]interface{}{
+	expectedValue := map[string]any{
 		"meal_type": "gf",
 		"dessert":   "French Vanilla Ice Cream",
 	}
 
-	if !reflect.DeepEqual(value, expectedValue) {
-		t.Errorf("unexpected value: %v", value)
+	if !reflect.DeepEqual(value.Value, expectedValue) {
+		t.Errorf("unexpected value: %v", value.Value)
 	}
 }
 
@@ -142,33 +146,26 @@ func TestIssue5(t *testing.T) {
 		"dietaryRestrictions": [1]string{"gluten_free"},
 	}
 
-	features := ParseFeatureMap([]byte(issue1FeaturesJson))
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(issue1FeaturesJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse features JSON: %s", issue1FeaturesJson)
+	}
 
-	context := NewContext().
-		WithFeatures(features).
-		WithAttributes(attrs)
+	client := NewClient(nil).WithFeatures(features)
 
-	gb := New(context)
+	value, err := client.EvalFeature("meal_overrides_gluten_free", attrs)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
 
-	value := gb.Feature("meal_overrides_gluten_free").Value
-
-	expectedValue := map[string]interface{}{
+	expectedValue := map[string]any{
 		"meal_type": "gf",
 		"dessert":   "French Vanilla Ice Cream",
 	}
 
-	if !reflect.DeepEqual(value, expectedValue) {
-		t.Errorf("unexpected value: %v", value)
-	}
-}
-
-func TestNilContext(t *testing.T) {
-	// Check that there's no problem using a nil context.
-	var nilContext *Context
-	gbTest := New(nilContext)
-
-	if !gbTest.inner.context.Enabled {
-		t.Errorf("expected gbTest.enabled to be true")
+	if !reflect.DeepEqual(value.Value, expectedValue) {
+		t.Errorf("unexpected value: %v", value.Value)
 	}
 }
 
@@ -200,22 +197,28 @@ const numericComparisonsJson = `{
 `
 
 func TestNumericComparisons(t *testing.T) {
-	features := ParseFeatureMap([]byte(numericComparisonsJson))
+	features := FeatureMap{}
+	err := json.Unmarshal([]byte(numericComparisonsJson), &features)
+	if err != nil {
+		t.Errorf("failed to parse features JSON: %s", numericComparisonsJson)
+	}
 
 	attrs := Attributes{"bonus_scheme": 2}
 
-	context := NewContext().
-		WithFeatures(features).
-		WithAttributes(attrs)
+	client := NewClient(nil).WithFeatures(features)
 
-	gb := New(context)
-
-	value1 := gb.Feature("donut_price").Value
-	if value1 != 1.0 {
-		t.Errorf("unexpected value: %v", value1)
+	value1, err := client.EvalFeature("donut_price", attrs)
+	if err != nil {
+		t.Error("unexpected error:", err)
 	}
-	value2 := gb.Feature("donut_rating").Value
-	if value2 != 4.0 {
-		t.Errorf("unexpected value: %v", value2)
+	if value1.Value != 1.0 {
+		t.Errorf("unexpected value: %v", value1.Value)
+	}
+	value2, err := client.EvalFeature("donut_rating", attrs)
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	if value2.Value != 4.0 {
+		t.Errorf("unexpected value: %v", value2.Value)
 	}
 }

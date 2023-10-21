@@ -3,8 +3,10 @@ module github.com/growthbook/growthbook-golang
 go 1.18
 
 require (
+	github.com/barkimedes/go-deepcopy v0.0.0-20220514131651-17c30cfc62df
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/ian-ross/sse/v2 v2.0.0-20230916152657-420261c3546b
+	golang.org/x/exp v0.0.0-20230905200255-921286631fa9
 )
 
 require (

@@ -1,37 +1,34 @@
 package growthbook
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"regexp"
+
+	"github.com/barkimedes/go-deepcopy"
+)
 
 // Attributes is an arbitrary JSON object containing user and request
 // attributes.
-type Attributes map[string]interface{}
+type Attributes map[string]any
+
+func (attrs Attributes) fixSliceTypes() Attributes {
+	fixed := Attributes{}
+	for k, v := range attrs {
+		fixed[k] = fixSliceTypes(v)
+	}
+	return fixed
+}
 
 // FeatureMap is a map of feature objects, keyed by string feature
 // IDs.
 type FeatureMap map[string]*Feature
 
-// ParseFeatureMap creates a FeatureMap value from raw JSON input.
-func ParseFeatureMap(data []byte) FeatureMap {
-	dict := map[string]interface{}{}
-	err := json.Unmarshal(data, &dict)
-	if err != nil {
-		logError("Failed parsing JSON input", "FeatureMap")
-		return nil
+func (fm FeatureMap) clone() FeatureMap {
+	retval := FeatureMap{}
+	for k, f := range fm {
+		retval[k] = f.clone()
 	}
-	return BuildFeatureMap(dict)
-}
-
-// BuildFeatureMap creates a FeatureMap value from a JSON object
-// represented as a Go map.
-func BuildFeatureMap(dict map[string]interface{}) FeatureMap {
-	fmap := FeatureMap{}
-	for k, v := range dict {
-		feature := BuildFeature(v)
-		if feature != nil {
-			fmap[k] = feature
-		}
-	}
-	return fmap
+	return retval
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always
@@ -69,19 +66,101 @@ const (
 	OverrideResultSource
 )
 
-// ParseFeatureResultSource creates a FeatureResultSource value from
-// its string representation.
-func ParseFeatureResultSource(source string) FeatureResultSource {
-	switch source {
-	case "", "defaultValue":
-		return DefaultValueResultSource
-	case "force":
-		return ForceResultSource
-	case "experiment":
-		return ExperimentResultSource
-	case "override":
-		return OverrideResultSource
+func (s FeatureResultSource) MarshalJSON() ([]byte, error) {
+	switch s {
+	case DefaultValueResultSource:
+		return []byte("defaultValue"), nil
+	case ForceResultSource:
+		return []byte("force"), nil
+	case ExperimentResultSource:
+		return []byte("experiment"), nil
+	case OverrideResultSource:
+		return []byte("override"), nil
 	default:
-		return UnknownResultSource
+		return []byte("unknown"), nil
 	}
+}
+
+func (s *FeatureResultSource) UnmarshalJSON(data []byte) error {
+	val := ""
+	err := json.Unmarshal(data, &val)
+	if err != nil {
+		return err
+	}
+	switch val {
+	case "", "defaultValue":
+		*s = DefaultValueResultSource
+	case "force":
+		*s = ForceResultSource
+	case "experiment":
+		*s = ExperimentResultSource
+	case "override":
+		*s = OverrideResultSource
+	default:
+		*s = UnknownResultSource
+	}
+	return nil
+}
+
+// ExperimentOverride provides the possibility to temporarily override
+// some experiment settings.
+type ExperimentOverride struct {
+	Condition *Condition        `json:"condition,omitempty"`
+	Weights   []float64         `json:"weights,omitempty"`
+	Active    *bool             `json:"active,omitempty"`
+	Status    *ExperimentStatus `json:"status,omitempty"`
+	Force     *int              `json:"force,omitempty"`
+	Coverage  *float64          `json:"coverage,omitempty"`
+	Groups    []string          `json:"groups,omitempty"`
+	Namespace *Namespace        `json:"namespace,omitempty"`
+	URL       *regexp.Regexp    `json:"url,omitempty"`
+}
+
+func (o *ExperimentOverride) clone() *ExperimentOverride {
+	retval := ExperimentOverride{}
+	if o.Condition != nil {
+		retval.Condition = deepcopy.MustAnything(o.Condition).(*Condition)
+	}
+	if o.Weights != nil {
+		retval.Weights = make([]float64, len(o.Weights))
+		copy(retval.Weights, o.Weights)
+	}
+	if o.Active != nil {
+		tmp := *o.Active
+		retval.Active = &tmp
+	}
+	if o.Status != nil {
+		tmp := *o.Status
+		retval.Status = &tmp
+	}
+	if o.Force != nil {
+		tmp := *o.Force
+		retval.Force = &tmp
+	}
+	if o.Coverage != nil {
+		tmp := *o.Coverage
+		retval.Coverage = &tmp
+	}
+	if o.Groups != nil {
+		retval.Groups = make([]string, len(o.Groups))
+		copy(retval.Groups, o.Groups)
+	}
+	if o.Namespace != nil {
+		retval.Namespace = o.Namespace.clone()
+	}
+	if o.URL != nil {
+		tmp := regexp.Regexp(*o.URL)
+		retval.URL = &tmp
+	}
+	return &retval
+}
+
+type ExperimentOverrides map[string]*ExperimentOverride
+
+func (os ExperimentOverrides) clone() ExperimentOverrides {
+	retval := map[string]*ExperimentOverride{}
+	for k, v := range os {
+		retval[k] = v.clone()
+	}
+	return retval
 }

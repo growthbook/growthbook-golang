@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-redis/redis/v8"
+	"golang.org/x/exp/slog"
 )
 
 var ctx = context.Background()
@@ -20,7 +21,7 @@ func (c *RedisFeatureCache) Initialize() {}
 func (c *RedisFeatureCache) Clear() {
 	err := c.client.FlushDB(ctx).Err()
 	if err != nil {
-		logError("failed clearing cache")
+		slog.Error("failed clearing cache")
 	}
 }
 
@@ -30,12 +31,12 @@ func (c *RedisFeatureCache) Get(key RepositoryKey) *CacheEntry {
 		return nil
 	}
 	if err != nil {
-		logError("failed getting cache data")
+		slog.Error("failed getting cache data")
 	}
 	var entry CacheEntry
 	err = json.Unmarshal([]byte(val), &entry)
 	if err != nil {
-		logError("failed decoding cache data")
+		slog.Error("failed decoding cache data")
 		return nil
 	}
 	return &entry
@@ -44,7 +45,7 @@ func (c *RedisFeatureCache) Get(key RepositoryKey) *CacheEntry {
 func (c *RedisFeatureCache) Set(key RepositoryKey, entry *CacheEntry) {
 	data, err := json.Marshal(entry)
 	if err != nil {
-		logError("failed encoding cache data")
+		slog.Error("failed encoding cache data")
 	}
 	expiry := entry.StaleAt.Sub(time.Now())
 	if expiry < 0 {
@@ -53,7 +54,7 @@ func (c *RedisFeatureCache) Set(key RepositoryKey, entry *CacheEntry) {
 	}
 	err = c.client.Set(ctx, c.prefix+string(key), string(data), expiry).Err()
 	if err != nil {
-		logError("failed setting cache data")
+		slog.Error("failed setting cache data")
 	}
 }
 

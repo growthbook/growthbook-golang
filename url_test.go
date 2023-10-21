@@ -2,13 +2,16 @@ package growthbook
 
 import (
 	"net/url"
-	"os"
 	"testing"
 )
 
 func TestIsURLTargetedNoTargetingRules(t *testing.T) {
 	url := mustParseUrl("https://example.com/testing")
-	if isURLTargeted(url, []URLTarget{}) != false {
+	targeted, err := isURLTargeted(url, []URLTarget{})
+	if err != nil {
+		t.Error("unexpected error:", err)
+	}
+	if targeted != false {
 		t.Error("expected isURLTargeted to return false")
 	}
 }
@@ -23,7 +26,11 @@ func TestIsURLTargetedMixIncludeExclude(t *testing.T) {
 	excludeNoMatch := URLTarget{SimpleURLTarget, false, "https://another.com"}
 
 	check := func(icase int, expected bool, targets ...URLTarget) {
-		if isURLTargeted(url, targets) != expected {
+		targeted, err := isURLTargeted(url, targets)
+		if err != nil {
+			t.Error("unexpected error:", err)
+		}
+		if targeted != expected {
 			t.Errorf("%d: expected isURLTargets to return %v", icase, expected)
 		}
 	}
@@ -60,7 +67,11 @@ func TestIsURLTargetedExcludeOnTopOfInclude(t *testing.T) {
 	}
 
 	check := func(icase int, expected bool, urls string) {
-		if isURLTargeted(mustParseUrl(urls), rules) != expected {
+		targeted, err := isURLTargeted(mustParseUrl(urls), rules)
+		if err != nil {
+			t.Error("unexpected error:", err)
+		}
+		if targeted != expected {
 			t.Errorf("%d: expected isURLTargets to return %v", icase, expected)
 		}
 	}
@@ -114,7 +125,11 @@ var cases = []urlTest{
 func TestIsURLTargetedTableDriven(t *testing.T) {
 	for itest, test := range cases {
 		targets := []URLTarget{{test.targetType, true, test.pattern}}
-		if isURLTargeted(mustParseUrl(test.url), targets) != test.expected {
+		targeted, err := isURLTargeted(mustParseUrl(test.url), targets)
+		if err != nil {
+			t.Error("unexpected error:", err)
+		}
+		if targeted != test.expected {
 			types := "simple"
 			if test.targetType == RegexURLTarget {
 				types = "regexp"
@@ -128,8 +143,7 @@ func TestIsURLTargetedTableDriven(t *testing.T) {
 func mustParseUrl(u string) *url.URL {
 	result, err := url.Parse(u)
 	if err != nil {
-		logError("Failed to parse URL: ", u)
-		os.Exit(1)
+		panic("Failed to parse URL: " + u)
 	}
 	return result
 }

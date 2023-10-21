@@ -1,67 +1,50 @@
 package growthbook
 
-// FeatureResult is the result of evaluating a feature.
-type FeatureResult struct {
-	Value            FeatureValue
-	Source           FeatureResultSource
-	On               bool
-	Off              bool
-	RuleID           string
-	Experiment       *Experiment
-	ExperimentResult *Result
+import "encoding/json"
+
+type ExperimentWithResult struct {
+	Experiment       *Experiment `json:"experiment,omitempty"`
+	ExperimentResult *Result     `json:"experimentResult,omitempty"`
 }
 
-// BuildFeatureResult creates an FeatureResult value from a JSON
-// object represented as a Go map.
-func BuildFeatureResult(dict map[string]interface{}) *FeatureResult {
-	result := FeatureResult{}
-	for k, v := range dict {
-		switch k {
-		case "value":
-			result.Value = v
-		case "on":
-			on, ok := jsonBool(v, "FeatureResult", "on")
-			if !ok {
-				return nil
-			}
-			result.On = on
-		case "off":
-			off, ok := jsonBool(v, "FeatureResult", "off")
-			if !ok {
-				return nil
-			}
-			result.Off = off
-		case "source":
-			source, ok := jsonString(v, "FeatureResult", "source")
-			if !ok {
-				return nil
-			}
-			result.Source = ParseFeatureResultSource(source)
-		case "experiment":
-			tmp, ok := v.(map[string]interface{})
-			if !ok {
-				logError("Invalid JSON data type", "FeatureResult", "experiment")
-				continue
-			}
-			experiment := BuildExperiment(tmp)
-			if experiment == nil {
-				return nil
-			}
-			result.Experiment = experiment
-		case "experimentResult":
-			tmp, ok := v.(map[string]interface{})
-			if !ok {
-				logError("Invalid JSON data type", "FeatureResult", "experimentResult")
-				return nil
-			}
-			experimentResult := BuildResult(tmp)
-			if experimentResult == nil {
-				return nil
-			}
-			result.ExperimentResult = experimentResult
-		default:
-			logWarn("Unknown key in JSON data", "FeatureResult", k)
-		}
+// FeatureResult is the result of evaluating a feature.
+type FeatureResult struct {
+	Value            FeatureValue        `json:"value,omitempty"`
+	Source           FeatureResultSource `json:"source,omitempty"`
+	On               bool                `json:"on,omitempty"`
+	Off              bool                `json:"off,omitempty"`
+	RuleID           string
+	ExperimentResult *ExperimentWithResult
+}
+
+// UnmarshalJSON deserializes feature result data from JSON, with
+// custom handling for the experiment and experiment result fields,
+// which we bundle up into a single value.
+
+func (r *FeatureResult) UnmarshalJSON(data []byte) error {
+	type Alias FeatureResult
+	tmp := &struct {
+		*Alias
+		ExperimentResult any
+	}{}
+	err := json.Unmarshal(data, &tmp)
+	if err != nil {
+		return err
 	}
-	return &result
+	var ewr ExperimentWithResult
+	err = json.Unmarshal(data, &ewr)
+	if err != nil {
+		return err
+	}
+	r.Value = tmp.Value
+	r.Source = tmp.Source
+	r.On = tmp.On
+	r.Off = tmp.Off
+	r.RuleID = tmp.RuleID
+	if ewr.Experiment == nil && ewr.ExperimentResult == nil {
+		r.ExperimentResult = nil
+	} else {
+		r.ExperimentResult = &ewr
+	}
+	return nil
 }

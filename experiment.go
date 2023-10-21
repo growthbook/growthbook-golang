@@ -3,6 +3,8 @@ package growthbook
 import (
 	"encoding/json"
 	"regexp"
+
+	"github.com/barkimedes/go-deepcopy"
 )
 
 type ExperimentStatus string
@@ -15,27 +17,87 @@ const (
 
 // Experiment defines a single experiment.
 type Experiment struct {
-	Key           string
-	Variations    []FeatureValue
-	Ranges        []Range
-	Meta          []VariationMeta
-	Filters       []Filter
-	Seed          string
-	Name          string
-	Phase         string
+	Key           string          `json:"key"`
+	Variations    []FeatureValue  `json:"variations,omitempty"`
+	Ranges        []Range         `json:"ranges,omitempty"`
+	Meta          []VariationMeta `json:"meta,omitempty"`
+	Filters       []Filter        `json:"filters,omitempty"`
+	Seed          string          `json:"seed,omitempty"`
+	Name          string          `json:"name,omitempty"`
+	Phase         string          `json:"phase,omitempty"`
 	URLPatterns   []URLTarget
-	Weights       []float64
-	Condition     Condition
-	Coverage      *float64
+	Weights       []float64  `json:"weights,omitempty"`
+	Condition     *Condition `json:"condition,omitempty"`
+	Coverage      *float64   `json:"coverage,omitempty"`
 	Include       func() bool
-	Namespace     *Namespace
-	Force         *int
-	HashAttribute string
-	HashVersion   int
-	Active        bool
-	Status        ExperimentStatus
-	URL           *regexp.Regexp
-	Groups        []string
+	Namespace     *Namespace       `json:"namespace,omitempty"`
+	Force         *int             `json:"force,omitempty"`
+	HashAttribute string           `json:"hashAttribute,omitempty"`
+	HashVersion   int              `json:"hashVersion,omitempty"`
+	Active        bool             `json:"active,omitempty"`
+	Status        ExperimentStatus `json:"status,omitempty"`
+	URL           *regexp.Regexp   `json:"url,omitempty"`
+	Groups        []string         `json:"groups,omitempty"`
+}
+
+func (exp *Experiment) clone() *Experiment {
+	var coverage *float64
+	if exp.Coverage != nil {
+		tmp := *exp.Coverage
+		coverage = &tmp
+	}
+	var force *int
+	if exp.Force != nil {
+		tmp := *exp.Force
+		force = &tmp
+	}
+	var url *regexp.Regexp
+	if exp.URL != nil {
+		tmp := *exp.URL
+		url = &tmp
+	}
+	var namespace *Namespace
+	if exp.Namespace != nil {
+		namespace = exp.Namespace.clone()
+	}
+	retval := Experiment{
+		Key:           exp.Key,
+		Variations:    deepcopy.MustAnything(exp.Variations).([]FeatureValue),
+		Ranges:        deepcopy.MustAnything(exp.Ranges).([]Range),
+		Meta:          deepcopy.MustAnything(exp.Meta).([]VariationMeta),
+		Filters:       deepcopy.MustAnything(exp.Filters).([]Filter),
+		Seed:          exp.Seed,
+		Name:          exp.Name,
+		Phase:         exp.Phase,
+		URLPatterns:   deepcopy.MustAnything(exp.URLPatterns).([]URLTarget),
+		Weights:       deepcopy.MustAnything(exp.Weights).([]float64),
+		Condition:     deepcopy.MustAnything(exp.Condition).(*Condition),
+		Coverage:      coverage,
+		Include:       exp.Include,
+		Namespace:     namespace,
+		Force:         force,
+		HashAttribute: exp.HashAttribute,
+		HashVersion:   exp.HashVersion,
+		Active:        exp.Active,
+		Status:        exp.Status,
+		URL:           url,
+		Groups:        deepcopy.MustAnything(exp.Groups).([]string),
+	}
+	return &retval
+}
+
+// UnmarshalJSON deserializes experiment data, defaulting the Active
+// field to true.
+func (exp *Experiment) UnmarshalJSON(data []byte) error {
+	type alias Experiment
+	val := alias{Active: true}
+
+	err := json.Unmarshal(data, &val)
+	if err != nil {
+		return err
+	}
+	*exp = Experiment(val)
+	return nil
 }
 
 // NewExperiment creates an experiment with default settings: active,
@@ -96,7 +158,7 @@ func (exp *Experiment) WithWeights(weights ...float64) *Experiment {
 }
 
 // WithCondition sets the condition for an experiment.
-func (exp *Experiment) WithCondition(condition Condition) *Experiment {
+func (exp *Experiment) WithCondition(condition *Condition) *Experiment {
 	exp.Condition = condition
 	return exp
 }
@@ -158,133 +220,6 @@ func (exp *Experiment) WithGroups(groups ...string) *Experiment {
 // WithURL sets the URL for an experiment.
 func (exp *Experiment) WithURL(url *regexp.Regexp) *Experiment {
 	exp.URL = url
-	return exp
-}
-
-// ParseExperiment creates an Experiment value from raw JSON input.
-func ParseExperiment(data []byte) *Experiment {
-	dict := make(map[string]interface{})
-	err := json.Unmarshal(data, &dict)
-	if err != nil {
-		logError("Failed parsing JSON input", "Experiment")
-		return nil
-	}
-	return BuildExperiment(dict)
-}
-
-// BuildExperiment creates an Experiment value from a JSON object
-// represented as a Go map.
-func BuildExperiment(dict map[string]interface{}) *Experiment {
-	exp := NewExperiment("tmp")
-	gotKey := false
-	for k, v := range dict {
-		switch k {
-		case "key":
-			key, ok := jsonString(v, "Experiment", "key")
-			if !ok {
-				return nil
-			}
-			exp.Key = key
-			gotKey = true
-		case "variations":
-			exp = exp.WithVariations(BuildFeatureValues(v)...)
-		case "ranges":
-			ranges, ok := jsonRangeArray(v, "Experiment", "ranges")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithRanges(ranges...)
-		case "meta":
-			meta, ok := jsonVariationMetaArray(v, "Experiment", "meta")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithMeta(meta...)
-		case "filters":
-			filters, ok := jsonFilterArray(v, "Experiment", "filters")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithFilters(filters...)
-		case "seed":
-			seed, ok := jsonString(v, "FeatureRule", "seed")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithSeed(seed)
-		case "name":
-			name, ok := jsonString(v, "FeatureRule", "name")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithName(name)
-		case "phase":
-			phase, ok := jsonString(v, "FeatureRule", "phase")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithPhase(phase)
-		case "weights":
-			weights, ok := jsonFloatArray(v, "Experiment", "weights")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithWeights(weights...)
-		case "active":
-			active, ok := jsonBool(v, "Experiment", "active")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithActive(active)
-		case "coverage":
-			coverage, ok := jsonFloat(v, "Experiment", "coverage")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithCoverage(coverage)
-		case "condition":
-			tmp, ok := v.(map[string]interface{})
-			if !ok {
-				logError("Invalid JSON data type", "Experiment", "condition")
-				continue
-			}
-			cond := BuildCondition(tmp)
-			if cond == nil {
-				logError("Invalid condition in JSON experiment data")
-			} else {
-				exp = exp.WithCondition(cond)
-			}
-		case "namespace":
-			namespace := BuildNamespace(v)
-			if namespace == nil {
-				return nil
-			}
-			exp = exp.WithNamespace(namespace)
-		case "force":
-			force, ok := jsonInt(v, "Experiment", "force")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithForce(force)
-		case "hashAttribute":
-			hashAttribute, ok := jsonString(v, "Experiment", "hashAttribute")
-			if !ok {
-				return nil
-			}
-			exp = exp.WithHashAttribute(hashAttribute)
-		case "hashVersion":
-			hashVersion, ok := jsonInt(v, "Experiment", "hashVersion")
-			if !ok {
-				return nil
-			}
-			exp.HashVersion = hashVersion
-		default:
-			logWarn("Unknown key in JSON data", "Experiment", k)
-		}
-	}
-	if !gotKey {
-		logWarn("Key not set in JSON experiment data")
-	}
 	return exp
 }
 
