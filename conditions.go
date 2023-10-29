@@ -543,20 +543,33 @@ func jsEqual(a interface{}, b interface{}) bool {
 		return true
 
 	default:
-		return reflect.DeepEqual(normalizeNumber(a), normalizeNumber(b))
+		return reflect.DeepEqual(normalizeType(a), normalizeType(b))
 	}
 }
 
-func normalizeNumber(a interface{}) interface{} {
+func normalizeType(a interface{}) interface{} {
 	v := reflect.ValueOf(a)
-	if v.CanFloat() {
-		return v.Float()
+
+	for {
+		if kind := v.Kind(); kind == reflect.Pointer || kind == reflect.Interface {
+			v = v.Elem()
+		} else {
+			break
+		}
 	}
-	if v.CanInt() {
+
+	switch v.Kind() {
+	case reflect.Float32, reflect.Float64:
+		return float64(v.Float())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		return float64(v.Int())
-	}
-	if v.CanUint() {
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		return float64(v.Uint())
+	case reflect.String:
+		return v.String()
+	case reflect.Bool:
+		return v.Bool()
+	default:
+		return a
 	}
-	return a
 }
