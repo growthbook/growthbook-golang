@@ -35,3 +35,32 @@ func TestConditionValueIsPresentButFalsy(t *testing.T) {
 		t.Error("2: expected condition evaluation to be false")
 	}
 }
+
+func TestConditionWithCustomTypeValue(t *testing.T) {
+	type CustomString string
+	var value CustomString = "123"
+	condition := ParseCondition([]byte(`{"userId": "123"}`))
+	result := condition.Eval(Attributes{"userId": value})
+	if result != true {
+		t.Error("2: expected condition evaluation to be true")
+	}
+}
+
+func TestConditionWithCustomTypeValuePointer(t *testing.T) {
+	type CustomString string
+	var value CustomString = "123"
+	condition := ParseCondition([]byte(`{"userId": "123"}`))
+	result := condition.Eval(Attributes{"userId": &value})
+	if result != true {
+		t.Error("2: expected condition evaluation to be true")
+	}
+}
+
+func TestConditionWithInterfaceValue(t *testing.T) {
+	var value interface{} = "123"
+	condition := ParseCondition([]byte(`{"userId": "123"}`))
+	result := condition.Eval(Attributes{"userId": &value})
+	if result != true {
+		t.Error("2: expected condition evaluation to be true")
+	}
+}
