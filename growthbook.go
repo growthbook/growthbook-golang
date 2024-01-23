@@ -33,8 +33,8 @@ type growthBookData struct {
 	context             *Context
 	forcedFeatureValues map[string]interface{}
 	attributeOverrides  Attributes
-	trackedFeatures     map[string]interface{}
-	trackedExperiments  map[string]bool
+	trackedFeatures     sync.Map
+	trackedExperiments  sync.Map
 	nextSubscriptionID  subscriptionID
 	subscriptions       map[subscriptionID]ExperimentCallback
 	assigned            map[string]*Assignment
@@ -96,8 +96,8 @@ func New(context *Context) *GrowthBook {
 		context:             context,
 		forcedFeatureValues: nil,
 		attributeOverrides:  nil,
-		trackedFeatures:     make(map[string]interface{}),
-		trackedExperiments:  make(map[string]bool),
+		trackedFeatures:     sync.Map{},
+		trackedExperiments:  sync.Map{},
 		nextSubscriptionID:  1,
 		subscriptions:       make(map[subscriptionID]ExperimentCallback),
 		assigned:            make(map[string]*Assignment),
@@ -507,7 +507,7 @@ func (gb *GrowthBook) ClearTrackingData() {
 	gb.inner.Lock()
 	defer gb.inner.Unlock()
 
-	gb.inner.trackedExperiments = make(map[string]bool)
+	gb.inner.trackedExperiments = sync.Map{}
 }
 
 // GetAPIInfo gets the hostname and client key for GrowthBook API
@@ -571,10 +571,10 @@ func (gb *GrowthBook) trackFeatureUsage(key string, res *FeatureResult) {
 	}
 
 	// Only track a feature once, unless the assigned value changed.
-	if saved, ok := gb.inner.trackedFeatures[key]; ok && reflect.DeepEqual(saved, res.Value) {
+	if saved, ok := gb.inner.trackedFeatures.Load(key); ok && reflect.DeepEqual(saved, res.Value) {
 		return
 	}
-	gb.inner.trackedFeatures[key] = res.Value
+	gb.inner.trackedFeatures.Store(key, res.Value)
 
 	// Fire user-supplied callback
 	if gb.inner.context.OnFeatureUsage != nil {
@@ -857,11 +857,11 @@ func (gb *GrowthBook) track(exp *Experiment, result *Result) {
 	// experiment.
 	key := result.HashAttribute + result.HashValue +
 		exp.Key + strconv.Itoa(result.VariationID)
-	if _, exists := gb.inner.trackedExperiments[key]; exists {
+	if _, exists := gb.inner.trackedExperiments.Load(key); exists {
 		return
 	}
 
-	gb.inner.trackedExperiments[key] = true
+	gb.inner.trackedExperiments.Store(key, true)
 	gb.inner.context.TrackingCallback(exp, result)
 }
 
