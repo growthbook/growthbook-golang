@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/ian-ross/sse/v2"
+	"gopkg.in/cenkalti/backoff.v1"
 )
 
 // Alias for names of repositories. Used as key type in various maps.
@@ -487,6 +488,9 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 	for {
 		select {
 		case <-shutdown:
+			if client != nil {
+				client.Unsubscribe(ch)
+			}
 			return
 
 		case <-reconnect:
@@ -495,9 +499,11 @@ func refreshFromSSE(gb *GrowthBook, shutdown chan struct{}) {
 			client = sse.NewClient(apiHost + "/sub/" + clientKey)
 			client.OnDisconnect(func(c *sse.Client) {
 				logWarnf("SSE event stream disconnected: %s", key)
-				c.Unsubscribe(ch)
-				reconnect <- struct{}{}
 			})
+			client.ReconnectStrategy = backoff.NewConstantBackOff(1 * time.Second)
+			client.ReconnectNotify = func(err error, duration time.Duration) {
+				logWarnf("SSE event reconnect will happen in %v. Disconnected by: %s", duration, err)
+			}
 			err := client.SubscribeChan("features", ch)
 			if err != nil {
 				logErrorf("Connecting to SSE stream: %v", err)
