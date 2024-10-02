@@ -116,29 +116,6 @@ func unpad(buf []byte) ([]byte, error) {
 	return buf[:bufLen-padLen], nil
 }
 
-// This function imitates Javascript's "truthiness" evaluation for Go
-// values of unknown type.
-func truthy(v interface{}) bool {
-	if v == nil {
-		return false
-	}
-	switch v.(type) {
-	case string:
-		return v.(string) != ""
-	case bool:
-		return v.(bool)
-	case int:
-		return v.(int) != 0
-	case uint:
-		return v.(uint) != 0
-	case float32:
-		return v.(float32) != 0
-	case float64:
-		return v.(float64) != 0
-	}
-	return true
-}
-
 // This function converts slices of concrete types to []interface{}.
 // This is needed to handle the common case where a user passes an
 // attribute as a []string (or []int), and this needs to be compared
@@ -157,44 +134,6 @@ func fixSliceTypes(vin interface{}) interface{} {
 		rv = srv
 	}
 	return rv
-}
-
-func isURLTargeted(url *url.URL, targets []URLTarget) bool {
-	if len(targets) == 0 {
-		return false
-	}
-
-	hasIncludeRules := false
-	isIncluded := false
-
-	for _, t := range targets {
-		match := evalURLTarget(url, t.Type, t.Pattern)
-		if !t.Include {
-			if match {
-				return false
-			}
-		} else {
-			hasIncludeRules = true
-			if match {
-				isIncluded = true
-			}
-		}
-	}
-
-	return isIncluded || !hasIncludeRules
-}
-
-func evalURLTarget(url *url.URL, typ URLTargetType, pattern string) bool {
-	if typ == RegexURLTarget {
-		regex := getURLRegexp(pattern)
-		if regex == nil {
-			return false
-		}
-		return regex.MatchString(url.String()) || regex.MatchString(url.Path)
-	} else if typ == SimpleURLTarget {
-		return evalSimpleURLTarget(url, pattern)
-	}
-	return false
 }
 
 type comp struct {
