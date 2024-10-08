@@ -2,11 +2,17 @@ package growthbook
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 )
 
 const defaultApiHost = "https://cdn.growthbook.io"
+
+var (
+	ErrNoDecryptionKey = errors.New("No decryption key provided")
+)
 
 type Client struct {
 	data             *data
@@ -53,13 +59,36 @@ func defaultClient() *Client {
 	}
 }
 
-// SetFeatures update shared features in state.
-func (client *Client) SetFeatures(features FeatureMap) *Client {
+// SetFeatures updates shared client features.
+func (client *Client) SetFeatures(features FeatureMap) error {
 	client.data.mu.Lock()
 	defer client.data.mu.Unlock()
 
 	client.data.features = features
-	return client
+	return nil
+}
+
+// SetJSONFeatures updates shared features from JSON
+func (client *Client) SetJSONFeatures(featuresJSON string) error {
+	var features FeatureMap
+	err := json.Unmarshal([]byte(featuresJSON), &features)
+	if err != nil {
+		return err
+	}
+	return client.SetFeatures(features)
+}
+
+// SetEncryptedJSONFeatures updates shared features from encrypted JSON.
+// Uses client's decryption key.
+func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
+	if client.data.decryptionKey == "" {
+		return ErrNoDecryptionKey
+	}
+	featuresJSON, err := decrypt(encryptedJSON, client.data.decryptionKey)
+	if err != nil {
+		return err
+	}
+	return client.SetJSONFeatures(featuresJSON)
 }
 
 // EvalFeature evaluates feature based on attributes and features map
