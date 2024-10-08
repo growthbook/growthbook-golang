@@ -6,62 +6,55 @@ type FeatureResult struct {
 	Source           FeatureResultSource
 	On               bool
 	Off              bool
-	RuleID           string
 	Experiment       *Experiment
 	ExperimentResult *Result
 }
 
-// BuildFeatureResult creates an FeatureResult value from a JSON
-// object represented as a Go map.
-func BuildFeatureResult(dict map[string]interface{}) *FeatureResult {
-	result := FeatureResult{}
-	for k, v := range dict {
-		switch k {
-		case "value":
-			result.Value = v
-		case "on":
-			on, ok := jsonBool(v, "FeatureResult", "on")
-			if !ok {
-				return nil
-			}
-			result.On = on
-		case "off":
-			off, ok := jsonBool(v, "FeatureResult", "off")
-			if !ok {
-				return nil
-			}
-			result.Off = off
-		case "source":
-			source, ok := jsonString(v, "FeatureResult", "source")
-			if !ok {
-				return nil
-			}
-			result.Source = ParseFeatureResultSource(source)
-		case "experiment":
-			tmp, ok := v.(map[string]interface{})
-			if !ok {
-				logError("Invalid JSON data type", "FeatureResult", "experiment")
-				continue
-			}
-			experiment := BuildExperiment(tmp)
-			if experiment == nil {
-				return nil
-			}
-			result.Experiment = experiment
-		case "experimentResult":
-			tmp, ok := v.(map[string]interface{})
-			if !ok {
-				logError("Invalid JSON data type", "FeatureResult", "experimentResult")
-				return nil
-			}
-			experimentResult := BuildResult(tmp)
-			if experimentResult == nil {
-				return nil
-			}
-			result.ExperimentResult = experimentResult
-		default:
-			logWarn("Unknown key in JSON data", "FeatureResult", k)
-		}
+// FeatureResultSource is an enumerated type representing the source
+// of a FeatureResult.
+type FeatureResultSource string
+
+// FeatureResultSource values.
+const (
+	UnknownFeatureResultSource FeatureResultSource = "unknownFeature"
+	DefaultValueResultSource   FeatureResultSource = "defaultValue"
+	ForceResultSource          FeatureResultSource = "force"
+	ExperimentResultSource     FeatureResultSource = "experiment"
+)
+
+func getFeatureResult(value FeatureValue, source FeatureResultSource,
+	experiment *Experiment, experimentResult *Result) *FeatureResult {
+	on := truthy(value)
+	res := &FeatureResult{
+		Value:            value,
+		Source:           source,
+		On:               on,
+		Off:              !on,
+		Experiment:       experiment,
+		ExperimentResult: experimentResult,
 	}
-	return &result
+	return res
+}
+
+// This function imitates Javascript's "truthiness" evaluation for Go
+// values of unknown type.
+func truthy(v interface{}) bool {
+	if v == nil {
+		return false
+	}
+	switch v.(type) {
+	case string:
+		return v.(string) != ""
+	case bool:
+		return v.(bool)
+	case int:
+		return v.(int) != 0
+	case uint:
+		return v.(uint) != 0
+	case float32:
+		return v.(float32) != 0
+	case float64:
+		return v.(float64) != 0
+	}
+	return true
 }
