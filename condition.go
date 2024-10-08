@@ -58,6 +58,6 @@ func buildCond(ms map[string]json.RawMessage) (condEval, error) {
 	case 1:
 		return conds[0], nil
 	default:
-		return &condLogic{op: andOp, conds: nil}, nil
+		return &condLogic{op: andOp, conds: conds}, nil
 	}
 }
