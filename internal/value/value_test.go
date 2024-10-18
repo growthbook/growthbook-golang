@@ -100,6 +100,7 @@ func TestCast(t *testing.T) {
 		{"Null to Num", Num(0), Null(), NumType},
 		{"True to Num", Num(1), True(), NumType},
 		{"False to Num", Num(0), False(), NumType},
+		{"Num to Num", Num(10), Num(10), NumType},
 		{"Empty Str to Num", Num(0), Str(""), NumType},
 		{"Number Str to Num", Num(10), Str("10"), NumType},
 		{"Number Str to Num 2", Num(10.1), Str("  10.1  "), NumType},
@@ -109,6 +110,16 @@ func TestCast(t *testing.T) {
 		{"Arr with non num elem to Num", Null(), Arr("bla"), NumType},
 		{"Arr with many elems to Num", Null(), Arr(1, 2), NumType},
 		{"Obj to Num", Null(), ObjValue{}, NumType},
+
+		// Analog of arg + "" JS expression
+		{"Null to Str", Str("null"), Null(), StrType},
+		{"True to Str", Str("true"), True(), StrType},
+		{"False to Str", Str("false"), False(), StrType},
+		{"Number to Str", Str("10.1"), Num(10.1), StrType},
+		{"Str to Str", Str("test"), Str("test"), StrType},
+		{"Empty Arr to Str", Str(""), Arr(), StrType},
+		{"Arr to Str", Str("1,2,3,test,,10,20"), Arr(1, 2, 3, "test", Arr(), Arr(10, 20)), StrType},
+		{"Obj to Str", Null(), ObjValue{}, StrType},
 	}
 
 	for _, test := range tests {

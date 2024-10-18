@@ -30,6 +30,12 @@ func (v BoolValue) Cast(t ValueType) Value {
 		} else {
 			return Num(0)
 		}
+	case StrType:
+		if v == True() {
+			return Str("true")
+		} else {
+			return Str("false")
+		}
 	default:
 		return Null()
 	}
