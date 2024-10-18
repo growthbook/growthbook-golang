@@ -1,5 +1,9 @@
 package value
 
+import (
+	"strings"
+)
+
 type ArrValue []Value
 
 func Arr(args ...any) ArrValue {
@@ -24,6 +28,8 @@ func (a ArrValue) Cast(t ValueType) Value {
 		return True()
 	case NumType:
 		return toNum(a)
+	case StrType:
+		return toStr(a)
 	}
 	return Null()
 }
@@ -36,4 +42,19 @@ func toNum(a ArrValue) Value {
 		return a[0].Cast(NumType)
 	}
 	return Null()
+}
+
+func toStr(a ArrValue) Value {
+	var sb strings.Builder
+	for i, v := range a {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		sv := v.Cast(StrType)
+		switch s := sv.(type) {
+		case StrValue:
+			sb.WriteString(string(s))
+		}
+	}
+	return Str(sb.String())
 }

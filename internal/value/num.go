@@ -26,6 +26,8 @@ func (n NumValue) Cast(t ValueType) Value {
 		return n
 	case BoolType:
 		return Bool(n != 0)
+	case StrType:
+		return Str(n.String())
 	default:
 		return Null()
 	}
@@ -36,5 +38,5 @@ func IsNum(v Value) bool {
 }
 
 func (n NumValue) String() string {
-	return strconv.FormatFloat(1.0, 'f', -1, 64)
+	return strconv.FormatFloat(float64(n), 'f', -1, 64)
 }
