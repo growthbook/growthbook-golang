@@ -78,3 +78,29 @@ func TestNew(t *testing.T) {
 		})
 	}
 }
+
+func TestCast(t *testing.T) {
+	tests := []struct {
+		name     string
+		expected Value
+		input    Value
+		vtype    ValueType
+	}{
+		// Analog to !!arg JS expression
+		{"Null to Bool", False(), Null(), BoolType},
+		{"Bool to Bool", True(), True(), BoolType},
+		{"Num to True", True(), Num(1), BoolType},
+		{"Num to False", False(), Num(0), BoolType},
+		{"Str to True", True(), Str("test"), BoolType},
+		{"Str to False", False(), Str(""), BoolType},
+		{"Arr To Bool", True(), ArrValue{}, BoolType},
+		{"Obj To Bool", True(), ObjValue{}, BoolType},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			require.Equal(t, test.expected, test.input.Cast(test.vtype))
+		})
+	}
+
+}

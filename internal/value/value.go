@@ -7,9 +7,9 @@ import "reflect"
 // They follow JS behaviour for casting, as our calculations should result
 // into exact same values as main JS Growthbook SDKs.
 type Value interface {
-	// Just to simplify type switches.
+	//Type results to ValueType enum
 	Type() ValueType
-	// Cast to other types, similar to JS
+	// Cast to other types, similarly to JS
 	Cast(ValueType) Value
 }
 
