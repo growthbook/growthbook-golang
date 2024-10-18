@@ -36,6 +36,38 @@ func New(a any) Value {
 	}
 }
 
+func Equal(v1, v2 Value) bool {
+	if v1.Type() != v2.Type() {
+		return false
+	}
+	switch v1.Type() {
+	case ArrType:
+		a1, a2 := v1.(ArrValue), v2.(ArrValue)
+		if len(a1) != len(a2) {
+			return false
+		}
+		for i, v := range a1 {
+			if !Equal(v, a2[i]) {
+				return false
+			}
+		}
+		return true
+	case ObjType:
+		o1, o2 := v1.(ObjValue), v2.(ObjValue)
+		if len(o1) != len(o2) {
+			return false
+		}
+		for k, v := range o1 {
+			if !Equal(v, o2[k]) {
+				return false
+			}
+		}
+		return true
+	default:
+		return v1 == v2
+	}
+}
+
 func fromAny(a any) Value {
 	ref := reflect.ValueOf(a)
 	switch {
