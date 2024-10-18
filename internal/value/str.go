@@ -1,6 +1,9 @@
 package value
 
-import "strconv"
+import (
+	"strconv"
+	"strings"
+)
 
 type StrValue string
 
@@ -15,7 +18,10 @@ func (s StrValue) Type() ValueType {
 func (s StrValue) Cast(t ValueType) Value {
 	switch t {
 	case NumType:
-		f, err := strconv.ParseFloat(string(s), 64)
+		if s == Str("") {
+			return Num(0)
+		}
+		f, err := strconv.ParseFloat(strings.TrimSpace(string(s)), 64)
 		if err != nil {
 			return Null()
 		}

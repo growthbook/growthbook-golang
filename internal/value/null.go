@@ -14,6 +14,8 @@ func (n NullValue) Cast(t ValueType) Value {
 	switch t {
 	case BoolType:
 		return False()
+	case NumType:
+		return Num(0)
 	default:
 		return Null()
 	}

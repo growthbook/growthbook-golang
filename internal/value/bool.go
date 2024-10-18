@@ -24,6 +24,12 @@ func (v BoolValue) Cast(t ValueType) Value {
 	switch t {
 	case BoolType:
 		return v
+	case NumType:
+		if v == True() {
+			return Num(1)
+		} else {
+			return Num(0)
+		}
 	default:
 		return Null()
 	}

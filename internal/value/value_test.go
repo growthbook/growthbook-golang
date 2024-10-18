@@ -86,7 +86,7 @@ func TestCast(t *testing.T) {
 		input    Value
 		vtype    ValueType
 	}{
-		// Analog to !!arg JS expression
+		// Analog !!arg JS expression
 		{"Null to Bool", False(), Null(), BoolType},
 		{"Bool to Bool", True(), True(), BoolType},
 		{"Num to True", True(), Num(1), BoolType},
@@ -95,6 +95,20 @@ func TestCast(t *testing.T) {
 		{"Str to False", False(), Str(""), BoolType},
 		{"Arr To Bool", True(), ArrValue{}, BoolType},
 		{"Obj To Bool", True(), ObjValue{}, BoolType},
+
+		// Analog of arg * 1 JS expression
+		{"Null to Num", Num(0), Null(), NumType},
+		{"True to Num", Num(1), True(), NumType},
+		{"False to Num", Num(0), False(), NumType},
+		{"Empty Str to Num", Num(0), Str(""), NumType},
+		{"Number Str to Num", Num(10), Str("10"), NumType},
+		{"Number Str to Num 2", Num(10.1), Str("  10.1  "), NumType},
+		{"Non number Str to Num", Null(), Str("bbb"), NumType},
+		{"Empty Arr To Num", Num(0), Arr(), NumType},
+		{"Arr with one elem to Num", Num(10), Arr("10"), NumType},
+		{"Arr with non num elem to Num", Null(), Arr("bla"), NumType},
+		{"Arr with many elems to Num", Null(), Arr(1, 2), NumType},
+		{"Obj to Num", Null(), ObjValue{}, NumType},
 	}
 
 	for _, test := range tests {
