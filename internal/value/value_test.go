@@ -120,6 +120,21 @@ func TestCast(t *testing.T) {
 		{"Empty Arr to Str", Str(""), Arr(), StrType},
 		{"Arr to Str", Str("1,2,3,test,,10,20"), Arr(1, 2, 3, "test", Arr(), Arr(10, 20)), StrType},
 		{"Obj to Str", Null(), ObjValue{}, StrType},
+
+		// No cast to Arr/Obj
+		{"Null to Arr", Null(), Null(), ArrType},
+		{"Bool to Arr", Null(), True(), ArrType},
+		{"Num to Arr", Null(), Num(10), ArrType},
+		{"Str to Arr", Null(), Str(""), ArrType},
+		{"Arr to Arr", Arr(1, 2), Arr(1, 2), ArrType},
+		{"Obj to Arr", Null(), ObjValue{}, ArrType},
+
+		{"Null to Obj", Null(), Null(), ObjType},
+		{"Bool to Obj", Null(), True(), ObjType},
+		{"Num to Obj", Null(), Num(10), ObjType},
+		{"Str to Obj", Null(), Str(""), ObjType},
+		{"Arr to Obj", Null(), Arr(1, 2), ObjType},
+		{"Obj to Obj", ObjValue{"f1": Num(10)}, ObjValue{"f1": Num(10)}, ObjType},
 	}
 
 	for _, test := range tests {
