@@ -22,6 +22,8 @@ func (o ObjValue) Cast(t ValueType) Value {
 	switch t {
 	case BoolType:
 		return True()
+	case ObjType:
+		return o
 	}
 	return Null()
 }

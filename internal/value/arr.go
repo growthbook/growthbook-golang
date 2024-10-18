@@ -30,6 +30,8 @@ func (a ArrValue) Cast(t ValueType) Value {
 		return toNum(a)
 	case StrType:
 		return toStr(a)
+	case ArrType:
+		return a
 	}
 	return Null()
 }
