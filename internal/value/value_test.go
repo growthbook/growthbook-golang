@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestValueCreation(t *testing.T) {
+func TestValueConstructor(t *testing.T) {
 	t.Run("Null", func(t *testing.T) {
 		require.Equal(t, Null(), Null())
 		require.True(t, IsNull(Null()))
@@ -46,7 +46,7 @@ func TestValueCreation(t *testing.T) {
 	})
 }
 
-func TestNew(t *testing.T) {
+func TestValueNew(t *testing.T) {
 	type myint int
 	type myuint uint
 	type myfloat float64
@@ -79,7 +79,7 @@ func TestNew(t *testing.T) {
 	}
 }
 
-func TestCast(t *testing.T) {
+func TestValueCast(t *testing.T) {
 	tests := []struct {
 		name     string
 		expected Value
@@ -143,4 +143,14 @@ func TestCast(t *testing.T) {
 		})
 	}
 
+}
+
+func TestValueEqual(t *testing.T) {
+	require.False(t, Equal(Str("10"), Num(10)), "Values of different types are not equal")
+	require.True(t, Equal(Num(10), Num(10)))
+	require.True(t, Equal(Arr(1, 2, "test"), Arr(1, 2, "test")))
+	require.True(t, Equal(Arr(1, 2, Arr(10, 20)), Arr(1, 2, Arr(10, 20))))
+	require.False(t, Equal(Arr(1, 2), Arr(2, 1)))
+	require.True(t, Equal(ObjValue{"f1": Num(1), "f2": Arr(1, 2)}, ObjValue{"f1": Num(1), "f2": Arr(1, 2)}))
+	require.False(t, Equal(ObjValue{"f1": Num(1)}, ObjValue{"f1": Num(1), "f2": Num(2)}))
 }
