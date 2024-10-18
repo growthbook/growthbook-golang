@@ -19,5 +19,9 @@ func IsObj(v Value) bool {
 }
 
 func (o ObjValue) Cast(t ValueType) Value {
+	switch t {
+	case BoolType:
+		return True()
+	}
 	return Null()
 }

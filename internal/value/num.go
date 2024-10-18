@@ -25,7 +25,7 @@ func (n NumValue) Cast(t ValueType) Value {
 	case NumType:
 		return n
 	case BoolType:
-		return Bool(n == 0)
+		return Bool(n != 0)
 	default:
 		return Null()
 	}

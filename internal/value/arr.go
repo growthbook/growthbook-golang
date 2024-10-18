@@ -18,7 +18,11 @@ func IsArr(v Value) bool {
 	return v.Type() == ArrType
 }
 
-func (_ ArrValue) Cast(_ ValueType) Value {
+func (_ ArrValue) Cast(t ValueType) Value {
+	switch t {
+	case BoolType:
+		return True()
+	}
 	return Null()
 }
 
