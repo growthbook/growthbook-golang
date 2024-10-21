@@ -27,3 +27,18 @@ func (o ObjValue) Cast(t ValueType) Value {
 	}
 	return Null()
 }
+
+func (o ObjValue) Path(path ...string) Value {
+	var cur ObjValue = o
+	for _, field := range path {
+		val, ok := cur[field]
+		if !ok {
+			return Null()
+		}
+		cur, ok = val.(ObjValue)
+		if !ok {
+			return val
+		}
+	}
+	return cur
+}
