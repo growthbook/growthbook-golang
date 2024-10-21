@@ -154,3 +154,24 @@ func TestValueEqual(t *testing.T) {
 	require.True(t, Equal(ObjValue{"f1": Num(1), "f2": Arr(1, 2)}, ObjValue{"f1": Num(1), "f2": Arr(1, 2)}))
 	require.False(t, Equal(ObjValue{"f1": Num(1)}, ObjValue{"f1": Num(1), "f2": Num(2)}))
 }
+
+func TestObjValuePath(t *testing.T) {
+	obj := ObjValue{
+		"user_id": Num(1),
+		"user": ObjValue{
+			"name":  Str("Bob"),
+			"age":   Num(25),
+			"admin": False(),
+		},
+		"country": ObjValue{
+			"name": Str("USA"),
+			"code": Str("us"),
+		},
+	}
+	require.Equal(t, Str("Bob"), obj.Path("user", "name"))
+	require.Equal(t, Num(25), obj.Path("user", "age"))
+	require.Equal(t, Null(), obj.Path("user", "country"))
+	require.Equal(t, Num(1), obj.Path("user_id"))
+	path := []string{"country", "code"}
+	require.Equal(t, Str("us"), obj.Path(path...))
+}
