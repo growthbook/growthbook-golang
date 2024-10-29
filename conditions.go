@@ -378,6 +378,44 @@ func compare(comp string, x interface{}, y interface{}) bool {
 		case "$gte":
 			return xs >= ys
 		}
+
+	case int, int32, int64:
+		ys, ok := y.(int64)
+		if !ok {
+			switch y := y.(type) {
+			case int:
+				ys = int64(y)
+			case int32:
+				ys = int64(y)
+			default:
+				logWarn("y is not a comparable numeric type")
+				return false
+			}
+		}
+
+		xs, ok := x.(int64)
+		if !ok {
+			switch x := x.(type) {
+			case int:
+				xs = int64(x)
+			case int32:
+				xs = int64(x)
+			default:
+				logWarn("x is not a comparable numeric type")
+				return false
+			}
+		}
+
+		switch comp {
+		case "$lt":
+			return xs < ys
+		case "$lte":
+			return xs <= ys
+		case "$gt":
+			return xs > ys
+		case "$gte":
+			return xs >= ys
+		}
 	}
 	return false
 }
