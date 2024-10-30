@@ -29,7 +29,7 @@ func (a ArrValue) Cast(t ValueType) Value {
 	case NumType:
 		return toNum(a)
 	case StrType:
-		return toStr(a)
+		return Str(a.String())
 	case ArrType:
 		return a
 	}
@@ -46,17 +46,14 @@ func toNum(a ArrValue) Value {
 	return Null()
 }
 
-func toStr(a ArrValue) Value {
+func (a ArrValue) String() string {
 	var sb strings.Builder
 	for i, v := range a {
 		if i > 0 {
 			sb.WriteString(",")
 		}
-		sv := v.Cast(StrType)
-		switch s := sv.(type) {
-		case StrValue:
-			sb.WriteString(string(s))
-		}
+		s := v.String()
+		sb.WriteString(string(s))
 	}
-	return Str(sb.String())
+	return sb.String()
 }

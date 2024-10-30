@@ -38,3 +38,7 @@ func (s StrValue) Cast(t ValueType) Value {
 func IsStr(v Value) bool {
 	return v.Type() == StrType
 }
+
+func (v StrValue) String() string {
+	return string(v)
+}

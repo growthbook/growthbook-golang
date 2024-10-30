@@ -42,3 +42,7 @@ func (o ObjValue) Path(path ...string) Value {
 	}
 	return cur
 }
+
+func (o ObjValue) String() string {
+	return "Object"
+}
