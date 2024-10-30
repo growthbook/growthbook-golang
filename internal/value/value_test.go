@@ -175,3 +175,21 @@ func TestObjValuePath(t *testing.T) {
 	path := []string{"country", "code"}
 	require.Equal(t, Str("us"), obj.Path(path...))
 }
+
+func TestValueString(t *testing.T) {
+	tests := []struct {
+		v any
+		s string
+	}{
+		{Null(), "null"},
+		{true, "true"},
+		{false, "false"},
+		{100, "100"},
+		{"ASDF", "ASDF"},
+		{Arr(1, "T", true, Null(), Arr(1, 2)), "1,T,true,null,1,2"},
+		{ObjValue{"f": New(10)}, "Object"},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.s, New(tt.v).String())
+	}
+}

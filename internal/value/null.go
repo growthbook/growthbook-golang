@@ -17,7 +17,7 @@ func (n NullValue) Cast(t ValueType) Value {
 	case NumType:
 		return Num(0)
 	case StrType:
-		return Str("null")
+		return Str(n.String())
 	default:
 		return Null()
 	}
@@ -25,4 +25,8 @@ func (n NullValue) Cast(t ValueType) Value {
 
 func IsNull(v Value) bool {
 	return v.Type() == NullType
+}
+
+func (n NullValue) String() string {
+	return "null"
 }

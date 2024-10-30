@@ -11,6 +11,8 @@ type Value interface {
 	Type() ValueType
 	// Cast to other types, similarly to JS
 	Cast(ValueType) Value
+	// String convert to string representation
+	String() string
 }
 
 type ValueType int

@@ -31,11 +31,7 @@ func (v BoolValue) Cast(t ValueType) Value {
 			return Num(0)
 		}
 	case StrType:
-		if v == True() {
-			return Str("true")
-		} else {
-			return Str("false")
-		}
+		return Str(v.String())
 	default:
 		return Null()
 	}
@@ -43,4 +39,12 @@ func (v BoolValue) Cast(t ValueType) Value {
 
 func IsBool(v Value) bool {
 	return v.Type() == BoolType
+}
+
+func (v BoolValue) String() string {
+	if v == True() {
+		return "true"
+	} else {
+		return "false"
+	}
 }
