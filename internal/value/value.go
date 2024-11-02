@@ -79,10 +79,31 @@ func fromAny(a any) Value {
 		return Num(ref.Int())
 	case ref.CanUint():
 		return Num(ref.Uint())
-	case ref.Kind() == reflect.Bool:
+	}
+	switch ref.Kind() {
+	case reflect.Bool:
 		return Bool(ref.Bool())
-	case ref.Kind() == reflect.String:
+	case reflect.String:
 		return Str(ref.String())
+	case reflect.Array, reflect.Slice:
+		var a []Value
+		for i := 0; i < ref.Len(); i++ {
+			a = append(a, fromAny(ref.Index(i).Interface()))
+		}
+		return ArrValue(a)
+	case reflect.Map:
+		obj := ObjValue{}
+
+		iter := ref.MapRange()
+		for iter.Next() {
+			k := iter.Key()
+			if k.Kind() != reflect.String {
+				continue
+			}
+			v := iter.Value()
+			obj[k.String()] = fromAny(v.Interface())
+		}
+		return obj
 	default:
 		return Null()
 	}

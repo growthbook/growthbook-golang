@@ -70,6 +70,34 @@ func TestValueNew(t *testing.T) {
 
 		{"Str from string", Str("test"), "test"},
 		{"Str from custom String", Str("test"), mystring("test")},
+
+		{"Arr from []any", ArrValue{Num(1), Str("test")}, []any{1, "test"}},
+		{"Arr from []int", ArrValue{Num(1), Num(2), Num(3)}, []int{1, 2, 3}},
+
+		{"Obj from map[string]any", ObjValue{"int": Num(1), "str": Str("test")}, map[string]any{"int": 1, "str": "test"}},
+		{"Obj from map[string]int", ObjValue{"f1": Num(1), "f2": Num(2)}, map[string]int{"f1": 1, "f2": 2}},
+		{"Deep object",
+			ObjValue{
+				"tags": Arr("user", "new", "google"),
+				"user": ObjValue{
+					"id":      Num(10),
+					"emails":  Arr("email1", "email2"),
+					"name":    Str("User1"),
+					"country": ObjValue{"name": Str("USA"), "code": Str("us")}},
+			},
+			map[string]any{
+				"user": map[string]any{
+					"id":   10,
+					"name": "User1",
+					"country": map[string]string{
+						"name": "USA",
+						"code": "us",
+					},
+					"emails": []string{"email1", "email2"},
+				},
+				"tags": []any{"user", "new", "google"},
+			},
+		},
 	}
 
 	for _, test := range tests {
