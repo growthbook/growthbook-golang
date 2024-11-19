@@ -1,4 +1,4 @@
-module github.com/growthbook/growthbook-golang
+module github.com/quizizz/growthbook-golang
 
 go 1.18
 
