@@ -13,8 +13,8 @@ type VersionCond struct {
 	version string
 }
 
-func NewVersionCond(op Operator, arg value.Value) VersionCond {
-	version := paddedVersionString(arg)
+func NewVersionCond(op Operator, arg any) VersionCond {
+	version := paddedVersionString(value.New(arg))
 	return VersionCond{op, version}
 }
 

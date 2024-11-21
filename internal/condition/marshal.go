@@ -3,79 +3,242 @@ package condition
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+
+	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
+type Base struct {
+	cond Condition
+}
+
+func (base Base) Eval(actual value.Value, groups SavedGroups) bool {
+	return base.cond.Eval(actual, groups)
+}
+
 func (base *Base) UnmarshalJSON(data []byte) error {
-	m := map[string]json.RawMessage{}
+	m := map[string]any{}
 	err := json.Unmarshal(data, &m)
 	if err != nil {
 		return err
 	}
-	err = buildBase(m, base)
+	json := value.New(m)
+	cond, err := buildBaseCond(json)
 	if err != nil {
 		return err
 	}
+	*base = Base{cond}
 	return nil
 }
 
-func buildBase(m map[string]json.RawMessage, base *Base) error {
-	for k, raw := range m {
-		cond, err := buildCond(k, raw)
+func buildBaseCond(json value.Value) (Condition, error) {
+	obj, ok := json.(value.ObjValue)
+	if !ok {
+		return nil, fmt.Errorf("Base expected to be an object")
+	}
+	conds := []Condition{}
+	for f, fv := range obj {
+		cond, err := buildLogicCond(f, fv)
 		if err != nil {
-			return err
+			return Base{}, fmt.Errorf("Error building %v : %v", f, err)
 		}
-		*base = append(*base, cond)
+		conds = append(conds, cond)
+	}
+	if len(conds) == 1 {
+		return conds[0], nil
+	}
+	return AndConds(conds), nil
+}
+
+func buildLogicCond(op string, arg value.Value) (Condition, error) {
+	switch Operator(op) {
+	case andOp, orOp, norOp:
+		conds, err := buildBaseList(arg)
+		if err != nil {
+			return nil, fmt.Errorf("Error parsing `%v` condition: %w", op, err)
+		}
+		return newLogicCond(op, conds), nil
+	case notOp:
+		cond, err := buildBaseCond(arg)
+		if err != nil {
+			return nil, fmt.Errorf("Error parsing `%v` condition: %w", op, err)
+		}
+		return NotCond{cond}, nil
+	default:
+		return buildFieldCond(op, arg)
+	}
+}
+
+func newLogicCond(op string, conds []Condition) Condition {
+	switch Operator(op) {
+	case andOp:
+		return AndConds(conds)
+	case orOp:
+		return OrConds(conds)
+	case norOp:
+		return NorConds(conds)
 	}
 	return nil
 }
 
-func buildCond(k string, raw json.RawMessage) (Condition, error) {
-	switch k {
-	case "$and":
-		return buildAnd(raw)
-	case "$or":
-		return buildOr(raw)
-	case "$not":
-		return buildNot(raw)
-	case "$nor":
-		return buildNor(raw)
+func buildBaseList(json value.Value) ([]Condition, error) {
+	arr, ok := json.(value.ArrValue)
+	if !ok {
+		return nil, fmt.Errorf("Array expected")
+	}
+	var res []Condition
+	for _, v := range arr {
+		b, err := buildBaseCond(v)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, b)
+	}
+	return res, nil
+}
+
+func buildFieldCond(path string, json value.Value) (Condition, error) {
+	cond, err := buildValueCond(json)
+	if err != nil {
+		return nil, fmt.Errorf("Error parsing %v. %w", path, err)
+	}
+	return NewFieldCond(path, cond), nil
+}
+
+func buildValueCond(json value.Value) (Condition, error) {
+	obj, ok := json.(value.ObjValue)
+	if !(ok && isOperatorObject(obj)) {
+		return NewValueCond(json), nil
+	}
+
+	return buildObjCond(obj)
+}
+
+func buildObjCond(obj value.ObjValue) (Condition, error) {
+	var conds []Condition
+	for op, arg := range obj {
+		cond, err := buildOpCond(Operator(op), arg)
+		if err != nil {
+			return nil, err
+		}
+		conds = append(conds, cond)
+	}
+	if len(conds) == 1 {
+		return conds[0], nil
+	}
+	return AndConds(conds), nil
+}
+
+func buildOpCond(op Operator, arg value.Value) (Condition, error) {
+	switch op {
+	case eqOp, neOp, ltOp, lteOp, gtOp, gteOp:
+		return NewCompCond(op, arg), nil
+	case veqOp, vneOp, vgtOp, vgteOp, vltOp, vlteOp:
+		return NewVersionCond(op, arg), nil
+	case inOp:
+		arr, ok := arg.(value.ArrValue)
+		if !ok {
+			return nil, fmt.Errorf("$in argument %v isn't an array", arg)
+		}
+		return NewInCond(arr), nil
+	case ninOp:
+		arr, ok := arg.(value.ArrValue)
+		if !ok {
+			return nil, fmt.Errorf("$nin argument %v isn't an array", arg)
+		}
+		return NewNotInCond(arr), nil
+	case inGroupOp:
+		str, ok := arg.(value.StrValue)
+		if !ok {
+			return nil, fmt.Errorf("$inGroup argument %v isn't a string", arg)
+		}
+		return NewInGroupCond(string(str)), nil
+	case notInGroupOp:
+		str, ok := arg.(value.StrValue)
+		if !ok {
+			return nil, fmt.Errorf("$notInGroup argument %v isn't a string", arg)
+		}
+		return NewNotInGroupCond(string(str)), nil
+	case regexOp:
+		return buildRegexCond(arg)
+	case sizeOp:
+		return NewSizeCond(arg), nil
+	case typeOp:
+		s, ok := arg.(value.StrValue)
+		if !ok {
+			return nil, fmt.Errorf("TypeOp argument %v isn't a string", arg)
+		}
+		return NewTypeCond(string(s)), nil
+	case existsOp:
+		return NewExistsCond(arg), nil
+	case elemMatchOp:
+		return buildElemMatchCond(arg)
+	case allOp:
+		return buildAllConds(arg)
+	case notOp:
+		cond, err := buildValueCond(arg)
+		if err != nil {
+			return nil, fmt.Errorf("Error parsing $not operator: %w", err)
+		}
+		return NotCond{cond}, nil
 	default:
-		return nil, fmt.Errorf("not implemented")
+		return nil, fmt.Errorf("Unknown operator: %v", op)
 	}
 }
 
-func buildAnd(raw json.RawMessage) (And, error) {
-	cond := And{}
-	err := json.Unmarshal(raw, &cond)
-	if err != nil {
-		return nil, fmt.Errorf("Error parsing `and` condition: %w", err)
+func isOperatorObject(obj value.ObjValue) bool {
+	for k := range obj {
+		if len(k) == 0 || k[0] != '$' {
+			return false
+		}
 	}
-	return cond, nil
+	return true
 }
 
-func buildOr(raw json.RawMessage) (Or, error) {
-	cond := Or{}
-	err := json.Unmarshal(raw, &cond)
-	if err != nil {
-		return nil, fmt.Errorf("Error parsing `or` condition. %w", err)
+func buildRegexCond(arg value.Value) (Condition, error) {
+	s, ok := arg.(value.StrValue)
+	if !ok {
+		return nil, fmt.Errorf("RegexOp argument %v isn't a string", arg)
 	}
-	return cond, nil
+
+	r, err := regexp.Compile(string(s))
+	if err != nil {
+		return nil, fmt.Errorf("Parsing regex `%s`: %w", s, err)
+	}
+	return NewRegexCond(r), nil
 }
 
-func buildNor(raw json.RawMessage) (Nor, error) {
-	cond := Nor{}
-	err := json.Unmarshal(raw, &cond)
-	if err != nil {
-		return nil, fmt.Errorf("Error parsing `nor` condition. %w", err)
+func buildElemMatchCond(arg value.Value) (Condition, error) {
+	obj, ok := arg.(value.ObjValue)
+	if !ok {
+		return nil, fmt.Errorf("ElemMatch arg is not an object: %v", arg)
 	}
-	return cond, nil
+	if isOperatorObject(obj) {
+		cond, err := buildObjCond(obj)
+		if err != nil {
+			return nil, fmt.Errorf("ElemMatch arg %v is invalid: %w", arg, err)
+		}
+		return NewElemMatchCond(cond), nil
+	}
+	cond, err := buildBaseCond(obj)
+	if err != nil {
+		return nil, fmt.Errorf("ElemMatch arg %v is invalid: %w", arg, err)
+	}
+	return NewElemMatchCond(cond), nil
 }
 
-func buildNot(raw json.RawMessage) (Not, error) {
-	cond := Base{}
-	err := json.Unmarshal(raw, &cond)
-	if err != nil {
-		return nil, fmt.Errorf("Error parsing `not` condition. %w", err)
+func buildAllConds(arg value.Value) (Condition, error) {
+	arr, ok := arg.(value.ArrValue)
+	if !ok {
+		return nil, fmt.Errorf("$all arg %v is not an array", arg)
 	}
-	return Not(cond), nil
+	res := AllConds{}
+	for _, v := range arr {
+		c, err := buildValueCond(v)
+		if err != nil {
+			return nil, fmt.Errorf("$all arg is invalid: %w", err)
+		}
+		res = append(res, c)
+	}
+	return res, nil
 }
