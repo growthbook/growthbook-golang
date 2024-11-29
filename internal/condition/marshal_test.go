@@ -15,6 +15,11 @@ var (
 	nameBob = NewFieldCond("name", NewValueCond("Bob"))
 )
 
+func TestEmptyBase(t *testing.T) {
+	var b Base
+	require.True(t, b.Eval(value.Null(), nil))
+}
+
 func TestLogicMarshaling(t *testing.T) {
 	tests := []struct {
 		name   string
