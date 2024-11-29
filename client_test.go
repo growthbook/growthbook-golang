@@ -3,8 +3,10 @@ package growthbook
 import (
 	"context"
 	"encoding/json"
-	"github.com/stretchr/testify/require"
 	"testing"
+
+	"github.com/growthbook/growthbook-golang/internal/value"
+	"github.com/stretchr/testify/require"
 )
 
 func TestChildClient(t *testing.T) {
@@ -16,8 +18,8 @@ func TestChildClient(t *testing.T) {
 	)
 	t.Run("WithAttributes", func(t *testing.T) {
 		child, _ := client.WithAttributes(Attributes{"user": 2})
-		require.Equal(t, client.attributes, Attributes{"user": 1})
-		require.Equal(t, child.attributes, Attributes{"user": 2})
+		require.Equal(t, client.attributes, value.ObjValue{"user": value.Num(1)})
+		require.Equal(t, child.attributes, value.ObjValue{"user": value.Num(2)})
 	})
 
 	t.Run("WithEnabled", func(t *testing.T) {
@@ -34,7 +36,7 @@ func TestChildClient(t *testing.T) {
 }
 
 func TestClientEvalFeatures(t *testing.T) {
-	features := FeatureMap{"feature": &Feature{DefaultValue: FeatureValue(0)}}
+	features := FeatureMap{"feature": &Feature{DefaultValue: 0}}
 	ctx := context.TODO()
 	client, _ := NewClient(ctx, WithFeatures(features))
 

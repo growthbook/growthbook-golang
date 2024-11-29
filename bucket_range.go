@@ -1,18 +1,20 @@
 package growthbook
 
-// Range represents a single bucket range.
-type Range struct {
+import "encoding/json"
+
+// BucketRange represents a single bucket range.
+type BucketRange struct {
 	Min float64
 	Max float64
 }
 
-func (r *Range) InRange(n float64) bool {
+func (r *BucketRange) InRange(n float64) bool {
 	return n >= r.Min && n < r.Max
 }
 
 // This converts an experiment's coverage and variation weights into
 // an array of bucket ranges.
-func getBucketRanges(numVariations int, coverage float64, weights []float64) []Range {
+func getBucketRanges(numVariations int, coverage float64, weights []float64) []BucketRange {
 	// Make sure coverage is within bounds.
 	if coverage < 0 {
 		logWarn("Experiment coverage must be greater than or equal to 0")
@@ -42,19 +44,19 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []R
 		weights = getEqualWeights(numVariations)
 	}
 
-	// Convert weights to ranges
+	// Cast weights to ranges
 	cumulative := 0.0
-	ranges := make([]Range, len(weights))
+	ranges := make([]BucketRange, len(weights))
 	for i := range weights {
 		start := cumulative
 		cumulative += weights[i]
-		ranges[i] = Range{start, start + coverage*weights[i]}
+		ranges[i] = BucketRange{start, start + coverage*weights[i]}
 	}
 	return ranges
 }
 
 // Given a hash and bucket ranges, assigns one of the bucket ranges.
-func chooseVariation(n float64, ranges []Range) int {
+func chooseVariation(n float64, ranges []BucketRange) int {
 	for i := range ranges {
 		if ranges[i].InRange(n) {
 			return i
@@ -63,28 +65,13 @@ func chooseVariation(n float64, ranges []Range) int {
 	return -1
 }
 
-func jsonRange(v interface{}, typeName string, fieldName string) (*Range, bool) {
-	vals, ok := jsonFloatArray(v, typeName, fieldName)
-	if !ok || vals == nil || len(vals) != 2 {
-		logError("Invalid JSON data type", typeName, fieldName)
-		return nil, false
+func (br *BucketRange) UnmarshalJSON(data []byte) error {
+	var pair [2]float64
+	err := json.Unmarshal(data, &pair)
+	if err != nil {
+		return err
 	}
-	return &Range{vals[0], vals[1]}, true
-}
-
-func jsonRangeArray(v interface{}, typeName string, fieldName string) ([]Range, bool) {
-	vals, ok := v.([]interface{})
-	if !ok {
-		logError("Invalid JSON data type", typeName, fieldName)
-		return nil, false
-	}
-	ranges := make([]Range, len(vals))
-	for i := range vals {
-		tmp, ok := jsonRange(vals[i], typeName, fieldName)
-		if !ok || tmp == nil {
-			return nil, false
-		}
-		ranges[i] = *tmp
-	}
-	return ranges, true
+	br.Min = float64(pair[0])
+	br.Max = float64(pair[1])
+	return nil
 }

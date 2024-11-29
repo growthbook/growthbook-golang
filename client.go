@@ -6,6 +6,8 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+
+	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
 const defaultApiHost = "https://cdn.growthbook.io"
@@ -17,7 +19,7 @@ var (
 type Client struct {
 	data             *data
 	enabled          bool
-	attributes       Attributes
+	attributes       value.ObjValue
 	url              string
 	forcedVariations ForcedVariationsMap
 	qaMode           bool
@@ -94,10 +96,12 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
 	client.data.mu.RLock()
-	features := client.data.features
+	e := &evaluator{
+		attributes: client.attributes,
+		features:   client.data.features,
+	}
 	client.data.mu.RUnlock()
-
-	return features.Eval(key)
+	return e.evalFeature(key)
 }
 
 // Internals

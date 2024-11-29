@@ -249,3 +249,10 @@ func paddedVersionString(input string) string {
 	// Then, join back together into a single string
 	return strings.Join(parts, "-")
 }
+
+func if0(v1 int, v2 int) int {
+	if v1 == 0 {
+		return v2
+	}
+	return v1
+}

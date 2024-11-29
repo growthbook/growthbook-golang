@@ -2,7 +2,10 @@ package growthbook
 
 import (
 	"log/slog"
+	"maps"
 	"net/http"
+
+	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
 type ClientOption func(*Client) error
@@ -42,7 +45,7 @@ func WithDecryptionKey(decryptionKey string) ClientOption {
 // Attributes are used to assign variations
 func WithAttributes(attributes Attributes) ClientOption {
 	return func(c *Client) error {
-		c.attributes = attributes
+		c.attributes = value.Obj(attributes)
 		return nil
 	}
 }
@@ -58,8 +61,20 @@ func WithUrl(url string) ClientOption {
 // WithFeatures definitions (usually pulled from an API or cache)
 func WithFeatures(features FeatureMap) ClientOption {
 	return func(c *Client) error {
-		c.data.features = features
-		return nil
+		return c.SetFeatures(features)
+	}
+}
+
+// WithJsonFeatures definitions (usually pulled from an API or cache)
+func WithJsonFeatures(featuresJson string) ClientOption {
+	return func(c *Client) error {
+		return c.SetJSONFeatures(featuresJson)
+	}
+}
+
+func WithEncryptedJsonFeatures(featuresJson string) ClientOption {
+	return func(c *Client) error {
+		return c.SetEncryptedJSONFeatures(featuresJson)
 	}
 }
 
@@ -123,6 +138,20 @@ func (c *Client) WithLogger(logger *slog.Logger) (*Client, error) {
 // WithAttributes creates child client instance that uses provided attributes for evaluation
 func (c *Client) WithAttributes(attributes Attributes) (*Client, error) {
 	return c.cloneWith(WithAttributes(attributes))
+}
+
+// WithAttributeOverrides creates child client instance with updated top-level attributes
+func (c *Client) WithAttributeOverrides(attributes Attributes) (*Client, error) {
+	newAttrs := maps.Clone(c.attributes)
+	maps.Copy(newAttrs, value.Obj(attributes))
+	return c.cloneWith(withValueAttributes(newAttrs))
+}
+
+func withValueAttributes(value value.ObjValue) ClientOption {
+	return func(c *Client) error {
+		c.attributes = value
+		return nil
+	}
 }
 
 func (c *Client) cloneWith(opts ...ClientOption) (*Client, error) {
