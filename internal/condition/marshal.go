@@ -13,6 +13,9 @@ type Base struct {
 }
 
 func (base Base) Eval(actual value.Value, groups SavedGroups) bool {
+	if base.cond == nil {
+		return true
+	}
 	return base.cond.Eval(actual, groups)
 }
 
