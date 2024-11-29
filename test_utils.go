@@ -28,12 +28,12 @@ func handleExpectedWarnings(
 
 // Helper to round variation ranges for comparison with fixed test
 // values.
-func roundRanges(ranges []Range) []Range {
-	result := make([]Range, len(ranges))
+func roundRanges(ranges []BucketRange) []BucketRange {
+	result := make([]BucketRange, len(ranges))
 	for i, r := range ranges {
 		rmin := math.Round(r.Min*1000000) / 1000000
 		rmax := math.Round(r.Max*1000000) / 1000000
-		result[i] = Range{rmin, rmax}
+		result[i] = BucketRange{rmin, rmax}
 	}
 	return result
 }

@@ -1,5 +1,7 @@
 package growthbook
 
+import "github.com/growthbook/growthbook-golang/internal/condition"
+
 type ExperimentStatus string
 
 const (
@@ -21,19 +23,19 @@ type Experiment struct {
 	// What percent of users should be included in the experiment (between 0 and 1, inclusive)
 	Coverage *float64 `json:"coverage"`
 	// Array of ranges, one per variation
-	Ranges []Range `json:"ranges"`
+	Ranges []BucketRange `json:"ranges"`
 	// Optional targeting condition
-	Condition Condition `json:"condition"`
+	Condition *condition.Base `json:"condition"`
 	// Adds the experiment to a namespace
-	Namespace *Namespace `json:"namespace"`
+	Namespace Namespace `json:"namespace"`
 	// All users included in the experiment will be forced into the specific variation index
-	Force *int `json:"force"`
+	Force int `json:"force"`
 	// What user attribute should be used to assign variations (defaults to id)
 	HashAttribute string `json:"hashAttribute"`
 	// When using sticky bucketing, can be used as a fallback to assign variations
 	FallbackAttribute string `json:"fallbackAttribute"`
 	// The hash version to use (default to 1)
-	HashVersion *int `json:"hashVersion"`
+	HashVersion int `json:"hashVersion"`
 	// Meta info about the variations
 	Meta []VariationMeta `json:"meta"`
 	// Array of filters to apply
