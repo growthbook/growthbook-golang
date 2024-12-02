@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/url"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
@@ -51,7 +52,7 @@ func WithAttributes(attributes Attributes) ClientOption {
 }
 
 // WithUrl sets url of the current page
-func WithUrl(url string) ClientOption {
+func WithUrl(url *url.URL) ClientOption {
 	return func(c *Client) error {
 		c.url = url
 		return nil
@@ -145,6 +146,11 @@ func (c *Client) WithAttributeOverrides(attributes Attributes) (*Client, error) 
 	newAttrs := maps.Clone(c.attributes)
 	maps.Copy(newAttrs, value.Obj(attributes))
 	return c.cloneWith(withValueAttributes(newAttrs))
+}
+
+// WithUrl creates child client with updated current page URL
+func (c *Client) WithUrl(url *url.URL) (*Client, error) {
+	return c.cloneWith(WithUrl(url))
 }
 
 func withValueAttributes(value value.ObjValue) ClientOption {

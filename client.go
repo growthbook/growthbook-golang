@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"net/url"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
@@ -20,7 +21,7 @@ type Client struct {
 	data             *data
 	enabled          bool
 	attributes       value.ObjValue
-	url              string
+	url              *url.URL
 	forcedVariations ForcedVariationsMap
 	qaMode           bool
 	trackingCallback (TrackingCallback)
@@ -31,7 +32,7 @@ type Client struct {
 type ForcedVariationsMap map[string]int
 
 // TrackingCallback function that is executed every time a user is included in an Experiment.
-type TrackingCallback func(*Experiment, *Result)
+type TrackingCallback func(*Experiment, *ExperimentResult)
 
 func NewApiClient(apiHost string, clientKey string) (*Client, error) {
 	ctx := context.Background()
@@ -95,16 +96,26 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
-	client.data.mu.RLock()
-	e := &evaluator{
-		attributes: client.attributes,
-		features:   client.data.features,
-	}
-	client.data.mu.RUnlock()
+	e := client.evaluator()
 	return e.evalFeature(key)
 }
 
+func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
+	e := client.evaluator()
+	return e.runExperiment(exp)
+}
+
 // Internals
+func (client *Client) evaluator() *evaluator {
+	client.data.mu.RLock()
+	e := evaluator{
+		features: client.data.features,
+		client:   client,
+	}
+	client.data.mu.RUnlock()
+	return &e
+}
+
 func (client *Client) clone() *Client {
 	c := *client
 	return &c

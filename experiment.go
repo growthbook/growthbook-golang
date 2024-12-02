@@ -25,11 +25,13 @@ type Experiment struct {
 	// Array of ranges, one per variation
 	Ranges []BucketRange `json:"ranges"`
 	// Optional targeting condition
-	Condition *condition.Base `json:"condition"`
+	Condition condition.Base `json:"condition"`
+	// Each item defines a prerequisite where a condition must evaluate against a parent feature's value (identified by id).
+	ParentConditions []ParentCondition `json:"parentConditions"`
 	// Adds the experiment to a namespace
-	Namespace Namespace `json:"namespace"`
+	Namespace *Namespace `json:"namespace"`
 	// All users included in the experiment will be forced into the specific variation index
-	Force int `json:"force"`
+	Force *int `json:"force"`
 	// What user attribute should be used to assign variations (defaults to id)
 	HashAttribute string `json:"hashAttribute"`
 	// When using sticky bucketing, can be used as a fallback to assign variations
@@ -64,21 +66,50 @@ func NewExperiment(key string) *Experiment {
 	}
 }
 
-func experimentFromFeatureRule(id string, rule *FeatureRule) *Experiment {
-	exp := &Experiment{
-		Key:           id,
-		Variations:    rule.Variations,
-		Coverage:      rule.Coverage,
-		Weights:       rule.Weights,
-		HashAttribute: rule.HashAttribute,
-		Namespace:     rule.Namespace,
-		Meta:          rule.Meta,
-		Ranges:        rule.Ranges,
-		Name:          rule.Name,
-		Phase:         rule.Phase,
-		Seed:          rule.Seed,
-		HashVersion:   rule.HashVersion,
-		Filters:       rule.Filters,
+func experimentFromFeatureRule(featureId string, rule *FeatureRule) *Experiment {
+	expKey := rule.Key
+	if expKey == "" {
+		expKey = featureId
 	}
-	return exp
+
+	exp := Experiment{
+		Key:              expKey,
+		Active:           true,
+		Variations:       rule.Variations,
+		Coverage:         rule.Coverage,
+		Weights:          rule.Weights,
+		HashAttribute:    rule.HashAttribute,
+		Namespace:        rule.Namespace,
+		Meta:             rule.Meta,
+		Ranges:           rule.Ranges,
+		Name:             rule.Name,
+		Phase:            rule.Phase,
+		Seed:             rule.Seed,
+		HashVersion:      rule.HashVersion,
+		Filters:          rule.Filters,
+		Condition:        rule.Condition,
+		ParentConditions: rule.ParentConditions,
+	}
+	return &exp
+}
+
+func (e *Experiment) getCoverage() float64 {
+	if e.Coverage == nil {
+		return 1.0
+	}
+	return *e.Coverage
+}
+
+func (e *Experiment) getRanges() []BucketRange {
+	if len(e.Ranges) == 0 {
+		return getBucketRanges(len(e.Variations), e.getCoverage(), e.Weights)
+	}
+	return e.Ranges
+}
+
+func (e *Experiment) getSeed() string {
+	if e.Seed == "" {
+		return e.Key
+	}
+	return e.Seed
 }

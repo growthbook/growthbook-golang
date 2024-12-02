@@ -128,7 +128,8 @@ func TestGatesFlagRuleEvaluationOnPrerequisiteFlag(t *testing.T) {
 
 	client, _ := NewClient(ctx,
 		WithAttributes(attributes),
-		WithJsonFeatures(featuresJson))
+		WithJsonFeatures(featuresJson),
+	)
 
 	missingResult := client.EvalFeature(ctx, "childFlagWithMissingPrereq")
 	require.Nil(t, missingResult.Value)
@@ -206,6 +207,7 @@ func TestGatesFlagRuleEvaluationOnPrerequisiteExperimentFlag(t *testing.T) {
 		WithAttributes(attributes),
 		WithJsonFeatures(featuresJson),
 	)
+
 	result1 := client.EvalFeature(ctx, "childFlag")
 	require.Equal(t, "success", result1.Value)
 }

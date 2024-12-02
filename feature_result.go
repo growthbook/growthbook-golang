@@ -8,7 +8,7 @@ type FeatureResult struct {
 	On               bool
 	Off              bool
 	Experiment       *Experiment
-	ExperimentResult *Result
+	ExperimentResult *ExperimentResult
 }
 
 // FeatureResultSource is an enumerated type representing the source
@@ -31,7 +31,7 @@ func getFeatureResult(
 	source FeatureResultSource,
 	ruleId string,
 	experiment *Experiment,
-	experimentResult *Result,
+	experimentResult *ExperimentResult,
 ) *FeatureResult {
 	on := truthy(v)
 	res := &FeatureResult{

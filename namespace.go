@@ -1,46 +1,46 @@
 package growthbook
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Namespace specifies what part of a namespace an experiment
 // includes. If two experiments are in the same namespace and their
 // ranges don't overlap, they wil be mutually exclusive.
 type Namespace struct {
-	ID    string
-	Start float64
-	End   float64
+	Id    string  `json:"id"`
+	Start float64 `json:"start"`
+	End   float64 `json:"end"`
 }
 
 // Determine whether a user's ID lies within a given namespace.
-func (namespace *Namespace) inNamespace(userID string) bool {
-	n := float64(hashFnv32a(userID+"__"+namespace.ID)%1000) / 1000
+func (namespace *Namespace) inNamespace(userId string) bool {
+	n := float64(hashFnv32a(userId+"__"+namespace.Id)%1000) / 1000
 	return n >= namespace.Start && n < namespace.End
 }
 
-// ParseNamespace creates a Namespace value from raw JSON input.
-func ParseNamespace(data []byte) *Namespace {
-	array := []interface{}{}
-	err := json.Unmarshal(data, &array)
+func (namespace *Namespace) UnmarshalJSON(data []byte) error {
+	arr := []any{}
+	err := json.Unmarshal(data, &arr)
 	if err != nil {
-		logError("Failed parsing JSON input", "Namespace")
-		return nil
+		return err
 	}
-	return BuildNamespace(array)
-}
 
-// BuildNamespace creates a Namespace value from a generic JSON value.
-func BuildNamespace(val interface{}) *Namespace {
-	array, ok := val.([]interface{})
-	if !ok || len(array) != 3 {
-		logError("Invalid JSON data type", "Namespace")
-		return nil
+	if len(arr) != 3 {
+		return fmt.Errorf("invalid namespace format: %v", arr)
 	}
-	id, ok1 := array[0].(string)
-	start, ok2 := array[1].(float64)
-	end, ok3 := array[2].(float64)
+
+	id, ok1 := arr[0].(string)
+	start, ok2 := arr[1].(float64)
+	end, ok3 := arr[2].(float64)
+
 	if !ok1 || !ok2 || !ok3 {
-		logError("Invalid JSON data type", "Namespace")
-		return nil
+		return fmt.Errorf("invalid namespace format: %v", arr)
 	}
-	return &Namespace{id, start, end}
+	namespace.Id = id
+	namespace.Start = start
+	namespace.End = end
+
+	return nil
 }
