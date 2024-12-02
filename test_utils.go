@@ -2,10 +2,20 @@ package growthbook
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
+	"os"
 	"strings"
 	"testing"
 )
+
+func debugLogger() *slog.Logger {
+	opts := &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	}
+
+	return slog.New(slog.NewJSONHandler(os.Stdout, opts))
+}
 
 // Some test functions generate warnings in the log. We need to check
 // the expected ones, and not miss any unexpected ones.

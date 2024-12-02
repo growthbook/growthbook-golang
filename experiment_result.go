@@ -18,7 +18,7 @@ type ExperimentResult struct {
 	// The unique key for the assigned variation
 	Key string `json:"key"`
 	// The hash value used to assign a variation (float from 0 to 1)
-	Bucket float64 `json:"bucket"`
+	Bucket *float64 `json:"bucket"`
 	// The human-readable name of the assigned variation
 	Name string `json:"name"`
 	// Used for holdout groups

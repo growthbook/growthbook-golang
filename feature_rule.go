@@ -21,13 +21,13 @@ type FeatureRule struct {
 	// How to weight traffic between variations. Must add to 1.
 	Weights []float64 `json:"weights"`
 	// Adds the experiment to a namespace
-	Namespace Namespace `json:"namespace"`
+	Namespace *Namespace `json:"namespace"`
 	// What user attribute should be used to assign variations (defaults to id)
 	HashAttribute string `json:"hashAttribute"`
 	// The hash version to use (default to 1)
 	HashVersion int `json:"hashVersion"`
 	// A more precise version of coverage
-	Range BucketRange `json:"range"`
+	Range *BucketRange `json:"range"`
 	// Ranges for experiment variations
 	Ranges []BucketRange `json:"ranges"`
 	// Meta info about the experiment variations

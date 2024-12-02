@@ -3,19 +3,16 @@ package growthbook
 import (
 	"fmt"
 	"hash/fnv"
-
-	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
 // Main hash function. Default version is 1.
-func hash(seed string, attrValue value.Value, version int) *float64 {
-	attrStr := attrValue.String()
+func hash(seed string, hashValue string, version int) *float64 {
 	switch version {
 	case 2:
-		v := float64(hashFnv32a(fmt.Sprint(hashFnv32a(seed+attrStr)))%10000) / 10000
+		v := float64(hashFnv32a(fmt.Sprint(hashFnv32a(seed+hashValue)))%10000) / 10000
 		return &v
 	case 0, 1:
-		v := float64(hashFnv32a(attrStr+seed)%1000) / 1000
+		v := float64(hashFnv32a(hashValue+seed)%1000) / 1000
 		return &v
 	default:
 		return nil

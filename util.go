@@ -26,22 +26,26 @@ func getEqualWeights(numVariations int) []float64 {
 //
 // As an example, if the id is "my-test" and url is
 // http://localhost/?my-test=1, this function returns 1.
-func getQueryStringOverride(id string, url *url.URL, numVariations int) *int {
+func getQueryStringOverride(id string, url *url.URL, numVariations int) (int, bool) {
+	if url == nil {
+		return 0, false
+	}
+
 	v, ok := url.Query()[id]
 	if !ok || len(v) > 1 {
-		return nil
+		return 0, false
 	}
 
 	vi, err := strconv.Atoi(v[0])
 	if err != nil {
-		return nil
+		return 0, false
 	}
 
 	if vi < 0 || vi >= numVariations {
-		return nil
+		return 0, false
 	}
 
-	return &vi
+	return vi, true
 }
 
 // This function converts slices of concrete types to []interface{}.
@@ -255,4 +259,11 @@ func if0(v1 int, v2 int) int {
 		return v2
 	}
 	return v1
+}
+
+func ifnil[T int](p *T, defaultValue T) T {
+	if p == nil {
+		return defaultValue
+	}
+	return *p
 }

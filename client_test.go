@@ -59,7 +59,7 @@ func TestClientEvalFeatures(t *testing.T) {
 			Off:    true,
 			Source: DefaultValueResultSource,
 		}
-		require.Equal(t, result, expected)
+		require.Equal(t, expected, result)
 	})
 }
 
