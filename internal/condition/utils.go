@@ -16,7 +16,7 @@ func valueCompare(actual, expected value.Value) bool {
 
 func isIn(fieldVal value.Value, expected value.ArrValue) bool {
 	for _, ev := range expected {
-		if valueCompare(fieldVal, ev) {
+		if value.Equal(fieldVal, ev) {
 			return true
 		}
 	}

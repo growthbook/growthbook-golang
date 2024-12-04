@@ -4,16 +4,16 @@ import "github.com/growthbook/growthbook-golang/internal/value"
 
 // SizeCond checks length of field array
 type SizeCond struct {
-	expected value.Value
+	cond Condition
 }
 
-func NewSizeCond(arg any) SizeCond {
-	return SizeCond{value.New(arg)}
+func NewSizeCond(cond Condition) SizeCond {
+	return SizeCond{cond}
 }
 
-func (c SizeCond) Eval(actual value.Value, _ SavedGroups) bool {
+func (c SizeCond) Eval(actual value.Value, groups SavedGroups) bool {
 	if arr, ok := actual.(value.ArrValue); ok {
-		return valueCompare(c.expected, value.New(len(arr)))
+		return c.cond.Eval(value.New(len(arr)), groups)
 	}
 	return false
 }

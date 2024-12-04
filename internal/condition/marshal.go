@@ -141,13 +141,13 @@ func buildOpCond(op Operator, arg value.Value) (Condition, error) {
 	case inOp:
 		arr, ok := arg.(value.ArrValue)
 		if !ok {
-			return nil, fmt.Errorf("$in argument %v isn't an array", arg)
+			return False{}, nil
 		}
 		return NewInCond(arr), nil
 	case ninOp:
 		arr, ok := arg.(value.ArrValue)
 		if !ok {
-			return nil, fmt.Errorf("$nin argument %v isn't an array", arg)
+			return False{}, nil
 		}
 		return NewNotInCond(arr), nil
 	case inGroupOp:
@@ -165,7 +165,11 @@ func buildOpCond(op Operator, arg value.Value) (Condition, error) {
 	case regexOp:
 		return buildRegexCond(arg)
 	case sizeOp:
-		return NewSizeCond(arg), nil
+		cond, err := buildValueCond(arg)
+		if err != nil {
+			return nil, fmt.Errorf("Error parsing $size operator: %w", err)
+		}
+		return NewSizeCond(cond), nil
 	case typeOp:
 		s, ok := arg.(value.StrValue)
 		if !ok {
@@ -185,7 +189,7 @@ func buildOpCond(op Operator, arg value.Value) (Condition, error) {
 		}
 		return NotCond{cond}, nil
 	default:
-		return nil, fmt.Errorf("Unknown operator: %v", op)
+		return False{}, nil
 	}
 }
 
@@ -206,7 +210,7 @@ func buildRegexCond(arg value.Value) (Condition, error) {
 
 	r, err := regexp.Compile(string(s))
 	if err != nil {
-		return nil, fmt.Errorf("Parsing regex `%s`: %w", s, err)
+		return False{}, nil
 	}
 	return NewRegexCond(r), nil
 }

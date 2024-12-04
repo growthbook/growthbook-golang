@@ -17,5 +17,13 @@ func NewNotInCond(arg value.ArrValue) Condition {
 }
 
 func (c InCond) Eval(actual value.Value, _ SavedGroups) bool {
+	if arr, ok := actual.(value.ArrValue); ok {
+		for _, v := range arr {
+			if isIn(v, c.expected) {
+				return true
+			}
+		}
+		return false
+	}
 	return isIn(actual, c.expected)
 }
