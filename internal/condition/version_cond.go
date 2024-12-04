@@ -37,6 +37,7 @@ func (c VersionCond) Eval(actual value.Value, _ SavedGroups) bool {
 }
 
 var (
+	replaceRe      = regexp.MustCompile(`(^v|\+.*$)`)
 	versionSplitRe = regexp.MustCompile(`[-.]`)
 	versionNumRe   = regexp.MustCompile(`^[0-9]+$`)
 )
@@ -50,9 +51,7 @@ func paddedVersionString(input value.Value) string {
 	if version == "" {
 		version = "0"
 	}
-	if version[0] == 'v' {
-		version = version[1:]
-	}
+	version = replaceRe.ReplaceAllString(version, "")
 	parts := versionSplitRe.Split(version, -1)
 	if len(parts) == 3 {
 		parts = append(parts, "~")

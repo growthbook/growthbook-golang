@@ -74,7 +74,7 @@ func TestValueMarshaling(t *testing.T) {
 		`{"$notInGroup": "admins"}`: NewNotInGroupCond("admins"),
 
 		`{"$regex": "foo"}`:           NewRegexCond(regexp.MustCompile("foo")),
-		`{"$size": 10}`:               NewSizeCond(10),
+		`{"$size": 10}`:               NewSizeCond(NewValueCond(10)),
 		`{"$elemMatch": {"age": 10}}`: NewElemMatchCond(age10),
 		`{"$elemMatch": {"$eq": 10}}`: NewElemMatchCond(NewCompCond(eqOp, 10)),
 		`{"$all": [10, {"$eq": 10}]}`: AllConds{NewValueCond(10), NewCompCond(eqOp, 10)},
