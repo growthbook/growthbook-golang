@@ -306,16 +306,18 @@ func (e *evaluator) isFilteredOut(filters []Filter) bool {
 	return false
 }
 
-func (e *evaluator) getHashAttribute(key string, fallback string) (hashAttribute string, hashValue string) {
+func (e *evaluator) getHashAttribute(key string, fallback string) (string, string) {
 	if key == "" {
 		key = "id"
 	}
 
-	if hashValue, ok := e.client.attributes[key]; ok {
+	hashValue, ok := e.client.attributes[key]
+	if ok && !value.IsNull(hashValue) {
 		return key, hashValue.String()
 	}
 
-	if hashValue, ok := e.client.attributes[fallback]; ok {
+	hashValue, ok = e.client.attributes[fallback]
+	if ok && !value.IsNull(hashValue) {
 		return fallback, hashValue.String()
 	}
 
