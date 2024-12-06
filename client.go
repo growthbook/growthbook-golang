@@ -109,8 +109,9 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 func (client *Client) evaluator() *evaluator {
 	client.data.mu.RLock()
 	e := evaluator{
-		features: client.data.features,
-		client:   client,
+		features:    client.data.features,
+		savedGroups: client.data.savedGroups,
+		client:      client,
 	}
 	client.data.mu.RUnlock()
 	return &e
