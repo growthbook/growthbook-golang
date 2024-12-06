@@ -19,7 +19,7 @@ type Experiment struct {
 	// How to weight traffic between variations. Must add to 1.
 	Weights []float64 `json:"weights"`
 	// If set to false, always return the control (first variation)
-	Active bool `json:"active"`
+	Active *bool `json:"active"`
 	// What percent of users should be included in the experiment (between 0 and 1, inclusive)
 	Coverage *float64 `json:"coverage"`
 	// Array of ranges, one per variation
@@ -61,8 +61,7 @@ type Experiment struct {
 // but all other fields empty.
 func NewExperiment(key string) *Experiment {
 	return &Experiment{
-		Key:    key,
-		Active: true,
+		Key: key,
 	}
 }
 
@@ -74,7 +73,6 @@ func experimentFromFeatureRule(featureId string, rule *FeatureRule) *Experiment 
 
 	exp := Experiment{
 		Key:              expKey,
-		Active:           true,
 		Variations:       rule.Variations,
 		Coverage:         rule.Coverage,
 		Weights:          rule.Weights,
@@ -112,4 +110,11 @@ func (e *Experiment) getSeed() string {
 		return e.Key
 	}
 	return e.Seed
+}
+
+func (e *Experiment) getActive() bool {
+	if e.Active == nil {
+		return true
+	}
+	return *e.Active
 }

@@ -61,7 +61,7 @@ func (e *evaluator) runExperiment(exp *Experiment) *ExperimentResult {
 	}
 
 	// 5. If experiment.active is set to false, return getExperimentResult(experiment)
-	if !exp.Active {
+	if !exp.getActive() {
 		e.client.logger.Debug("Skip because inactive", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, "", nil)
 	}
