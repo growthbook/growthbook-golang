@@ -132,12 +132,25 @@ func (c *hashCase) test(t *testing.T) {
 func (c *runCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
 		attrs, ok := c.Attrs["attributes"].(map[string]any)
-		require.True(t, ok)
+		if !ok {
+			attrs = Attributes{}
+		}
 		client, err := NewClient(context.TODO(),
 			WithAttributes(attrs),
 			WithLogger(debugLogger()),
 		)
 		require.Nil(t, err)
+
+		if enabled, ok := c.Attrs["enabled"].(bool); ok {
+			client, err = client.WithEnabled(enabled)
+			require.Nil(t, err)
+		}
+
+		if url, ok := c.Attrs["url"].(string); ok {
+			client, err = client.WithUrl(url)
+			require.Nil(t, err)
+		}
+
 		res := client.RunExperiment(context.TODO(), c.Exp)
 		assert.Equal(t, c.Value, res.Value)
 		assert.Equal(t, c.InExperiment, res.InExperiment)

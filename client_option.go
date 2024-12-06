@@ -52,8 +52,12 @@ func WithAttributes(attributes Attributes) ClientOption {
 }
 
 // WithUrl sets url of the current page
-func WithUrl(url *url.URL) ClientOption {
+func WithUrl(rawUrl string) ClientOption {
 	return func(c *Client) error {
+		url, err := url.Parse(rawUrl)
+		if err != nil {
+			return err
+		}
 		c.url = url
 		return nil
 	}
@@ -149,8 +153,8 @@ func (c *Client) WithAttributeOverrides(attributes Attributes) (*Client, error) 
 }
 
 // WithUrl creates child client with updated current page URL
-func (c *Client) WithUrl(url *url.URL) (*Client, error) {
-	return c.cloneWith(WithUrl(url))
+func (c *Client) WithUrl(rawUrl string) (*Client, error) {
+	return c.cloneWith(WithUrl(rawUrl))
 }
 
 func withValueAttributes(value value.ObjValue) ClientOption {
