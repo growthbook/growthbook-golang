@@ -2,7 +2,9 @@ package growthbook
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -11,44 +13,51 @@ import (
 )
 
 type cases struct {
-	EvalCondition []evalConditionCase `json:"evalCondition"`
+	EvalCondition   []JsonTuple[evalConditionCase]   `json:"evalCondition"`
+	ChooseVariation []JsonTuple[chooseVariationCase] `json:"chooseVariation"`
+	Hash            []JsonTuple[hashCase]            `json:"hash"`
 }
 
 type evalConditionCase struct {
-	name   string
-	cond   json.RawMessage
-	attrs  map[string]any
-	res    bool
-	groups condition.SavedGroups
+	Name   string
+	Cond   condition.Base
+	Attrs  map[string]any
+	Res    bool
+	Groups condition.SavedGroups
 }
 
-func (c *evalConditionCase) UnmarshalJSON(data []byte) error {
+type chooseVariationCase struct {
+	Name     string
+	N        float64
+	Ranges   []BucketRange
+	Expected int
+}
+
+type hashCase struct {
+	Seed     string
+	Value    string
+	Version  int
+	Expected *float64
+}
+
+type JsonTuple[T any] struct {
+	val T
+}
+
+func (t *JsonTuple[T]) UnmarshalJSON(data []byte) error {
 	var fields []json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
 
-	if err := json.Unmarshal(fields[0], &c.name); err != nil {
-		return err
+	val := reflect.ValueOf(&t.val).Elem()
+	valType := val.Type()
+	for i, elemText := range fields {
+		err := json.Unmarshal(elemText, val.Field(i).Addr().Interface())
+		if err != nil {
+			return fmt.Errorf("Failed to unmarshal %v field from %s case: %w", valType.Field(i).Name, fields[0], err)
+		}
 	}
-	if err := json.Unmarshal(fields[1], &c.cond); err != nil {
-		return err
-	}
-	if err := json.Unmarshal(fields[2], &c.attrs); err != nil {
-		return err
-	}
-	if err := json.Unmarshal(fields[3], &c.res); err != nil {
-		return err
-	}
-
-	if len(fields) == 4 {
-		return nil
-	}
-
-	if err := json.Unmarshal(fields[4], &c.groups); err != nil {
-		return err
-	}
-
 	return nil
 }
 
@@ -62,13 +71,42 @@ func TestCasesJson(t *testing.T) {
 	if err := json.Unmarshal(data, &cases); err != nil {
 		t.Fatal(err)
 	}
+
 	t.Run("evalCondition", func(t *testing.T) {
-		for _, c := range cases.EvalCondition {
-			var cond condition.Base
-			err := json.Unmarshal(c.cond, &cond)
-			require.Nil(t, err, c.name)
-			attrs := value.New(c.attrs)
-			require.Equal(t, c.res, cond.Eval(attrs, c.groups), c.name)
+		for _, tuple := range cases.EvalCondition {
+			tuple.val.test(t)
 		}
+	})
+
+	t.Run("chooseVariation", func(t *testing.T) {
+		for _, tuple := range cases.ChooseVariation {
+			tuple.val.test(t)
+		}
+	})
+
+	t.Run("hash", func(t *testing.T) {
+		for _, tuple := range cases.Hash {
+			tuple.val.test(t)
+		}
+	})
+}
+
+func (c *evalConditionCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		attrs := value.New(c.Attrs)
+		require.Equal(t, c.Res, c.Cond.Eval(attrs, c.Groups))
+	})
+}
+
+func (c *chooseVariationCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		require.Equal(t, c.Expected, chooseVariation(c.N, c.Ranges))
+	})
+}
+
+func (c *hashCase) test(t *testing.T) {
+	name := fmt.Sprintf(`hash("%s","%s","%d")`, c.Seed, c.Value, c.Version)
+	t.Run(name, func(t *testing.T) {
+		require.Equal(t, c.Expected, hash(c.Seed, c.Value, c.Version))
 	})
 }
