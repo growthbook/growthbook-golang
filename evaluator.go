@@ -77,12 +77,12 @@ func (e *evaluator) runExperiment(exp *Experiment) *ExperimentResult {
 
 	// 7. Apply filters and namespace
 
-	if e.isFilteredOut(exp.Filters) {
-		e.client.logger.Debug("Skip because of filters", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, "", nil)
-	}
-
-	if exp.Namespace != nil && !exp.Namespace.inNamespace(hashValue) {
+	if len(exp.Filters) > 0 {
+		if e.isFilteredOut(exp.Filters) {
+			e.client.logger.Debug("Skip because of filters", "id", exp.Key)
+			return e.getExperimentResult(exp, -1, false, "", nil)
+		}
+	} else if exp.Namespace != nil && !exp.Namespace.inNamespace(hashValue) {
 		e.client.logger.Debug("Skip because of namespace", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, "", nil)
 	}
