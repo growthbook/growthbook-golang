@@ -157,6 +157,11 @@ func (c *Client) WithUrl(rawUrl string) (*Client, error) {
 	return c.cloneWith(WithUrl(rawUrl))
 }
 
+// WithForcedVariations creates child client with updated forced variations
+func (c *Client) WithForcedVariations(forcedVariations ForcedVariationsMap) (*Client, error) {
+	return c.cloneWith(WithForcedVariations(forcedVariations))
+}
+
 func withValueAttributes(value value.ObjValue) ClientOption {
 	return func(c *Client) error {
 		c.attributes = value

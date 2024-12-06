@@ -45,11 +45,19 @@ type hashCase struct {
 
 type runCase struct {
 	Name         string
-	Attrs        map[string]any
+	Env          env
 	Exp          *Experiment
 	Value        FeatureValue
 	InExperiment bool
 	HashUsed     bool
+}
+
+type env struct {
+	Attributes       Attributes          `json:"attributes"`
+	Enabled          *bool               `json:"enabled"`
+	Url              string              `json:"url"`
+	ForcedVariations ForcedVariationsMap `json:"forcedVariations"`
+	QaMode           *bool               `json:"qaMode"`
 }
 
 type JsonTuple[T any] struct {
@@ -111,7 +119,7 @@ func TestCasesJson(t *testing.T) {
 
 func (c *evalConditionCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
-		attrs := value.New(c.Attrs)
+		attrs := value.Obj(c.Attrs)
 		require.Equal(t, c.Res, c.Cond.Eval(attrs, c.Groups))
 	})
 }
@@ -131,22 +139,25 @@ func (c *hashCase) test(t *testing.T) {
 
 func (c *runCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
-		attrs, ok := c.Attrs["attributes"].(map[string]any)
-		if !ok {
-			attrs = Attributes{}
-		}
+		attrs := c.Env.Attributes
 		client, err := NewClient(context.TODO(),
 			WithAttributes(attrs),
+			WithForcedVariations(c.Env.ForcedVariations),
 			WithLogger(debugLogger()),
 		)
 		require.Nil(t, err)
 
-		if enabled, ok := c.Attrs["enabled"].(bool); ok {
-			client, err = client.WithEnabled(enabled)
+		if enabled := c.Env.Enabled; enabled != nil {
+			client, err = client.WithEnabled(*enabled)
 			require.Nil(t, err)
 		}
 
-		if url, ok := c.Attrs["url"].(string); ok {
+		if qaMode := c.Env.QaMode; qaMode != nil {
+			client, err = client.WithQaMode(*qaMode)
+			require.Nil(t, err)
+		}
+
+		if url := c.Env.Url; url != "" {
 			client, err = client.WithUrl(url)
 			require.Nil(t, err)
 		}
