@@ -3,13 +3,15 @@ package growthbook
 import (
 	"fmt"
 
+	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
 type evaluator struct {
-	features  FeatureMap
-	evaluated stack[string]
-	client    *Client
+	features    FeatureMap
+	savedGroups condition.SavedGroups
+	evaluated   stack[string]
+	client      *Client
 }
 
 func (e *evaluator) evalFeature(key string) *FeatureResult {
@@ -88,7 +90,7 @@ func (e *evaluator) runExperiment(exp *Experiment) *ExperimentResult {
 	}
 
 	// 8 Return if any conditions are not met, return
-	if !exp.Condition.Eval(e.client.attributes, nil) {
+	if !exp.Condition.Eval(e.client.attributes, e.savedGroups) {
 		e.client.logger.Debug("Skip because of condition exp", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, "", nil)
 	}
@@ -107,7 +109,7 @@ func (e *evaluator) runExperiment(exp *Experiment) *ExperimentResult {
 			}
 
 			evalObj := value.ObjValue{"value": value.New(res.Value)}
-			evaled := parent.Condition.Eval(evalObj, nil)
+			evaled := parent.Condition.Eval(evalObj, e.savedGroups)
 			if !evaled {
 				e.client.logger.Debug("Skip because of prerequisite evaluation fails", "id", exp.Key)
 				return e.getExperimentResult(exp, -1, false, "", nil)
@@ -211,7 +213,7 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 			}
 
 			evalObj := value.ObjValue{"value": value.New(res.Value)}
-			evaled := parent.Condition.Eval(evalObj, nil)
+			evaled := parent.Condition.Eval(evalObj, e.savedGroups)
 			if !evaled {
 				if parent.Gate {
 					return getFeatureResult(nil, PrerequisiteResultSource, "", nil, nil)
@@ -226,7 +228,7 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 	}
 
 	if rule.Force != nil {
-		if !rule.Condition.Eval(e.client.attributes, nil) {
+		if !rule.Condition.Eval(e.client.attributes, e.savedGroups) {
 			return nil
 		}
 

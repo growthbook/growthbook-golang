@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
@@ -47,6 +48,14 @@ func WithDecryptionKey(decryptionKey string) ClientOption {
 func WithAttributes(attributes Attributes) ClientOption {
 	return func(c *Client) error {
 		c.attributes = value.Obj(attributes)
+		return nil
+	}
+}
+
+// SavedGroups are used to target the same group of users across multiple features and experiments
+func WithSavedGroups(savedGroups condition.SavedGroups) ClientOption {
+	return func(c *Client) error {
+		c.data.savedGroups = savedGroups
 		return nil
 	}
 }

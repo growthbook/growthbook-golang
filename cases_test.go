@@ -53,11 +53,13 @@ type runCase struct {
 }
 
 type env struct {
-	Attributes       Attributes          `json:"attributes"`
-	Enabled          *bool               `json:"enabled"`
-	Url              string              `json:"url"`
-	ForcedVariations ForcedVariationsMap `json:"forcedVariations"`
-	QaMode           *bool               `json:"qaMode"`
+	Attributes       Attributes            `json:"attributes"`
+	Features         FeatureMap            `json:"features"`
+	Enabled          *bool                 `json:"enabled"`
+	Url              string                `json:"url"`
+	ForcedVariations ForcedVariationsMap   `json:"forcedVariations"`
+	QaMode           *bool                 `json:"qaMode"`
+	SavedGroups      condition.SavedGroups `json:"savedGroups"`
 }
 
 type JsonTuple[T any] struct {
@@ -143,6 +145,8 @@ func (c *runCase) test(t *testing.T) {
 		client, err := NewClient(context.TODO(),
 			WithAttributes(attrs),
 			WithForcedVariations(c.Env.ForcedVariations),
+			WithFeatures(c.Env.Features),
+			WithSavedGroups(c.Env.SavedGroups),
 			WithLogger(debugLogger()),
 		)
 		require.Nil(t, err)
