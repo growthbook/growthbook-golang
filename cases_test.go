@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,6 +18,7 @@ type cases struct {
 	EvalCondition   []JsonTuple[evalConditionCase]   `json:"evalCondition"`
 	ChooseVariation []JsonTuple[chooseVariationCase] `json:"chooseVariation"`
 	Hash            []JsonTuple[hashCase]            `json:"hash"`
+	Run             []JsonTuple[runCase]             `json:"run"`
 }
 
 type evalConditionCase struct {
@@ -38,6 +41,15 @@ type hashCase struct {
 	Value    string
 	Version  int
 	Expected *float64
+}
+
+type runCase struct {
+	Name         string
+	Attrs        map[string]any
+	Exp          *Experiment
+	Value        FeatureValue
+	InExperiment bool
+	HashUsed     bool
 }
 
 type JsonTuple[T any] struct {
@@ -89,6 +101,12 @@ func TestCasesJson(t *testing.T) {
 			tuple.val.test(t)
 		}
 	})
+
+	t.Run("run", func(t *testing.T) {
+		for _, tuple := range cases.Run {
+			tuple.val.test(t)
+		}
+	})
 }
 
 func (c *evalConditionCase) test(t *testing.T) {
@@ -108,5 +126,21 @@ func (c *hashCase) test(t *testing.T) {
 	name := fmt.Sprintf(`hash("%s","%s","%d")`, c.Seed, c.Value, c.Version)
 	t.Run(name, func(t *testing.T) {
 		require.Equal(t, c.Expected, hash(c.Seed, c.Value, c.Version))
+	})
+}
+
+func (c *runCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		attrs, ok := c.Attrs["attributes"].(map[string]any)
+		require.True(t, ok)
+		client, err := NewClient(context.TODO(),
+			WithAttributes(attrs),
+			WithLogger(debugLogger()),
+		)
+		require.Nil(t, err)
+		res := client.RunExperiment(context.TODO(), c.Exp)
+		assert.Equal(t, c.Value, res.Value)
+		assert.Equal(t, c.InExperiment, res.InExperiment)
+		assert.Equal(t, c.HashUsed, res.HashUsed)
 	})
 }
