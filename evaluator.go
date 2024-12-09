@@ -36,43 +36,43 @@ func (e *evaluator) evalFeature(key string) *FeatureResult {
 	return getFeatureResult(feature.DefaultValue, DefaultValueResultSource, "", nil, nil)
 }
 
-func (e *evaluator) runExperiment(exp *Experiment) *ExperimentResult {
+func (e *evaluator) runExperiment(exp *Experiment, featureId string) *ExperimentResult {
 
 	// 1. If experiment.variations has fewer than 2 variations, return getExperimentResult(experiment)
 	if len(exp.Variations) < 2 {
 		e.client.logger.Debug("Invalid experiment", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, "", nil)
+		return e.getExperimentResult(exp, -1, false, featureId, nil)
 	}
 
 	// 2. If context.enabled is false, return getExperimentResult(experiment)
 	if !e.client.enabled {
 		e.client.logger.Debug("Client disabled", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, "", nil)
+		return e.getExperimentResult(exp, -1, false, featureId, nil)
 	}
 
 	// 3. If context.url exists
 	if qsOverride, ok := getQueryStringOverride(exp.Key, e.client.url, len(exp.Variations)); ok {
 		e.client.logger.Debug("Force via querystring", "id", exp.Key, "variation", qsOverride)
-		return e.getExperimentResult(exp, qsOverride, false, "", nil)
+		return e.getExperimentResult(exp, qsOverride, false, featureId, nil)
 	}
 
 	// 4. Return if forced via context
 	if varId, ok := e.client.forcedVariations[exp.Key]; ok {
 		e.client.logger.Debug("Force via dev tools", "id", exp.Key, "variation", varId)
-		return e.getExperimentResult(exp, varId, false, "", nil)
+		return e.getExperimentResult(exp, varId, false, featureId, nil)
 	}
 
 	// 5. If experiment.active is set to false, return getExperimentResult(experiment)
 	if !exp.getActive() {
 		e.client.logger.Debug("Skip because inactive", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, "", nil)
+		return e.getExperimentResult(exp, -1, false, featureId, nil)
 	}
 
 	// 6. Get the user hash value and return if empty
 	_, hashValue := e.getHashAttribute(exp.HashAttribute, exp.FallbackAttribute)
 	if hashValue == "" {
 		e.client.logger.Debug("Skip because of missing hashAttribute", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, "", nil)
+		return e.getExperimentResult(exp, -1, false, featureId, nil)
 	}
 
 	// 6.5 TODO If sticky bucketing is permitted, check to see if a sticky bucket value exists. If so, skip steps 7-8.
@@ -82,17 +82,17 @@ func (e *evaluator) runExperiment(exp *Experiment) *ExperimentResult {
 	if len(exp.Filters) > 0 {
 		if e.isFilteredOut(exp.Filters) {
 			e.client.logger.Debug("Skip because of filters", "id", exp.Key)
-			return e.getExperimentResult(exp, -1, false, "", nil)
+			return e.getExperimentResult(exp, -1, false, featureId, nil)
 		}
 	} else if exp.Namespace != nil && !exp.Namespace.inNamespace(hashValue) {
 		e.client.logger.Debug("Skip because of namespace", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, "", nil)
+		return e.getExperimentResult(exp, -1, false, featureId, nil)
 	}
 
 	// 8 Return if any conditions are not met, return
 	if !exp.Condition.Eval(e.client.attributes, e.savedGroups) {
 		e.client.logger.Debug("Skip because of condition exp", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, "", nil)
+		return e.getExperimentResult(exp, -1, false, featureId, nil)
 	}
 
 	// 8.2 If experiment.parentConditions is set (prerequisites), return if any of them evaluate to false. See the corresponding logic in
@@ -101,18 +101,18 @@ func (e *evaluator) runExperiment(exp *Experiment) *ExperimentResult {
 			res := e.evalFeature(parent.Id)
 			if res == nil {
 				e.client.logger.Debug("Skip because of prerequisite fails", "id", exp.Key)
-				return e.getExperimentResult(exp, -1, false, "", nil)
+				return e.getExperimentResult(exp, -1, false, featureId, nil)
 			}
 
 			if res.Source == CyclicPrerequisiteResultSource {
-				return e.getExperimentResult(exp, -1, false, "", nil)
+				return e.getExperimentResult(exp, -1, false, featureId, nil)
 			}
 
 			evalObj := value.ObjValue{"value": value.New(res.Value)}
 			evaled := parent.Condition.Eval(evalObj, e.savedGroups)
 			if !evaled {
 				e.client.logger.Debug("Skip because of prerequisite evaluation fails", "id", exp.Key)
-				return e.getExperimentResult(exp, -1, false, "", nil)
+				return e.getExperimentResult(exp, -1, false, featureId, nil)
 			}
 		}
 	}
@@ -128,30 +128,30 @@ func (e *evaluator) runExperiment(exp *Experiment) *ExperimentResult {
 	n := hash(exp.getSeed(), hashValue, if0(exp.HashVersion, 1))
 	if n == nil {
 		e.client.logger.Debug("Skip because of invalid hash version", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, "", nil)
+		return e.getExperimentResult(exp, -1, false, featureId, nil)
 	}
 	assigned := chooseVariation(*n, ranges)
 
 	// 10. If assigned == -1, return getExperimentResult(experiment)
 	if assigned < 0 {
 		e.client.logger.Debug("Skip because of coverage", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, "", nil)
+		return e.getExperimentResult(exp, -1, false, featureId, nil)
 	}
 
 	// 11. If experiment has a forced variation, return
 	if exp.Force != nil {
 		e.client.logger.Debug("Force variation", "id", exp.Key, "variation", *exp.Force)
-		return e.getExperimentResult(exp, *exp.Force, false, "", nil)
+		return e.getExperimentResult(exp, *exp.Force, false, featureId, nil)
 	}
 
 	// 12. If context.qaMode, return getExperimentResult(experiment)
 	if e.client.qaMode {
 		e.client.logger.Debug("Skip because of QA mode", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, "", nil)
+		return e.getExperimentResult(exp, -1, false, featureId, nil)
 	}
 
 	// 13. Build the result object
-	return e.getExperimentResult(exp, assigned, true, "", n)
+	return e.getExperimentResult(exp, assigned, true, featureId, n)
 }
 
 func (e *evaluator) getExperimentResult(
@@ -244,7 +244,7 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 	}
 
 	exp := experimentFromFeatureRule(featureId, rule)
-	res := e.runExperiment(exp)
+	res := e.runExperiment(exp, featureId)
 	if !res.InExperiment || res.Passthrough {
 		return nil
 	}
@@ -274,7 +274,7 @@ func (e *evaluator) isIncludedInRollout(featureId string, rule *FeatureRule) boo
 	if seed == "" {
 		seed = featureId
 	}
-	n := hash(rule.Seed, hashValue, if0(rule.HashVersion, 1))
+	n := hash(seed, hashValue, if0(rule.HashVersion, 1))
 	if n == nil {
 		return false
 	}
