@@ -3760,7 +3760,7 @@
         "experimentResult": {
           "featureId": "feature",
           "hashAttribute": "id",
-          "hashValue": 123,
+          "hashValue": "123",
           "hashUsed": true,
           "inExperiment": true,
           "value": 1,
@@ -4562,7 +4562,7 @@
           "featureId": "inGroup_experiment_rule",
           "hashAttribute": "id",
           "hashUsed": true,
-          "hashValue": 123,
+          "hashValue": "123",
           "inExperiment": true,
           "key": "0",
           "value": 1,

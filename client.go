@@ -102,7 +102,7 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
 	e := client.evaluator()
-	return e.runExperiment(exp)
+	return e.runExperiment(exp, "")
 }
 
 // Internals

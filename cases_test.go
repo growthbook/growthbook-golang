@@ -19,6 +19,7 @@ type cases struct {
 	ChooseVariation []JsonTuple[chooseVariationCase] `json:"chooseVariation"`
 	Hash            []JsonTuple[hashCase]            `json:"hash"`
 	Run             []JsonTuple[runCase]             `json:"run"`
+	Feature         []JsonTuple[featureCase]         `json:"feature"`
 }
 
 type evalConditionCase struct {
@@ -50,6 +51,13 @@ type runCase struct {
 	Value        FeatureValue
 	InExperiment bool
 	HashUsed     bool
+}
+
+type featureCase struct {
+	Name        string
+	Env         env
+	FeatureName string
+	Expected    *FeatureResult
 }
 
 type env struct {
@@ -117,6 +125,12 @@ func TestCasesJson(t *testing.T) {
 			tuple.val.test(t)
 		}
 	})
+
+	t.Run("feature", func(t *testing.T) {
+		for _, tuple := range cases.Feature {
+			tuple.val.test(t)
+		}
+	})
 }
 
 func (c *evalConditionCase) test(t *testing.T) {
@@ -141,34 +155,57 @@ func (c *hashCase) test(t *testing.T) {
 
 func (c *runCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
-		attrs := c.Env.Attributes
-		client, err := NewClient(context.TODO(),
-			WithAttributes(attrs),
-			WithForcedVariations(c.Env.ForcedVariations),
-			WithFeatures(c.Env.Features),
-			WithSavedGroups(c.Env.SavedGroups),
-			WithLogger(debugLogger()),
-		)
+		client, err := c.Env.client()
 		require.Nil(t, err)
-
-		if enabled := c.Env.Enabled; enabled != nil {
-			client, err = client.WithEnabled(*enabled)
-			require.Nil(t, err)
-		}
-
-		if qaMode := c.Env.QaMode; qaMode != nil {
-			client, err = client.WithQaMode(*qaMode)
-			require.Nil(t, err)
-		}
-
-		if url := c.Env.Url; url != "" {
-			client, err = client.WithUrl(url)
-			require.Nil(t, err)
-		}
 
 		res := client.RunExperiment(context.TODO(), c.Exp)
 		assert.Equal(t, c.Value, res.Value)
 		assert.Equal(t, c.InExperiment, res.InExperiment)
 		assert.Equal(t, c.HashUsed, res.HashUsed)
 	})
+}
+
+func (c *featureCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		client, err := c.Env.client()
+		require.Nil(t, err)
+
+		res := client.EvalFeature(context.TODO(), c.FeatureName)
+		assert.Equal(t, c.Expected, res)
+	})
+}
+
+func (e *env) client() (*Client, error) {
+	client, err := NewClient(context.TODO(),
+		WithAttributes(e.Attributes),
+		WithForcedVariations(e.ForcedVariations),
+		WithFeatures(e.Features),
+		WithSavedGroups(e.SavedGroups),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if enabled := e.Enabled; enabled != nil {
+		client, err = client.WithEnabled(*enabled)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if qaMode := e.QaMode; qaMode != nil {
+		client, err = client.WithQaMode(*qaMode)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if url := e.Url; url != "" {
+		client, err = client.WithUrl(url)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return client, nil
 }
