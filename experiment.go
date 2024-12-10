@@ -98,13 +98,6 @@ func (e *Experiment) getCoverage() float64 {
 	return *e.Coverage
 }
 
-func (e *Experiment) getRanges() []BucketRange {
-	if len(e.Ranges) == 0 {
-		return getBucketRanges(len(e.Variations), e.getCoverage(), e.Weights)
-	}
-	return e.Ranges
-}
-
 func (e *Experiment) getSeed() string {
 	if e.Seed == "" {
 		return e.Key

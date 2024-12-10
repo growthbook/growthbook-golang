@@ -8,19 +8,6 @@ import (
 	"strings"
 )
 
-// Returns an array of floats with numVariations items that are all
-// equal and sum to 1.
-func getEqualWeights(numVariations int) []float64 {
-	if numVariations < 0 {
-		numVariations = 0
-	}
-	equal := make([]float64, numVariations)
-	for i := range equal {
-		equal[i] = 1.0 / float64(numVariations)
-	}
-	return equal
-}
-
 // Checks if an experiment variation is being forced via a URL query
 // string.
 //

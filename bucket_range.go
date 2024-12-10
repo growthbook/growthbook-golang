@@ -14,23 +14,23 @@ func (r *BucketRange) InRange(n float64) bool {
 
 // This converts an experiment's coverage and variation weights into
 // an array of bucket ranges.
-func getBucketRanges(numVariations int, coverage float64, weights []float64) []BucketRange {
+func (c *Client) getBucketRanges(numVariations int, coverage float64, weights []float64) []BucketRange {
 	// Make sure coverage is within bounds.
 	if coverage < 0 {
-		logWarn("Experiment coverage must be greater than or equal to 0")
+		c.logger.Warn("Experiment coverage must be greater than or equal to 0")
 		coverage = 0
 	}
 	if coverage > 1 {
-		logWarn("Experiment coverage must be less than or equal to 1")
+		c.logger.Warn("Experiment coverage must be less than or equal to 1")
 		coverage = 1
 	}
 
 	// Default to equal weights if missing or invalid
-	if weights == nil || len(weights) == 0 {
+	if len(weights) == 0 {
 		weights = getEqualWeights(numVariations)
 	}
 	if len(weights) != numVariations {
-		logWarn("Experiment weights and variations arrays must be the same length")
+		c.logger.Warn("Experiment weights and variations arrays must be the same length")
 		weights = getEqualWeights(numVariations)
 	}
 
@@ -40,7 +40,7 @@ func getBucketRanges(numVariations int, coverage float64, weights []float64) []B
 		totalWeight += weights[i]
 	}
 	if totalWeight < 0.99 || totalWeight > 1.01 {
-		logWarn("Experiment weights must add up to 1")
+		c.logger.Warn("Experiment weights must add up to 1")
 		weights = getEqualWeights(numVariations)
 	}
 
@@ -63,6 +63,19 @@ func chooseVariation(n float64, ranges []BucketRange) int {
 		}
 	}
 	return -1
+}
+
+// Returns an array of floats with numVariations items that are all
+// equal and sum to 1.
+func getEqualWeights(numVariations int) []float64 {
+	if numVariations < 0 {
+		return nil
+	}
+	equal := make([]float64, numVariations)
+	for i := range equal {
+		equal[i] = 1.0 / float64(numVariations)
+	}
+	return equal
 }
 
 func (br *BucketRange) UnmarshalJSON(data []byte) error {
