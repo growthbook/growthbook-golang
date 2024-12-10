@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"reflect"
 	"testing"
@@ -14,12 +15,13 @@ import (
 )
 
 type cases struct {
-	EvalCondition   []JsonTuple[evalConditionCase]   `json:"evalCondition"`
-	ChooseVariation []JsonTuple[chooseVariationCase] `json:"chooseVariation"`
-	Hash            []JsonTuple[hashCase]            `json:"hash"`
-	Run             []JsonTuple[runCase]             `json:"run"`
-	Feature         []JsonTuple[featureCase]         `json:"feature"`
-	GetBucketRange  []JsonTuple[getBucketRangeCase]  `json:"getBucketRange"`
+	EvalCondition          []JsonTuple[evalConditionCase]          `json:"evalCondition"`
+	ChooseVariation        []JsonTuple[chooseVariationCase]        `json:"chooseVariation"`
+	Hash                   []JsonTuple[hashCase]                   `json:"hash"`
+	Run                    []JsonTuple[runCase]                    `json:"run"`
+	Feature                []JsonTuple[featureCase]                `json:"feature"`
+	GetBucketRange         []JsonTuple[getBucketRangeCase]         `json:"getBucketRange"`
+	GetQueryStringOverride []JsonTuple[getQueryStringOverrideCase] `json:"getQueryStringOverride"`
 }
 
 type evalConditionCase struct {
@@ -68,6 +70,14 @@ type getBucketRangeCase struct {
 		Weights  []float64
 	}]
 	Expected []BucketRange
+}
+
+type getQueryStringOverrideCase struct {
+	Name          string
+	Key           string
+	Url           string
+	NumVariations int
+	Expected      *int
 }
 
 type env struct {
@@ -147,6 +157,12 @@ func TestCasesJson(t *testing.T) {
 			tuple.val.test(t)
 		}
 	})
+
+	t.Run("getQueryStringOverride", func(t *testing.T) {
+		for _, tuple := range cases.GetQueryStringOverride {
+			tuple.val.test(t)
+		}
+	})
 }
 
 func (c *evalConditionCase) test(t *testing.T) {
@@ -195,10 +211,24 @@ func (c *getBucketRangeCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
 		client, err := NewClient(context.TODO())
 		require.Nil(t, err)
+
 		i := c.Inputs.val
 		res := client.getBucketRanges(i.Num, i.Coverage, i.Weights)
-
 		require.Equal(t, c.Expected, roundRanges(res))
+	})
+}
+
+func (c *getQueryStringOverrideCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		url, err := url.Parse(c.Url)
+		require.Nil(t, err)
+		res, ok := getQueryStringOverride(c.Key, url, c.NumVariations)
+		if c.Expected == nil {
+			require.False(t, ok)
+		} else {
+			require.True(t, ok)
+			require.Equal(t, *c.Expected, res)
+		}
 	})
 }
 
