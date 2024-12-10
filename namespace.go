@@ -9,9 +9,9 @@ import (
 // includes. If two experiments are in the same namespace and their
 // ranges don't overlap, they wil be mutually exclusive.
 type Namespace struct {
-	Id    string  `json:"id"`
-	Start float64 `json:"start"`
-	End   float64 `json:"end"`
+	Id    string
+	Start float64
+	End   float64
 }
 
 // Determine whether a user's ID lies within a given namespace.

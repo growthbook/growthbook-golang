@@ -69,7 +69,7 @@ func chooseVariation(n float64, ranges []BucketRange) int {
 // equal and sum to 1.
 func getEqualWeights(numVariations int) []float64 {
 	if numVariations < 0 {
-		return nil
+		numVariations = 0
 	}
 	equal := make([]float64, numVariations)
 	for i := range equal {
