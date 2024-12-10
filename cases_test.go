@@ -10,7 +10,6 @@ import (
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,6 +19,7 @@ type cases struct {
 	Hash            []JsonTuple[hashCase]            `json:"hash"`
 	Run             []JsonTuple[runCase]             `json:"run"`
 	Feature         []JsonTuple[featureCase]         `json:"feature"`
+	GetBucketRange  []JsonTuple[getBucketRangeCase]  `json:"getBucketRange"`
 }
 
 type evalConditionCase struct {
@@ -58,6 +58,16 @@ type featureCase struct {
 	Env         env
 	FeatureName string
 	Expected    *FeatureResult
+}
+
+type getBucketRangeCase struct {
+	Name   string
+	Inputs JsonTuple[struct {
+		Num      int
+		Coverage float64
+		Weights  []float64
+	}]
+	Expected []BucketRange
 }
 
 type env struct {
@@ -131,6 +141,12 @@ func TestCasesJson(t *testing.T) {
 			tuple.val.test(t)
 		}
 	})
+
+	t.Run("getBucketRange", func(t *testing.T) {
+		for _, tuple := range cases.GetBucketRange {
+			tuple.val.test(t)
+		}
+	})
 }
 
 func (c *evalConditionCase) test(t *testing.T) {
@@ -159,9 +175,9 @@ func (c *runCase) test(t *testing.T) {
 		require.Nil(t, err)
 
 		res := client.RunExperiment(context.TODO(), c.Exp)
-		assert.Equal(t, c.Value, res.Value)
-		assert.Equal(t, c.InExperiment, res.InExperiment)
-		assert.Equal(t, c.HashUsed, res.HashUsed)
+		require.Equal(t, c.Value, res.Value)
+		require.Equal(t, c.InExperiment, res.InExperiment)
+		require.Equal(t, c.HashUsed, res.HashUsed)
 	})
 }
 
@@ -171,7 +187,18 @@ func (c *featureCase) test(t *testing.T) {
 		require.Nil(t, err)
 
 		res := client.EvalFeature(context.TODO(), c.FeatureName)
-		assert.Equal(t, c.Expected, res)
+		require.Equal(t, c.Expected, res)
+	})
+}
+
+func (c *getBucketRangeCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		client, err := NewClient(context.TODO())
+		require.Nil(t, err)
+		i := c.Inputs.val
+		res := client.getBucketRanges(i.Num, i.Coverage, i.Weights)
+
+		require.Equal(t, c.Expected, roundRanges(res))
 	})
 }
 

@@ -123,7 +123,10 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	// 9.1 TODO If a sticky bucket value exists, use it.
 
 	// 9.2 Else, calculate bucket ranges for the variations and choose one
-	ranges := exp.getRanges()
+	ranges := exp.Ranges
+	if len(exp.Ranges) == 0 {
+		ranges = e.client.getBucketRanges(len(exp.Variations), exp.getCoverage(), exp.Weights)
+	}
 
 	n := hash(exp.getSeed(), hashValue, if0(exp.HashVersion, 1))
 	if n == nil {
