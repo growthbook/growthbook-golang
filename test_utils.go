@@ -49,7 +49,7 @@ func roundRanges(ranges []BucketRange) []BucketRange {
 }
 
 // Helper to round floating point arrays for test comparison.
-func round(vals []float64) []float64 {
+func roundArr(vals []float64) []float64 {
 	result := make([]float64, len(vals))
 	for i, v := range vals {
 		result[i] = math.Round(v*1000000) / 1000000

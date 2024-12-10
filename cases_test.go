@@ -15,13 +15,16 @@ import (
 )
 
 type cases struct {
-	EvalCondition          []JsonTuple[evalConditionCase]          `json:"evalCondition"`
-	ChooseVariation        []JsonTuple[chooseVariationCase]        `json:"chooseVariation"`
-	Hash                   []JsonTuple[hashCase]                   `json:"hash"`
-	Run                    []JsonTuple[runCase]                    `json:"run"`
-	Feature                []JsonTuple[featureCase]                `json:"feature"`
-	GetBucketRange         []JsonTuple[getBucketRangeCase]         `json:"getBucketRange"`
-	GetQueryStringOverride []JsonTuple[getQueryStringOverrideCase] `json:"getQueryStringOverride"`
+	EvalCondition          JsonTuples[evalConditionCase]          `json:"evalCondition"`
+	ChooseVariation        JsonTuples[chooseVariationCase]        `json:"chooseVariation"`
+	Hash                   JsonTuples[hashCase]                   `json:"hash"`
+	Run                    JsonTuples[runCase]                    `json:"run"`
+	Feature                JsonTuples[featureCase]                `json:"feature"`
+	GetBucketRange         JsonTuples[getBucketRangeCase]         `json:"getBucketRange"`
+	GetQueryStringOverride JsonTuples[getQueryStringOverrideCase] `json:"getQueryStringOverride"`
+	InNamespace            JsonTuples[inNamespaceCase]            `json:"inNamespace"`
+	GetEqualWeights        JsonTuples[getEqualWeightsCase]        `json:"getEqualWeights"`
+	Decrypt                JsonTuples[decryptCase]                `json:"decrypt"`
 }
 
 type evalConditionCase struct {
@@ -80,6 +83,25 @@ type getQueryStringOverrideCase struct {
 	Expected      *int
 }
 
+type inNamespaceCase struct {
+	Name      string
+	Id        string
+	Namespace *Namespace
+	Expected  bool
+}
+
+type getEqualWeightsCase struct {
+	NumVariations int
+	Expected      []float64
+}
+
+type decryptCase struct {
+	Name      string
+	Encrypted string
+	Key       string
+	Expected  string
+}
+
 type env struct {
 	Attributes       Attributes            `json:"attributes"`
 	Features         FeatureMap            `json:"features"`
@@ -111,6 +133,17 @@ func (t *JsonTuple[T]) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+type JsonTuples[T JsonCase] []JsonTuple[T]
+type JsonCase interface{ test(t *testing.T) }
+
+func (ts JsonTuples[T]) run(name string, t *testing.T) {
+	t.Run(name, func(t *testing.T) {
+		for _, tuple := range ts {
+			tuple.val.test(t)
+		}
+	})
+}
+
 func TestCasesJson(t *testing.T) {
 	file := "cases.json"
 	data, err := os.ReadFile(file)
@@ -122,70 +155,39 @@ func TestCasesJson(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	t.Run("evalCondition", func(t *testing.T) {
-		for _, tuple := range cases.EvalCondition {
-			tuple.val.test(t)
-		}
-	})
-
-	t.Run("chooseVariation", func(t *testing.T) {
-		for _, tuple := range cases.ChooseVariation {
-			tuple.val.test(t)
-		}
-	})
-
-	t.Run("hash", func(t *testing.T) {
-		for _, tuple := range cases.Hash {
-			tuple.val.test(t)
-		}
-	})
-
-	t.Run("run", func(t *testing.T) {
-		for _, tuple := range cases.Run {
-			tuple.val.test(t)
-		}
-	})
-
-	t.Run("feature", func(t *testing.T) {
-		for _, tuple := range cases.Feature {
-			tuple.val.test(t)
-		}
-	})
-
-	t.Run("getBucketRange", func(t *testing.T) {
-		for _, tuple := range cases.GetBucketRange {
-			tuple.val.test(t)
-		}
-	})
-
-	t.Run("getQueryStringOverride", func(t *testing.T) {
-		for _, tuple := range cases.GetQueryStringOverride {
-			tuple.val.test(t)
-		}
-	})
+	cases.EvalCondition.run("evalCondition", t)
+	cases.ChooseVariation.run("chooseVariation", t)
+	cases.Hash.run("hash", t)
+	cases.Run.run("run", t)
+	cases.Feature.run("feature", t)
+	cases.GetBucketRange.run("getBucketRange", t)
+	cases.GetQueryStringOverride.run("getQueryStringOverride", t)
+	cases.InNamespace.run("inNamespace", t)
+	cases.GetEqualWeights.run("getEqualWeights", t)
+	cases.Decrypt.run("decrypt", t)
 }
 
-func (c *evalConditionCase) test(t *testing.T) {
+func (c evalConditionCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
 		attrs := value.Obj(c.Attrs)
 		require.Equal(t, c.Res, c.Cond.Eval(attrs, c.Groups))
 	})
 }
 
-func (c *chooseVariationCase) test(t *testing.T) {
+func (c chooseVariationCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
 		require.Equal(t, c.Expected, chooseVariation(c.N, c.Ranges))
 	})
 }
 
-func (c *hashCase) test(t *testing.T) {
+func (c hashCase) test(t *testing.T) {
 	name := fmt.Sprintf(`hash("%s","%s","%d")`, c.Seed, c.Value, c.Version)
 	t.Run(name, func(t *testing.T) {
 		require.Equal(t, c.Expected, hash(c.Seed, c.Value, c.Version))
 	})
 }
 
-func (c *runCase) test(t *testing.T) {
+func (c runCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
 		client, err := c.Env.client()
 		require.Nil(t, err)
@@ -197,7 +199,7 @@ func (c *runCase) test(t *testing.T) {
 	})
 }
 
-func (c *featureCase) test(t *testing.T) {
+func (c featureCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
 		client, err := c.Env.client()
 		require.Nil(t, err)
@@ -207,7 +209,7 @@ func (c *featureCase) test(t *testing.T) {
 	})
 }
 
-func (c *getBucketRangeCase) test(t *testing.T) {
+func (c getBucketRangeCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
 		client, err := NewClient(context.TODO())
 		require.Nil(t, err)
@@ -218,7 +220,7 @@ func (c *getBucketRangeCase) test(t *testing.T) {
 	})
 }
 
-func (c *getQueryStringOverrideCase) test(t *testing.T) {
+func (c getQueryStringOverrideCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
 		url, err := url.Parse(c.Url)
 		require.Nil(t, err)
@@ -228,6 +230,34 @@ func (c *getQueryStringOverrideCase) test(t *testing.T) {
 		} else {
 			require.True(t, ok)
 			require.Equal(t, *c.Expected, res)
+		}
+	})
+}
+
+func (c inNamespaceCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		res := c.Namespace.inNamespace(c.Id)
+		require.Equal(t, c.Expected, res)
+	})
+}
+
+func (c getEqualWeightsCase) test(t *testing.T) {
+	name := fmt.Sprintf(`("%v")`, c.NumVariations)
+	t.Run(name, func(t *testing.T) {
+		res := getEqualWeights(c.NumVariations)
+		require.Equal(t, roundArr(c.Expected), roundArr(res))
+	})
+}
+
+func (c decryptCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		res, err := decrypt(c.Encrypted, c.Key)
+		if c.Expected != "" {
+			require.Nil(t, err)
+			require.Equal(t, c.Expected, res)
+		} else {
+			require.NotNil(t, err)
+			require.Equal(t, "", res)
 		}
 	})
 }
