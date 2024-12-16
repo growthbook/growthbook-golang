@@ -37,7 +37,7 @@ type growthBookData struct {
 	trackedExperiments  sync.Map
 	nextSubscriptionID  subscriptionID
 	subscriptions       map[subscriptionID]ExperimentCallback
-	assigned            map[string]*Assignment
+	assigned            sync.Map
 	ready               bool
 }
 
@@ -100,7 +100,7 @@ func New(context *Context) *GrowthBook {
 		trackedExperiments:  sync.Map{},
 		nextSubscriptionID:  1,
 		subscriptions:       make(map[subscriptionID]ExperimentCallback),
-		assigned:            make(map[string]*Assignment),
+		assigned:            sync.Map{},
 	}
 	gb := &GrowthBook{inner}
 	runtime.SetFinalizer(gb, func(gb *GrowthBook) { repoUnsubscribe(gb) })
@@ -484,7 +484,7 @@ func (gb *GrowthBook) Subscribe(callback ExperimentCallback) func() {
 
 // GetAllResults returns a map containing all the latest results from
 // all experiments that have been run, indexed by the experiment key.
-func (gb *GrowthBook) GetAllResults() map[string]*Assignment {
+func (gb *GrowthBook) GetAllResults() sync.Map {
 	gb.inner.RLock()
 	defer gb.inner.RUnlock()
 
@@ -498,7 +498,7 @@ func (gb *GrowthBook) ClearSavedResults() {
 	gb.inner.Lock()
 	defer gb.inner.Unlock()
 
-	gb.inner.assigned = make(map[string]*Assignment)
+	gb.inner.assigned = sync.Map{}
 }
 
 // ClearTrackingData clears out records of calls to the experiment
@@ -664,17 +664,17 @@ func (gb *GrowthBook) fireSubscriptions(exp *Experiment, result *Result) {
 	// Determine whether the result changed from the last stored result
 	// for the experiment.
 	changed := false
-	storedResult, exists := gb.inner.assigned[exp.Key]
+	storedResult, exists := gb.inner.assigned.Load(exp.Key)
 	if exists {
-		if storedResult.Result.InExperiment != result.InExperiment ||
-			storedResult.Result.VariationID != result.VariationID {
+		storedResultAssignment := storedResult.(*Assignment)
+		if storedResultAssignment.Result.InExperiment != result.InExperiment ||
+			storedResultAssignment.Result.VariationID != result.VariationID {
 			changed = true
 		}
 	}
 
 	// Store the experiment result.
-	gb.inner.assigned[exp.Key] = &Assignment{exp, result}
-
+	gb.inner.assigned.Store(exp.Key, &Assignment{exp, result})
 	// If the result changed, trigger all subscriptions.
 	if changed || !exists {
 		for _, sub := range gb.inner.subscriptions {
