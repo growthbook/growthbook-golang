@@ -2,13 +2,13 @@ package growthbook
 
 // FeatureResult is the result of evaluating a feature.
 type FeatureResult struct {
-	RuleId           string
-	Value            FeatureValue
-	Source           FeatureResultSource
-	On               bool
-	Off              bool
-	Experiment       *Experiment
-	ExperimentResult *ExperimentResult
+	RuleId           string              `json:"ruleId"`
+	Value            FeatureValue        `json:"value"`
+	Source           FeatureResultSource `json:"source"`
+	On               bool                `json:"on"`
+	Off              bool                `json:"off"`
+	Experiment       *Experiment         `json:"experiment"`
+	ExperimentResult *ExperimentResult   `json:"experimentResult"`
 }
 
 // FeatureResultSource is an enumerated type representing the source

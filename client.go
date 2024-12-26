@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net/http"
 	"net/url"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -47,15 +46,25 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 			return nil, err
 		}
 	}
+
+	if client.data.dataSource != nil {
+		go client.startDataSource(ctx)
+	}
+
 	return client, nil
+}
+
+func (client *Client) Close() error {
+	ds := client.data.dataSource
+	if ds == nil || !client.data.dsStarted {
+		return nil
+	}
+	return ds.Close()
 }
 
 func defaultClient() *Client {
 	return &Client{
-		data: &data{
-			apiHost:    defaultApiHost,
-			httpClient: http.DefaultClient,
-		},
+		data:    newData(),
 		enabled: true,
 		qaMode:  false,
 		logger:  slog.Default(),
@@ -64,10 +73,10 @@ func defaultClient() *Client {
 
 // SetFeatures updates shared client features.
 func (client *Client) SetFeatures(features FeatureMap) error {
-	client.data.mu.Lock()
-	defer client.data.mu.Unlock()
-
-	client.data.features = features
+	client.data.withLock(func(d *data) error {
+		d.features = features
+		return nil
+	})
 	return nil
 }
 
@@ -94,6 +103,48 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 	return client.SetJSONFeatures(featuresJSON)
 }
 
+// UpdateFromApiResponse updates shared data from Growthbook API response
+func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+	var features FeatureMap
+	var err error
+	if resp.EncryptedFeatures != "" {
+		features, err = client.DecryptFeatures(resp.EncryptedFeatures)
+		if err != nil {
+			return err
+		}
+	} else {
+		features = resp.Features
+	}
+	client.data.withLock(func(d *data) error {
+		d.features = features
+		d.savedGroups = resp.SavedGroups
+		return nil
+	})
+	return nil
+}
+
+func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
+	var features FeatureMap
+	featuresJSON, err := client.data.decrypt(encrypted)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal([]byte(featuresJSON), &features)
+	if err != nil {
+		return nil, err
+	}
+	return features, err
+}
+
+func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
+	var resp FeatureApiResponse
+	err := json.Unmarshal([]byte(respJSON), &resp)
+	if err != nil {
+		return err
+	}
+	return client.UpdateFromApiResponse(&resp)
+}
+
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
 	e := client.evaluator()
@@ -103,6 +154,10 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
 	e := client.evaluator()
 	return e.runExperiment(exp, "")
+}
+
+func (client *Client) Features() FeatureMap {
+	return client.data.getFeatures()
 }
 
 // Internals
