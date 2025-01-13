@@ -43,6 +43,12 @@ func (d *data) getApiUrl() string {
 	return d.apiHost + "/api/features/" + d.clientKey
 }
 
+func (d *data) getSseUrl() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.apiHost + "/sub/" + d.clientKey
+}
+
 type dataUpdate func(*data) error
 
 func (d *data) withLock(f dataUpdate) error {
