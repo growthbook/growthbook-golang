@@ -108,14 +108,6 @@ func WithQaMode(qaMode bool) ClientOption {
 	}
 }
 
-// WithTrackingCallback a function that takes experiment and result as arguments.
-func WithTrackingCallback(trackingCallback TrackingCallback) ClientOption {
-	return func(c *Client) error {
-		c.trackingCallback = trackingCallback
-		return nil
-	}
-}
-
 // WithHttpClient sets http client for GrowthBook API calls
 func WithHttpClient(httpClient *http.Client) ClientOption {
 	return func(c *Client) error {
@@ -128,6 +120,22 @@ func WithHttpClient(httpClient *http.Client) ClientOption {
 func WithLogger(logger *slog.Logger) ClientOption {
 	return func(c *Client) error {
 		c.logger = logger
+		return nil
+	}
+}
+
+// WithExperiementCallbaback sets experiment callback function
+func WithExperimentCallback(cb ExperimentCallback) ClientOption {
+	return func(c *Client) error {
+		c.experimentCallback = cb
+		return nil
+	}
+}
+
+// WithFeatureUsageCallback sets feature usage callback function
+func WithFeatureUsageCallback(cb FeatureUsageCallback) ClientOption {
+	return func(c *Client) error {
+		c.featureUsageCallback = cb
 		return nil
 	}
 }
@@ -169,6 +177,16 @@ func (c *Client) WithUrl(rawUrl string) (*Client, error) {
 // WithForcedVariations creates child client with updated forced variations
 func (c *Client) WithForcedVariations(forcedVariations ForcedVariationsMap) (*Client, error) {
 	return c.cloneWith(WithForcedVariations(forcedVariations))
+}
+
+// WithExperimentCallback creates child client with updated experiment callback function
+func (c *Client) WithExperimentCallback(cb ExperimentCallback) (*Client, error) {
+	return c.cloneWith(WithExperimentCallback(cb))
+}
+
+// WithFeatureUsageCallback creates child client with udpated feature usage callback function
+func (c *Client) WithFeatureUsageCallback(cb FeatureUsageCallback) (*Client, error) {
+	return c.cloneWith(WithFeatureUsageCallback(cb))
 }
 
 func withValueAttributes(value value.ObjValue) ClientOption {

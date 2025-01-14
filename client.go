@@ -17,21 +17,25 @@ var (
 )
 
 type Client struct {
-	data             *data
-	enabled          bool
-	attributes       value.ObjValue
-	url              *url.URL
-	forcedVariations ForcedVariationsMap
-	qaMode           bool
-	trackingCallback (TrackingCallback)
-	logger           *slog.Logger
+	data                 *data
+	enabled              bool
+	attributes           value.ObjValue
+	url                  *url.URL
+	forcedVariations     ForcedVariationsMap
+	qaMode               bool
+	experimentCallback   ExperimentCallback
+	featureUsageCallback FeatureUsageCallback
+	logger               *slog.Logger
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
 type ForcedVariationsMap map[string]int
 
-// TrackingCallback function that is executed every time a user is included in an Experiment.
-type TrackingCallback func(*Experiment, *ExperimentResult)
+// ExperimentCallback function that is executed every time a user is included in an Experiment.
+type ExperimentCallback func(context.Context, *Experiment, *ExperimentResult)
+
+// FeatureUsageCallback funcion is executed every time feature is evaluated
+type FeatureUsageCallback func(context.Context, string, *FeatureResult)
 
 func NewApiClient(apiHost string, clientKey string) (*Client, error) {
 	ctx := context.Background()
@@ -156,12 +160,23 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
 	e := client.evaluator()
-	return e.evalFeature(key)
+	res := e.evalFeature(key)
+	if client.featureUsageCallback != nil {
+		client.featureUsageCallback(ctx, key, res)
+	}
+	if client.experimentCallback != nil && res.InExperiment() {
+		client.experimentCallback(ctx, res.Experiment, res.ExperimentResult)
+	}
+	return res
 }
 
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
 	e := client.evaluator()
-	return e.runExperiment(exp, "")
+	res := e.runExperiment(exp, "")
+	if client.experimentCallback != nil && res.InExperiment {
+		client.experimentCallback(ctx, exp, res)
+	}
+	return res
 }
 
 func (client *Client) Features() FeatureMap {

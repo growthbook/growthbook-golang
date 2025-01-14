@@ -45,3 +45,9 @@ func getFeatureResult(
 	}
 	return res
 }
+
+func (res *FeatureResult) InExperiment() bool {
+	return res.Experiment != nil &&
+		res.ExperimentResult != nil &&
+		res.ExperimentResult.InExperiment
+}

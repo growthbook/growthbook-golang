@@ -148,3 +148,54 @@ func TestClientNoUpdatesFromStaleApiData(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, client.data.features["foo"], &Feature{DefaultValue: "api2"})
 }
+
+func TestClientFeatureUsageTracking(t *testing.T) {
+	ctx := context.TODO()
+	count := 0
+	cb := func(ctx context.Context, key string, result *FeatureResult) {
+		count++
+	}
+	client, _ := NewClient(ctx,
+		WithAttributes(Attributes{"id": "100"}),
+		WithFeatureUsageCallback(cb),
+	)
+	featuresJSON := `{"feature1": {"defaultValue": 0}}`
+	err := client.SetJSONFeatures(featuresJSON)
+	require.Nil(t, err)
+	res := client.EvalFeature(ctx, "feature1")
+	require.Equal(t, 0.0, res.Value)
+	require.Equal(t, 1, count)
+	child, _ := client.WithAttributes(Attributes{"id": "200"})
+	res = child.EvalFeature(ctx, "feature1")
+	require.Equal(t, 0.0, res.Value)
+	require.Equal(t, 2, count)
+}
+
+func TestClientExperimentTracking(t *testing.T) {
+	ctx := context.TODO()
+	count := 0
+	cb := func(ctx context.Context, exp *Experiment, result *ExperimentResult) {
+		count++
+	}
+	client, _ := NewClient(ctx,
+		WithAttributes(Attributes{"id": "100"}),
+		WithExperimentCallback(cb),
+	)
+	featuresJSON := `{
+      "feature1": {"defaultValue": 0},
+      "feature2": {"defaultValue": 0,
+          "rules": [
+              {
+                "variations": [0, 1]
+              }
+      ]}
+    }`
+	err := client.SetJSONFeatures(featuresJSON)
+	require.Nil(t, err)
+	res := client.EvalFeature(ctx, "feature1")
+	require.Equal(t, 0.0, res.Value)
+	require.Equal(t, 0, count)
+	res = client.EvalFeature(ctx, "feature2")
+	require.Equal(t, 1.0, res.Value)
+	require.Equal(t, 1, count)
+}
