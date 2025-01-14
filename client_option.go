@@ -12,7 +12,7 @@ import (
 
 type ClientOption func(*Client) error
 
-// WithEnabled switch to globally disable all experiments. Default true.
+// WithEnabled sets enabled switch to globally disable all experiments. Default true.
 func WithEnabled(enabled bool) ClientOption {
 	return func(c *Client) error {
 		c.enabled = enabled
@@ -28,7 +28,7 @@ func WithApiHost(apiHost string) ClientOption {
 	}
 }
 
-// WithClientKey used to fetch features from the GrowthBook API.
+// WithClientKey sets client key used to fetch features from the GrowthBook API.
 func WithClientKey(clientKey string) ClientOption {
 	return func(c *Client) error {
 		c.data.clientKey = clientKey
@@ -36,7 +36,7 @@ func WithClientKey(clientKey string) ClientOption {
 	}
 }
 
-// WithDecryptionKey used to decrypt encrypted features from the API. Optional
+// WithDecryptionKey sets key used to decrypt encrypted features from the API.
 func WithDecryptionKey(decryptionKey string) ClientOption {
 	return func(c *Client) error {
 		c.data.decryptionKey = decryptionKey
@@ -44,7 +44,7 @@ func WithDecryptionKey(decryptionKey string) ClientOption {
 	}
 }
 
-// Attributes are used to assign variations
+// WithAttributes sets attributes that used to assign variations.
 func WithAttributes(attributes Attributes) ClientOption {
 	return func(c *Client) error {
 		c.attributes = value.Obj(attributes)
@@ -52,7 +52,7 @@ func WithAttributes(attributes Attributes) ClientOption {
 	}
 }
 
-// SavedGroups are used to target the same group of users across multiple features and experiments
+// WithSavedGroups sets saved groups used to target the same group of users across multiple features and experiments.
 func WithSavedGroups(savedGroups condition.SavedGroups) ClientOption {
 	return func(c *Client) error {
 		c.data.savedGroups = savedGroups
@@ -60,7 +60,7 @@ func WithSavedGroups(savedGroups condition.SavedGroups) ClientOption {
 	}
 }
 
-// WithUrl sets url of the current page
+// WithUrl sets url of the current page.
 func WithUrl(rawUrl string) ClientOption {
 	return func(c *Client) error {
 		url, err := url.Parse(rawUrl)
@@ -72,20 +72,21 @@ func WithUrl(rawUrl string) ClientOption {
 	}
 }
 
-// WithFeatures definitions (usually pulled from an API or cache)
+// WithFeatures sets features definitions (usually pulled from an API or cache).
 func WithFeatures(features FeatureMap) ClientOption {
 	return func(c *Client) error {
 		return c.SetFeatures(features)
 	}
 }
 
-// WithJsonFeatures definitions (usually pulled from an API or cache)
+// WithJsonFeatures sets features definitions from JSON string.
 func WithJsonFeatures(featuresJson string) ClientOption {
 	return func(c *Client) error {
 		return c.SetJSONFeatures(featuresJson)
 	}
 }
 
+// WithEncryptedJsonFeatures sets features definitions from encrypted JSON string.
 func WithEncryptedJsonFeatures(featuresJson string) ClientOption {
 	return func(c *Client) error {
 		return c.SetEncryptedJSONFeatures(featuresJson)
@@ -108,7 +109,7 @@ func WithQaMode(qaMode bool) ClientOption {
 	}
 }
 
-// WithHttpClient sets http client for GrowthBook API calls
+// WithHttpClient sets http client for GrowthBook API calls.
 func WithHttpClient(httpClient *http.Client) ClientOption {
 	return func(c *Client) error {
 		c.data.httpClient = httpClient
@@ -116,7 +117,7 @@ func WithHttpClient(httpClient *http.Client) ClientOption {
 	}
 }
 
-// WithLogger sets logger for GrowthBook client
+// WithLogger sets logger for GrowthBook client.
 func WithLogger(logger *slog.Logger) ClientOption {
 	return func(c *Client) error {
 		c.logger = logger
@@ -124,7 +125,7 @@ func WithLogger(logger *slog.Logger) ClientOption {
 	}
 }
 
-// WithExtraData sets extra data that will be to callback calls
+// WithExtraData sets extra data that will be to callback calls.
 func WithExtraData(extraData any) ClientOption {
 	return func(c *Client) error {
 		c.extraData = extraData
@@ -132,7 +133,7 @@ func WithExtraData(extraData any) ClientOption {
 	}
 }
 
-// WithExperiementCallbaback sets experiment callback function
+// WithExperiementCallbaback sets experiment callback function.
 func WithExperimentCallback(cb ExperimentCallback) ClientOption {
 	return func(c *Client) error {
 		c.experimentCallback = cb
@@ -140,7 +141,7 @@ func WithExperimentCallback(cb ExperimentCallback) ClientOption {
 	}
 }
 
-// WithFeatureUsageCallback sets feature usage callback function
+// WithFeatureUsageCallback sets feature usage callback function.
 func WithFeatureUsageCallback(cb FeatureUsageCallback) ClientOption {
 	return func(c *Client) error {
 		c.featureUsageCallback = cb
@@ -150,54 +151,54 @@ func WithFeatureUsageCallback(cb FeatureUsageCallback) ClientOption {
 
 // Child client instance options
 
-// WithEnabled creates child client instance with updated enabled switch
+// WithEnabled creates child client instance with updated enabled switch.
 func (c *Client) WithEnabled(enabled bool) (*Client, error) {
 	return c.cloneWith(WithEnabled(enabled))
 }
 
-// WithQaMode creates child client instance with updated qaMode switch
+// WithQaMode creates child client instance with updated qaMode switch.
 func (c *Client) WithQaMode(qaMode bool) (*Client, error) {
 	return c.cloneWith(WithQaMode(qaMode))
 }
 
-// WithLogger creates child client instance that uses provided logger
+// WithLogger creates child client instance that uses provided logger.
 func (c *Client) WithLogger(logger *slog.Logger) (*Client, error) {
 	return c.cloneWith(WithLogger(logger))
 }
 
-// WithAttributes creates child client instance that uses provided attributes for evaluation
+// WithAttributes creates child client instance that uses provided attributes for evaluation.
 func (c *Client) WithAttributes(attributes Attributes) (*Client, error) {
 	return c.cloneWith(WithAttributes(attributes))
 }
 
-// WithAttributeOverrides creates child client instance with updated top-level attributes
+// WithAttributeOverrides creates child client instance with updated top-level attributes.
 func (c *Client) WithAttributeOverrides(attributes Attributes) (*Client, error) {
 	newAttrs := maps.Clone(c.attributes)
 	maps.Copy(newAttrs, value.Obj(attributes))
 	return c.cloneWith(withValueAttributes(newAttrs))
 }
 
-// WithUrl creates child client with updated current page URL
+// WithUrl creates child client with updated current page URL.
 func (c *Client) WithUrl(rawUrl string) (*Client, error) {
 	return c.cloneWith(WithUrl(rawUrl))
 }
 
-// WithForcedVariations creates child client with updated forced variations
+// WithForcedVariations creates child client with updated forced variations.
 func (c *Client) WithForcedVariations(forcedVariations ForcedVariationsMap) (*Client, error) {
 	return c.cloneWith(WithForcedVariations(forcedVariations))
 }
 
-// WithExtraData creates child client with extra data that will be sent to a callback
+// WithExtraData creates child client with extra data that will be sent to a callback.
 func (c *Client) WithExtraData(extraData any) (*Client, error) {
 	return c.cloneWith(WithExtraData(extraData))
 }
 
-// WithExperimentCallback creates child client with updated experiment callback function
+// WithExperimentCallback creates child client with updated experiment callback function.
 func (c *Client) WithExperimentCallback(cb ExperimentCallback) (*Client, error) {
 	return c.cloneWith(WithExperimentCallback(cb))
 }
 
-// WithFeatureUsageCallback creates child client with udpated feature usage callback function
+// WithFeatureUsageCallback creates child client with udpated feature usage callback function.
 func (c *Client) WithFeatureUsageCallback(cb FeatureUsageCallback) (*Client, error) {
 	return c.cloneWith(WithFeatureUsageCallback(cb))
 }
