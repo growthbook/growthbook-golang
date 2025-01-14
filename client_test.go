@@ -114,3 +114,37 @@ func TestClientSetEncryptedJSONFeatures(t *testing.T) {
 	require.Nil(t, err)
 	require.Equal(t, client.data.features, expected)
 }
+
+func TestClientNoUpdatesFromStaleApiData(t *testing.T) {
+	apiJson1 := `{
+      "features": {
+        "foo": {
+          "defaultValue": "api"
+        }
+      },
+      "experiments": [],
+      "dateUpdated": "2000-05-01T00:00:12Z"
+    }`
+
+	apiJson2 := `{
+      "features": {
+        "foo": {
+          "defaultValue": "api2"
+        }
+      },
+      "experiments": [],
+      "dateUpdated": "2000-05-02T00:00:12Z"
+    }`
+
+	ctx := context.TODO()
+	client, _ := NewClient(ctx)
+	err := client.UpdateFromApiResponseJSON(apiJson1)
+	require.Nil(t, err)
+	require.Equal(t, client.data.features["foo"], &Feature{DefaultValue: "api"})
+	err = client.UpdateFromApiResponseJSON(apiJson2)
+	require.Nil(t, err)
+	require.Equal(t, client.data.features["foo"], &Feature{DefaultValue: "api2"})
+	err = client.UpdateFromApiResponseJSON(apiJson1)
+	require.Nil(t, err)
+	require.Equal(t, client.data.features["foo"], &Feature{DefaultValue: "api2"})
+}
