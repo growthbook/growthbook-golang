@@ -105,6 +105,13 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 
 // UpdateFromApiResponse updates shared data from Growthbook API response
 func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+	dataUpdated := client.data.getDateUpdated()
+	apiUpdated := resp.DateUpdated
+	if apiUpdated.Before(dataUpdated) {
+		client.logger.Warn("Api response is older then current data, refuse to update",
+			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
+		return nil
+	}
 	var features FeatureMap
 	var err error
 	if resp.EncryptedFeatures != "" {
@@ -118,6 +125,7 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	client.data.withLock(func(d *data) error {
 		d.features = features
 		d.savedGroups = resp.SavedGroups
+		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
 	return nil

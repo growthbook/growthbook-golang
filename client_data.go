@@ -31,6 +31,12 @@ func newData() *data {
 	}
 }
 
+func (d *data) getDateUpdated() time.Time {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.dateUpdated
+}
+
 func (d *data) getFeatures() FeatureMap {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
