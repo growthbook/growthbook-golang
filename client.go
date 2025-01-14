@@ -26,16 +26,17 @@ type Client struct {
 	experimentCallback   ExperimentCallback
 	featureUsageCallback FeatureUsageCallback
 	logger               *slog.Logger
+	extraData            any
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
 type ForcedVariationsMap map[string]int
 
 // ExperimentCallback function that is executed every time a user is included in an Experiment.
-type ExperimentCallback func(context.Context, *Experiment, *ExperimentResult)
+type ExperimentCallback func(context.Context, *Experiment, *ExperimentResult, any)
 
 // FeatureUsageCallback funcion is executed every time feature is evaluated
-type FeatureUsageCallback func(context.Context, string, *FeatureResult)
+type FeatureUsageCallback func(context.Context, string, *FeatureResult, any)
 
 func NewApiClient(apiHost string, clientKey string) (*Client, error) {
 	ctx := context.Background()
@@ -162,10 +163,10 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 	e := client.evaluator()
 	res := e.evalFeature(key)
 	if client.featureUsageCallback != nil {
-		client.featureUsageCallback(ctx, key, res)
+		client.featureUsageCallback(ctx, key, res, client.extraData)
 	}
 	if client.experimentCallback != nil && res.InExperiment() {
-		client.experimentCallback(ctx, res.Experiment, res.ExperimentResult)
+		client.experimentCallback(ctx, res.Experiment, res.ExperimentResult, client.extraData)
 	}
 	return res
 }
@@ -174,7 +175,7 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 	e := client.evaluator()
 	res := e.runExperiment(exp, "")
 	if client.experimentCallback != nil && res.InExperiment {
-		client.experimentCallback(ctx, exp, res)
+		client.experimentCallback(ctx, exp, res, client.extraData)
 	}
 	return res
 }

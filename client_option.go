@@ -124,6 +124,14 @@ func WithLogger(logger *slog.Logger) ClientOption {
 	}
 }
 
+// WithExtraData sets extra data that will be to callback calls
+func WithExtraData(extraData any) ClientOption {
+	return func(c *Client) error {
+		c.extraData = extraData
+		return nil
+	}
+}
+
 // WithExperiementCallbaback sets experiment callback function
 func WithExperimentCallback(cb ExperimentCallback) ClientOption {
 	return func(c *Client) error {
@@ -177,6 +185,11 @@ func (c *Client) WithUrl(rawUrl string) (*Client, error) {
 // WithForcedVariations creates child client with updated forced variations
 func (c *Client) WithForcedVariations(forcedVariations ForcedVariationsMap) (*Client, error) {
 	return c.cloneWith(WithForcedVariations(forcedVariations))
+}
+
+// WithExtraData creates child client with extra data that will be sent to a callback
+func (c *Client) WithExtraData(extraData any) (*Client, error) {
+	return c.cloneWith(WithExtraData(extraData))
 }
 
 // WithExperimentCallback creates child client with updated experiment callback function
