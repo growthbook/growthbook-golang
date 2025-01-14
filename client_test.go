@@ -152,12 +152,15 @@ func TestClientNoUpdatesFromStaleApiData(t *testing.T) {
 func TestClientFeatureUsageTracking(t *testing.T) {
 	ctx := context.TODO()
 	count := 0
-	cb := func(ctx context.Context, key string, result *FeatureResult) {
+	var extraData any
+	cb := func(ctx context.Context, key string, result *FeatureResult, ed any) {
 		count++
+		extraData = ed
 	}
 	client, _ := NewClient(ctx,
 		WithAttributes(Attributes{"id": "100"}),
 		WithFeatureUsageCallback(cb),
+		WithExtraData("extra data"),
 	)
 	featuresJSON := `{"feature1": {"defaultValue": 0}}`
 	err := client.SetJSONFeatures(featuresJSON)
@@ -165,21 +168,27 @@ func TestClientFeatureUsageTracking(t *testing.T) {
 	res := client.EvalFeature(ctx, "feature1")
 	require.Equal(t, 0.0, res.Value)
 	require.Equal(t, 1, count)
+	require.Equal(t, "extra data", extraData)
 	child, _ := client.WithAttributes(Attributes{"id": "200"})
+	child, _ = child.WithExtraData("NEW")
 	res = child.EvalFeature(ctx, "feature1")
 	require.Equal(t, 0.0, res.Value)
 	require.Equal(t, 2, count)
+	require.Equal(t, "NEW", extraData)
 }
 
 func TestClientExperimentTracking(t *testing.T) {
 	ctx := context.TODO()
 	count := 0
-	cb := func(ctx context.Context, exp *Experiment, result *ExperimentResult) {
+	var extraData any
+	cb := func(ctx context.Context, exp *Experiment, result *ExperimentResult, ed any) {
 		count++
+		extraData = ed
 	}
 	client, _ := NewClient(ctx,
 		WithAttributes(Attributes{"id": "100"}),
 		WithExperimentCallback(cb),
+		WithExtraData("extra data"),
 	)
 	featuresJSON := `{
       "feature1": {"defaultValue": 0},
@@ -198,4 +207,5 @@ func TestClientExperimentTracking(t *testing.T) {
 	res = client.EvalFeature(ctx, "feature2")
 	require.Equal(t, 1.0, res.Value)
 	require.Equal(t, 1, count)
+	require.Equal(t, "extra data", extraData)
 }
