@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -38,10 +39,10 @@ func TestSseDataSource(t *testing.T) {
 		)
 		require.Nil(t, err)
 		err = client.EnsureLoaded(ctx)
-		require.Equal(t, features, client.data.features)
+		require.Equal(t, features, client.Features())
 		require.Nil(t, err)
 		time.Sleep(100 * time.Millisecond)
-		require.Equal(t, features2, client.data.features)
+		require.Equal(t, features2, client.Features())
 		err = client.Close()
 		require.Nil(t, err)
 	})
@@ -58,8 +59,8 @@ func TestSseDataSource(t *testing.T) {
 		require.Nil(t, err)
 		err = client.EnsureLoaded(ctx)
 		time.Sleep(100 * time.Millisecond)
-		require.Greater(t, ts.ssecount, 1)
-		require.Equal(t, features2, client.data.features)
+		require.Greater(t, ts.ssecount.Load(), int32(1))
+		require.Equal(t, features2, client.Features())
 		err = client.Close()
 		require.Nil(t, err)
 	})
@@ -76,16 +77,16 @@ func TestSseDataSource(t *testing.T) {
 		require.Nil(t, err)
 		err = client.EnsureLoaded(ctx)
 		client.Close()
-		old := ts.ssecount
+		old := ts.ssecount.Load()
 		time.Sleep(100 * time.Millisecond)
-		require.Equal(t, old, ts.ssecount)
+		require.Equal(t, old, ts.ssecount.Load())
 	})
 }
 
 type sseTestServer struct {
 	http     *httptest.Server
-	ssecount int
-	apicount int
+	ssecount atomic.Int32
+	apicount atomic.Int32
 }
 
 type sseResponseGen func(context.Context, http.ResponseWriter)
@@ -98,10 +99,10 @@ func startSseServer(apiResponse []byte, sseResponseGen sseResponseGen) *sseTestS
 			w.Header().Add("x-sse-support", "enabled")
 			w.WriteHeader(http.StatusOK)
 			w.Write(apiResponse)
-			ts.apicount++
+			ts.apicount.Add(1)
 			return
 		case "/sub/somekey":
-			ts.ssecount++
+			ts.ssecount.Add(1)
 			sseResponseGen(r.Context(), w)
 		}
 	}))

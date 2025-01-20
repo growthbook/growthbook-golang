@@ -61,7 +61,7 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 
 func (client *Client) Close() error {
 	ds := client.data.dataSource
-	if ds == nil || !client.data.dsStarted {
+	if ds == nil || !client.data.getDsStarted() {
 		return nil
 	}
 	return ds.Close()

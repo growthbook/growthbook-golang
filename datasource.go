@@ -13,19 +13,25 @@ func (client *Client) startDataSource(ctx context.Context) {
 
 	err := ds.Start(ctx)
 	if err != nil {
-		client.data.dsStartErr = err
-		client.data.dsStarted = false
+		client.data.withLock(func(d *data) error {
+			d.dsStartErr = err
+			d.dsStarted = false
+			return nil
+		})
 		return
 	}
 
-	client.data.dsStarted = true
-	client.data.dsStartErr = nil
+	client.data.withLock(func(d *data) error {
+		d.dsStarted = true
+		d.dsStartErr = nil
+		return nil
+	})
 }
 
 func (client *Client) EnsureLoaded(ctx context.Context) error {
 	select {
 	case <-client.data.dsStartWait:
-		return client.data.dsStartErr
+		return client.data.getDsStartErr()
 	case <-ctx.Done():
 		return ctx.Err()
 	}

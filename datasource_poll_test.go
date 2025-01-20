@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -36,7 +37,7 @@ func TestPollingDataSource(t *testing.T) {
 		require.Nil(t, err)
 		err = client.EnsureLoaded(ctx)
 		require.Nil(t, err)
-		require.Equal(t, features, client.data.features)
+		require.Equal(t, features, client.Features())
 		err = client.Close()
 		require.Nil(t, err)
 	})
@@ -52,10 +53,10 @@ func TestPollingDataSource(t *testing.T) {
 		)
 		client.EnsureLoaded(ctx)
 		client.Close()
-		require.True(t, ts.count > 0)
-		ts.count = 0
+		require.True(t, ts.count.Load() > 0)
+		ts.count.Store(0)
 		time.Sleep(100 * time.Millisecond)
-		require.Equal(t, 0, ts.count)
+		require.Equal(t, int32(0), ts.count.Load())
 	})
 
 	t.Run("EnsureLoaded returns error on invalid server response", func(t *testing.T) {
@@ -86,24 +87,24 @@ func TestPollingDataSource(t *testing.T) {
 		require.Nil(t, err)
 		err = client.EnsureLoaded(ctx)
 		require.Nil(t, err)
-		require.Equal(t, features, client.data.features)
+		require.Equal(t, features, client.Features())
 		time.Sleep(100 * time.Millisecond)
-		require.Equal(t, features, client.data.features)
-		require.True(t, ts.count > 2)
-		require.Equal(t, ts.count-1, ts.etagCount)
+		require.Equal(t, features, client.Features())
+		require.True(t, ts.count.Load() > 2)
+		require.Equal(t, ts.count.Load()-1, ts.etagCount.Load())
 	})
 }
 
 type testServer struct {
 	http      *httptest.Server
-	count     int
-	etagCount int
+	count     atomic.Int32
+	etagCount atomic.Int32
 }
 
 func startServer(code int, response []byte) *testServer {
 	var ts testServer
 	ts.http = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ts.count++
+		ts.count.Add(1)
 		w.WriteHeader(code)
 		_, _ = w.Write(response)
 	}))
@@ -114,9 +115,9 @@ func startEtagServer(response []byte) *testServer {
 	var ts testServer
 	etag := `W/"SOME_ETAG_VALUE"`
 	ts.http = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ts.count++
+		ts.count.Add(1)
 		if r.Header.Get("If-None-Match") == etag {
-			ts.etagCount++
+			ts.etagCount.Add(1)
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}

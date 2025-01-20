@@ -55,6 +55,18 @@ func (d *data) getSseUrl() string {
 	return d.apiHost + "/sub/" + d.clientKey
 }
 
+func (d *data) getDsStartErr() error {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.dsStartErr
+}
+
+func (d *data) getDsStarted() bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.dsStarted
+}
+
 type dataUpdate func(*data) error
 
 func (d *data) withLock(f dataUpdate) error {
