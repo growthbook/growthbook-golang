@@ -117,6 +117,6 @@ You can also attach extra data that will be sent with each callback. These callb
 ## Documentation
 
 - [Usage Guide](https://docs.growthbook.io/lib/go)
-- [GoDoc](https://growthbook.github.io/growthbook-golang)
+- [GoDoc](https://pkg.go.dev/github.com/growthbook/growthbook-golang)
 
 ---
