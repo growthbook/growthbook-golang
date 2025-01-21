@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.2.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.2.0) - 2025-01-25
+
+- Major refactoring of the SDK to address concurrency issues, improving thread safety.
+- Introduced feature options for client configuration.
+- Separated shared and local data, enabling the creation of child client instances.
+- Removed the custom GrowthBook context and adopted Go's native context for API calls.
+- Switched to native JSON unmarshaling for better performance and compatibility.
+- Extracted an internal value package for representing conditions and attribute values more robustly.
+- Extracted an internal condition package with a more type-safe approach to condition representation.
+- Updated spec.json to the latest 0.7.0 version and adopted a type-safe approach for parsing specs.
+- Synchronized internal structures with the current state of the JavaScript SDK.
+- Implemented background data sources for feature loading via polling and SSE streaming.
+
 ## [v0.1.4](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.1.4) - 2023-08-05
 
 - Fix numeric comparisons to use Javascript semantics.

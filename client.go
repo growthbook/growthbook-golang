@@ -16,6 +16,7 @@ var (
 	ErrNoDecryptionKey = errors.New("No decryption key provided")
 )
 
+// Client is a GrowthBook SDK client.
 type Client struct {
 	data                 *data
 	enabled              bool
@@ -38,11 +39,13 @@ type ExperimentCallback func(context.Context, *Experiment, *ExperimentResult, an
 // FeatureUsageCallback funcion is executed every time feature is evaluated
 type FeatureUsageCallback func(context.Context, string, *FeatureResult, any)
 
+// NewApiClient creates simple client with API host and client key
 func NewApiClient(apiHost string, clientKey string) (*Client, error) {
 	ctx := context.Background()
 	return NewClient(ctx, WithApiHost(apiHost), WithClientKey(clientKey))
 }
 
+// NewClient create a new GrowthBook SDK client.
 func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	client := defaultClient()
 	for _, opt := range opts {
@@ -59,6 +62,7 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	return client, nil
 }
 
+// Close client's background goroutines
 func (client *Client) Close() error {
 	ds := client.data.dataSource
 	if ds == nil || !client.data.getDsStarted() {
