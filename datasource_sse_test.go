@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -31,7 +32,9 @@ func TestSseDataSource(t *testing.T) {
 	t.Run("Update client data from sse data", func(t *testing.T) {
 		ts := startSseServer(featuresJSON, sseResponse(features2JSON, 10*time.Millisecond, 0))
 		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelWarn, t)
 		client, err := NewClient(ctx,
+			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
 			WithClientKey("somekey"),
@@ -50,7 +53,9 @@ func TestSseDataSource(t *testing.T) {
 	t.Run("Reconnect to server on connection break", func(t *testing.T) {
 		ts := startSseServer(featuresJSON, sseResponse(features2JSON, 10*time.Millisecond, 3))
 		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelWarn, t)
 		client, err := NewClient(ctx,
+			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
 			WithClientKey("somekey"),
@@ -68,7 +73,9 @@ func TestSseDataSource(t *testing.T) {
 	t.Run("Don't reconnect after closing client", func(t *testing.T) {
 		ts := startSseServer(featuresJSON, sseResponse(features2JSON, 10*time.Millisecond, 3))
 		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelWarn, t)
 		client, err := NewClient(ctx,
+			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
 			WithClientKey("somekey"),

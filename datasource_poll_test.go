@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -27,8 +28,10 @@ func TestPollingDataSource(t *testing.T) {
 
 	t.Run("Update client data from valid server response", func(t *testing.T) {
 		ts := startServer(http.StatusOK, featuresJSON)
+		logger, _ := testLogger(slog.LevelError, t)
 		defer ts.http.Close()
 		client, err := NewClient(ctx,
+			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
 			WithClientKey("somekey"),
@@ -44,8 +47,10 @@ func TestPollingDataSource(t *testing.T) {
 
 	t.Run("Closing client stops data loading", func(t *testing.T) {
 		ts := startServer(http.StatusOK, featuresJSON)
+		logger, _ := testLogger(slog.LevelInfo, t)
 		defer ts.http.Close()
 		client, _ := NewClient(ctx,
+			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
 			WithClientKey("somekey"),
@@ -61,8 +66,10 @@ func TestPollingDataSource(t *testing.T) {
 
 	t.Run("EnsureLoaded returns error on invalid server response", func(t *testing.T) {
 		ts := startServer(http.StatusNotFound, []byte(""))
+		logger, _ := testLogger(slog.LevelError, t)
 		defer ts.http.Close()
 		client, err := NewClient(ctx,
+			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
 			WithClientKey("somekey"),
@@ -77,8 +84,10 @@ func TestPollingDataSource(t *testing.T) {
 
 	t.Run("Use etags for requests if present", func(t *testing.T) {
 		ts := startEtagServer(featuresJSON)
+		logger, _ := testLogger(slog.LevelError, t)
 		defer ts.http.Close()
 		client, err := NewClient(ctx,
+			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
 			WithClientKey("somekey"),
