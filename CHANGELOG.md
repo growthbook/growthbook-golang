@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.2.1](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.2.1) - 2025-01-25
+
+- fix WithAttributeOverrides panic when applied to nil attributes
+
 ## [v0.2.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.2.0) - 2025-01-25
 
 - Major refactoring of the SDK to address concurrency issues, improving thread safety.
