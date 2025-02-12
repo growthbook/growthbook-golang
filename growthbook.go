@@ -1,3 +1,4 @@
-// Package growthbook is the Go client library for GrowthBook platform that lets you evaluate feature flags and
-// run experiments (A/B tests) within a Go application.
+// Package growthbook is the GrowthBook Go client library. It enables you to
+// seamlessly evaluate feature flags and conduct A/B testing (experiments)
+// directly within your Go application, integrating with the GrowthBook platform.
 package growthbook
