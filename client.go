@@ -73,10 +73,11 @@ func (client *Client) Close() error {
 
 func defaultClient() *Client {
 	return &Client{
-		data:    newData(),
-		enabled: true,
-		qaMode:  false,
-		logger:  slog.Default(),
+		data:       newData(),
+		enabled:    true,
+		qaMode:     false,
+		logger:     slog.Default(),
+		attributes: value.ObjValue{},
 	}
 }
 
