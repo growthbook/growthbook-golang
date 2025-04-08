@@ -18,7 +18,8 @@ type Experiment struct {
 	Variations []FeatureValue `json:"variations"`
 	// How to weight traffic between variations. Must add to 1.
 	Weights []float64 `json:"weights"`
-	// If set to false, always return the control (first variation)
+	// Active determines if the experiment is running. If set to false, always return the control (first variation)
+	// If nil (field missing in JSON), the experiment is considered active by default.
 	Active *bool `json:"active"`
 	// What percent of users should be included in the experiment (between 0 and 1, inclusive)
 	Coverage *float64 `json:"coverage"`
@@ -105,9 +106,13 @@ func (e *Experiment) getSeed() string {
 	return e.Seed
 }
 
+// IsActive returns whether the experiment is active.
+// Experiments are considered active by default (when Active field is nil).
+func (e *Experiment) IsActive() bool {
+	return e.Active == nil || *e.Active
+}
+
+// Deprecated: Use IsActive() instead.
 func (e *Experiment) getActive() bool {
-	if e.Active == nil {
-		return true
-	}
-	return *e.Active
+	return e.IsActive()
 }
