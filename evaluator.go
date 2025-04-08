@@ -174,7 +174,7 @@ func (e *evaluator) getExperimentResult(
 	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, "")
 
 	var meta *VariationMeta
-	if variationId > 0 && variationId < len(exp.Meta) {
+	if variationId >= 0 && variationId < len(exp.Meta) {
 		meta = &exp.Meta[variationId]
 	}
 
