@@ -130,6 +130,7 @@ func GetStickyBucketVariation(
 	hashAttribute string,
 	fallbackAttribute string,
 	attributes map[string]string,
+	cachedAssignments StickyBucketAssignments,
 ) (*StickyBucketResult, error) {
 	result := &StickyBucketResult{
 		Variation:        -1,
@@ -148,7 +149,7 @@ func GetStickyBucketVariation(
 	experimentVersionKey := getStickyBucketExperimentKey(experimentKey, bucketVersion)
 
 	// Get assignments from both primary and fallback attributes
-	assignments, err := getStickyBucketAssignments(service, hashAttribute, fallbackAttribute, attributes)
+	assignments, err := getStickyBucketAssignments(service, hashAttribute, fallbackAttribute, attributes, cachedAssignments)
 	if err != nil {
 		return result, err
 	}
@@ -183,6 +184,7 @@ func getStickyBucketAssignments(
 	hashAttribute string,
 	fallbackAttribute string,
 	attributes map[string]string,
+	cachedAssignments StickyBucketAssignments,
 ) (map[string]string, error) {
 	merged := make(map[string]string)
 
@@ -190,21 +192,27 @@ func getStickyBucketAssignments(
 		return merged, nil
 	}
 
+	// Track which attributes we need to fetch from the service
+	attributesToFetch := make(map[string]string)
+
 	// Get the hash values
 	hashValue, hasHash := attributes[hashAttribute]
-
-	// Check primary attribute
 	if hasHash {
-		doc, err := service.GetAssignments(hashAttribute, hashValue)
-		if err != nil {
-			return merged, err
-		}
-
-		if doc != nil {
-			// Copy assignments
-			for k, v := range doc.Assignments {
-				merged[k] = v
+		// Check if we have this in the cache first
+		hashKey := getKey(hashAttribute, hashValue)
+		if cachedAssignments != nil {
+			if doc, ok := cachedAssignments[hashKey]; ok && doc != nil {
+				// Use cached assignments
+				for k, v := range doc.Assignments {
+					merged[k] = v
+				}
+			} else {
+				// Need to fetch
+				attributesToFetch[hashAttribute] = hashValue
 			}
+		} else {
+			// No cache, need to fetch
+			attributesToFetch[hashAttribute] = hashValue
 		}
 	}
 
@@ -212,17 +220,54 @@ func getStickyBucketAssignments(
 	if fallbackAttribute != "" && fallbackAttribute != hashAttribute {
 		fallbackValue, hasFallback := attributes[fallbackAttribute]
 		if hasFallback {
-			doc, err := service.GetAssignments(fallbackAttribute, fallbackValue)
+			// Check if we have this in the cache first
+			fallbackKey := getKey(fallbackAttribute, fallbackValue)
+			if cachedAssignments != nil {
+				if doc, ok := cachedAssignments[fallbackKey]; ok && doc != nil {
+					// Use cached assignments, but don't overwrite existing ones
+					for k, v := range doc.Assignments {
+						if _, exists := merged[k]; !exists {
+							merged[k] = v
+						}
+					}
+				} else {
+					// Need to fetch
+					attributesToFetch[fallbackAttribute] = fallbackValue
+				}
+			} else {
+				// No cache, need to fetch
+				attributesToFetch[fallbackAttribute] = fallbackValue
+			}
+		}
+	}
+
+	// If we need to fetch anything from the service
+	if len(attributesToFetch) > 0 {
+		for attrName, attrValue := range attributesToFetch {
+			doc, err := service.GetAssignments(attrName, attrValue)
 			if err != nil {
 				return merged, err
 			}
 
 			if doc != nil {
-				// Merge fallback assignments, but don't overwrite existing ones
+				// Store in merged assignments
+				isPrimary := attrName == hashAttribute
 				for k, v := range doc.Assignments {
-					if _, exists := merged[k]; !exists {
+					// For primary attribute, always use the value
+					// For fallback, only use if not already set
+					exists := false
+					if !isPrimary {
+						_, exists = merged[k]
+					}
+					if isPrimary || !exists {
 						merged[k] = v
 					}
+				}
+
+				// Update the cache if provided
+				if cachedAssignments != nil {
+					key := getKey(attrName, attrValue)
+					cachedAssignments[key] = doc
 				}
 			}
 		}
@@ -240,6 +285,7 @@ func SaveStickyBucketAssignment(
 	service StickyBucketService,
 	attributeName string,
 	attributeValue string,
+	cachedAssignments StickyBucketAssignments,
 ) error {
 	if service == nil || attributeName == "" || attributeValue == "" {
 		return nil
@@ -260,6 +306,10 @@ func SaveStickyBucketAssignment(
 
 	// Only save if a change was detected
 	if data.Doc != nil && data.Changed {
+		// Update cache if provided
+		if cachedAssignments != nil {
+			cachedAssignments[data.Key] = data.Doc
+		}
 		return service.SaveAssignments(data.Doc)
 	}
 

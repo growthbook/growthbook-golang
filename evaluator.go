@@ -111,6 +111,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			exp.HashAttribute,
 			exp.FallbackAttribute,
 			attributes,
+			e.client.stickyBucketAssignments,
 		)
 
 		if err == nil {
@@ -233,6 +234,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			e.client.stickyBucketService,
 			hashAttribute,
 			hashValue,
+			e.client.stickyBucketAssignments,
 		)
 	}
 
