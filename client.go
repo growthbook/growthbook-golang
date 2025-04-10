@@ -28,6 +28,15 @@ type Client struct {
 	featureUsageCallback FeatureUsageCallback
 	logger               *slog.Logger
 	extraData            any
+
+	// StickyBucketService for storing experiment assignments
+	stickyBucketService StickyBucketService
+
+	// StickyBucketAttributes for identifying users
+	stickyBucketAttributes StickyBucketAttributes
+
+	// StickyBucketAssignments caches assignments
+	stickyBucketAssignments StickyBucketAssignments
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
