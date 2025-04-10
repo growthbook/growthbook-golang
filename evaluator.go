@@ -81,35 +81,42 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	var stickyBucketVersionBlocked bool = false
 
 	if e.client.stickyBucketService != nil && !exp.DisableStickyBucketing {
-		// Check if we have a sticky bucket attribute and attributes are set in the client
-		if hashValue != "" && e.client.stickyBucketAttributes != nil {
-			// Transform attributeValue to a map entry
-			attributes := make(map[string]string)
-			attributes[hashAttribute] = hashValue
+		// Transform attributeValue to a map entry
+		attributes := make(map[string]string)
+		attributes[hashAttribute] = hashValue
 
-			// Also add any fallback if different
-			if exp.FallbackAttribute != "" && exp.FallbackAttribute != exp.HashAttribute {
-				if fallbackValue, ok := e.client.attributes[exp.FallbackAttribute]; ok {
-					attributes[exp.FallbackAttribute] = fallbackValue.String()
+		// Also add any fallback if different
+		if exp.FallbackAttribute != "" && exp.FallbackAttribute != exp.HashAttribute {
+			if fallbackValue, ok := e.client.attributes[exp.FallbackAttribute]; ok {
+				attributes[exp.FallbackAttribute] = fallbackValue.String()
+			}
+		}
+
+		// Merge with client sticky bucket attributes
+		if e.client.stickyBucketAttributes != nil {
+			for k, v := range e.client.stickyBucketAttributes {
+				// Don't overwrite existing attributes
+				if _, exists := attributes[k]; !exists {
+					attributes[k] = v
 				}
 			}
+		}
 
-			stickyResult, err := GetStickyBucketVariation(
-				exp.Key,
-				exp.BucketVersion,
-				exp.MinBucketVersion,
-				exp.Meta,
-				e.client.stickyBucketService,
-				exp.HashAttribute,
-				exp.FallbackAttribute,
-				attributes,
-			)
+		stickyResult, err := GetStickyBucketVariation(
+			exp.Key,
+			exp.BucketVersion,
+			exp.MinBucketVersion,
+			exp.Meta,
+			e.client.stickyBucketService,
+			exp.HashAttribute,
+			exp.FallbackAttribute,
+			attributes,
+		)
 
-			if err == nil {
-				stickyBucketFound = stickyResult.Variation >= 0
-				stickyBucketVariation = stickyResult.Variation
-				stickyBucketVersionBlocked = stickyResult.VersionIsBlocked
-			}
+		if err == nil {
+			stickyBucketFound = stickyResult.Variation >= 0
+			stickyBucketVariation = stickyResult.Variation
+			stickyBucketVersionBlocked = stickyResult.VersionIsBlocked
 		}
 	}
 
