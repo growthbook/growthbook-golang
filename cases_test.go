@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"os"
 	"reflect"
@@ -25,6 +26,7 @@ type cases struct {
 	InNamespace            JsonTuples[inNamespaceCase]            `json:"inNamespace"`
 	GetEqualWeights        JsonTuples[getEqualWeightsCase]        `json:"getEqualWeights"`
 	Decrypt                JsonTuples[decryptCase]                `json:"decrypt"`
+	StickyBucket           JsonTuples[stickyBucketTestCase]       `json:"stickyBucket"`
 }
 
 type evalConditionCase struct {
@@ -102,6 +104,15 @@ type decryptCase struct {
 	Expected  string
 }
 
+type stickyBucketTestCase struct {
+	Name                string
+	Env                 env
+	ExistingAssignments []StickyBucketAssignmentDoc
+	FeatureName         string
+	Expected            *ExperimentResult
+	ExpectedAssignments map[string]*StickyBucketAssignmentDoc
+}
+
 type env struct {
 	Attributes       Attributes            `json:"attributes"`
 	Features         FeatureMap            `json:"features"`
@@ -165,6 +176,7 @@ func TestCasesJson(t *testing.T) {
 	cases.InNamespace.run("inNamespace", t)
 	cases.GetEqualWeights.run("getEqualWeights", t)
 	cases.Decrypt.run("decrypt", t)
+	cases.StickyBucket.run("stickyBucket", t)
 }
 
 func (c evalConditionCase) test(t *testing.T) {
@@ -260,6 +272,83 @@ func (c decryptCase) test(t *testing.T) {
 			require.Equal(t, "", res)
 		}
 	})
+}
+
+func (c stickyBucketTestCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		// Create a sticky bucket service with pre-populated assignments
+		service := NewInMemoryStickyBucketService()
+		for _, assignment := range c.ExistingAssignments {
+			err := service.SaveAssignments(&assignment)
+			require.NoError(t, err)
+		}
+
+		// Create the client with the environment and sticky bucket service
+		client, err := c.Env.client()
+		require.Nil(t, err)
+
+		// Add the sticky bucket service to the client
+		client.stickyBucketService = service
+
+		// Add space for cached assignments
+		client.stickyBucketAssignments = make(StickyBucketAssignments)
+
+		// Set up a debug logger
+		client.logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+			Level: slog.LevelDebug,
+		}))
+
+		// Evaluate the feature
+		featureResult := client.EvalFeature(context.TODO(), c.FeatureName)
+
+		// Check the experiment result
+		if c.Expected == nil {
+			require.Nil(t, featureResult.ExperimentResult, "Expected no experiment result, but got one")
+		} else if featureResult.ExperimentResult == nil {
+			require.NotNil(t, c.Expected, "Expected an experiment result, but got none")
+		} else {
+			// Compare the important fields
+			result := featureResult.ExperimentResult
+			require.Equal(t, c.Expected.Value, result.Value, "Value mismatch")
+			require.Equal(t, c.Expected.VariationId, result.VariationId, "VariationId mismatch")
+			require.Equal(t, c.Expected.InExperiment, result.InExperiment, "InExperiment mismatch")
+			require.Equal(t, c.Expected.Key, result.Key, "Key mismatch")
+			require.Equal(t, c.Expected.HashAttribute, result.HashAttribute, "HashAttribute mismatch")
+			require.Equal(t, c.Expected.StickyBucketUsed, result.StickyBucketUsed, "StickyBucketUsed mismatch")
+		}
+
+		// Check if assignments match expectations
+		if c.ExpectedAssignments != nil {
+			for key, expectedDoc := range c.ExpectedAssignments {
+				parts := parseAttributeKey(key)
+				if len(parts) == 2 {
+					attributeName, attributeValue := parts[0], parts[1]
+
+					// Get the actual document from the service
+					actualDoc, err := service.GetAssignments(attributeName, attributeValue)
+					require.NoError(t, err)
+					require.NotNil(t, actualDoc, "Expected a document for %s, but none was found", key)
+
+					// Check assignments match
+					for expKey, expVal := range expectedDoc.Assignments {
+						actualVal, exists := actualDoc.Assignments[expKey]
+						require.True(t, exists, "Assignment %s not found in document for %s", expKey, key)
+						require.Equal(t, expVal, actualVal, "Assignment value mismatch for %s in document %s", expKey, key)
+					}
+				}
+			}
+		}
+	})
+}
+
+// Helper function to parse an attribute key (format: "attributeName||attributeValue")
+func parseAttributeKey(key string) []string {
+	for i := 0; i < len(key)-1; i++ {
+		if key[i] == '|' && key[i+1] == '|' {
+			return []string{key[:i], key[i+2:]}
+		}
+	}
+	return []string{}
 }
 
 func (e *env) client() (*Client, error) {
