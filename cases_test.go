@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"net/url"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -276,79 +276,72 @@ func (c decryptCase) test(t *testing.T) {
 
 func (c stickyBucketTestCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
-		// Create a sticky bucket service with pre-populated assignments
+		// Create and populate service
 		service := NewInMemoryStickyBucketService()
 		for _, assignment := range c.ExistingAssignments {
 			err := service.SaveAssignments(&assignment)
 			require.NoError(t, err)
 		}
 
-		// Create the client with the environment and sticky bucket service
+		// Create client
 		client, err := c.Env.client()
-		require.Nil(t, err)
-
-		// Add the sticky bucket service to the client
+		require.NoError(t, err)
 		client.stickyBucketService = service
-
-		// Add space for cached assignments
 		client.stickyBucketAssignments = make(StickyBucketAssignments)
 
-		// Set up a debug logger
-		client.logger = slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
-			Level: slog.LevelDebug,
-		}))
+		// Evaluate feature
+		result := client.EvalFeature(context.TODO(), c.FeatureName)
 
-		// Evaluate the feature
-		featureResult := client.EvalFeature(context.TODO(), c.FeatureName)
-
-		// Check the experiment result
+		// Check experiment result
 		if c.Expected == nil {
-			require.Nil(t, featureResult.ExperimentResult, "Expected no experiment result, but got one")
-		} else if featureResult.ExperimentResult == nil {
-			require.NotNil(t, c.Expected, "Expected an experiment result, but got none")
-		} else {
-			// Compare the important fields
-			result := featureResult.ExperimentResult
-			require.Equal(t, c.Expected.Value, result.Value, "Value mismatch")
-			require.Equal(t, c.Expected.VariationId, result.VariationId, "VariationId mismatch")
-			require.Equal(t, c.Expected.InExperiment, result.InExperiment, "InExperiment mismatch")
-			require.Equal(t, c.Expected.Key, result.Key, "Key mismatch")
-			require.Equal(t, c.Expected.HashAttribute, result.HashAttribute, "HashAttribute mismatch")
-			require.Equal(t, c.Expected.StickyBucketUsed, result.StickyBucketUsed, "StickyBucketUsed mismatch")
+			require.Nil(t, result.ExperimentResult)
+			return
 		}
 
-		// Check if assignments match expectations
+		require.NotNil(t, result.ExperimentResult)
+		exp := result.ExperimentResult
+		expected := c.Expected
+
+		// Use a table of assertions
+		assertions := []struct {
+			name    string
+			got     interface{}
+			want    interface{}
+			message string
+		}{
+			{"Value", exp.Value, expected.Value, "Value mismatch"},
+			{"VariationId", exp.VariationId, expected.VariationId, "VariationId mismatch"},
+			{"InExperiment", exp.InExperiment, expected.InExperiment, "InExperiment mismatch"},
+			{"Key", exp.Key, expected.Key, "Key mismatch"},
+			{"HashAttribute", exp.HashAttribute, expected.HashAttribute, "HashAttribute mismatch"},
+			{"StickyBucketUsed", exp.StickyBucketUsed, expected.StickyBucketUsed, "StickyBucketUsed mismatch"},
+		}
+
+		for _, a := range assertions {
+			require.Equal(t, a.want, a.got, a.message)
+		}
+
+		// Check assignments if expected
 		if c.ExpectedAssignments != nil {
 			for key, expectedDoc := range c.ExpectedAssignments {
-				parts := parseAttributeKey(key)
-				if len(parts) == 2 {
-					attributeName, attributeValue := parts[0], parts[1]
-
-					// Get the actual document from the service
-					actualDoc, err := service.GetAssignments(attributeName, attributeValue)
-					require.NoError(t, err)
-					require.NotNil(t, actualDoc, "Expected a document for %s, but none was found", key)
-
-					// Check assignments match
-					for expKey, expVal := range expectedDoc.Assignments {
-						actualVal, exists := actualDoc.Assignments[expKey]
-						require.True(t, exists, "Assignment %s not found in document for %s", expKey, key)
-						require.Equal(t, expVal, actualVal, "Assignment value mismatch for %s in document %s", expKey, key)
-					}
-				}
+				attributeName, attributeValue := parseKey(key)
+				actualDoc, err := service.GetAssignments(attributeName, attributeValue)
+				require.NoError(t, err)
+				require.NotNil(t, actualDoc, "Missing document for %s", key)
+				require.Equal(t, expectedDoc.Assignments, actualDoc.Assignments,
+					"Assignment mismatch for %s", key)
 			}
 		}
 	})
 }
 
-// Helper function to parse an attribute key (format: "attributeName||attributeValue")
-func parseAttributeKey(key string) []string {
-	for i := 0; i < len(key)-1; i++ {
-		if key[i] == '|' && key[i+1] == '|' {
-			return []string{key[:i], key[i+2:]}
-		}
+// Helper function to parse key (moved from parseAttributeKey)
+func parseKey(key string) (string, string) {
+	parts := strings.Split(key, "||")
+	if len(parts) != 2 {
+		return "", ""
 	}
-	return []string{}
+	return parts[0], parts[1]
 }
 
 func (e *env) client() (*Client, error) {
