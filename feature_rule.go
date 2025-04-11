@@ -24,6 +24,8 @@ type FeatureRule struct {
 	Namespace *Namespace `json:"namespace"`
 	// What user attribute should be used to assign variations (defaults to id)
 	HashAttribute string `json:"hashAttribute"`
+	// When using sticky bucketing, can be used as a fallback to assign variations
+	FallbackAttribute string `json:"fallbackAttribute"`
 	// The hash version to use (default to 1)
 	HashVersion int `json:"hashVersion"`
 	// A more precise version of coverage

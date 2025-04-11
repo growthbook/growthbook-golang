@@ -72,21 +72,22 @@ func experimentFromFeatureRule(featureId string, rule *FeatureRule) *Experiment 
 	}
 
 	exp := Experiment{
-		Key:              expKey,
-		Variations:       rule.Variations,
-		Coverage:         rule.Coverage,
-		Weights:          rule.Weights,
-		HashAttribute:    rule.HashAttribute,
-		Namespace:        rule.Namespace,
-		Meta:             rule.Meta,
-		Ranges:           rule.Ranges,
-		Name:             rule.Name,
-		Phase:            rule.Phase,
-		Seed:             rule.Seed,
-		HashVersion:      rule.HashVersion,
-		Filters:          rule.Filters,
-		Condition:        rule.Condition,
-		ParentConditions: rule.ParentConditions,
+		Key:               expKey,
+		Variations:        rule.Variations,
+		Coverage:          rule.Coverage,
+		Weights:           rule.Weights,
+		HashAttribute:     rule.HashAttribute,
+		FallbackAttribute: rule.FallbackAttribute,
+		Namespace:         rule.Namespace,
+		Meta:              rule.Meta,
+		Ranges:            rule.Ranges,
+		Name:              rule.Name,
+		Phase:             rule.Phase,
+		Seed:              rule.Seed,
+		HashVersion:       rule.HashVersion,
+		Filters:           rule.Filters,
+		Condition:         rule.Condition,
+		ParentConditions:  rule.ParentConditions,
 	}
 	return &exp
 }
