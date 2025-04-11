@@ -257,7 +257,7 @@ func (e *evaluator) getExperimentResult(
 		inExperiment = false
 	}
 
-	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, "")
+	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, exp.FallbackAttribute)
 
 	var meta *VariationMeta
 	if variationId > 0 && variationId < len(exp.Meta) {
