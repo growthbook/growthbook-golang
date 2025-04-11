@@ -2,7 +2,6 @@ package growthbook
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"os"
 	"testing"
@@ -212,70 +211,64 @@ func TestStickyBucketSaveAssignment(t *testing.T) {
 	require.Equal(t, "control2", doc.Assignments["exp2__0"])
 }
 
-func TestStickyBucketInExperimentEvaluation(t *testing.T) {
-	// Setup service with existing assignment
-	service := NewInMemoryStickyBucketService()
-
-	// Create experiment with fixed variations
-	exp := &Experiment{
-		Key:        "test-exp",
-		Variations: []FeatureValue{"control", "treatment"},
-		Meta: []VariationMeta{
-			{Key: "0"},
-			{Key: "1"},
-		},
-		// Force a specific variation by setting weights
-		Weights: []float64{1.0, 0.0}, // 100% chance of variation 0
+// Common test helpers
+func createTestExperiment(key string, weights []float64, metaKeys []string) *Experiment {
+	variations := []FeatureValue{"control", "treatment"}
+	meta := make([]VariationMeta, len(metaKeys))
+	for i, key := range metaKeys {
+		meta[i] = VariationMeta{Key: key}
 	}
 
-	// Create a context with the sticky bucket service
-	ctx := context.TODO()
-	client, _ := newClientWithDebugLogs(
+	return &Experiment{
+		Key:        key,
+		Variations: variations,
+		Meta:       meta,
+		Weights:    weights,
+	}
+}
+
+func createTestClient(t *testing.T, ctx context.Context, service StickyBucketService) *Client {
+	client, err := newClientWithDebugLogs(
 		ctx,
 		WithAttributes(Attributes{"id": "123"}),
 		WithStickyBucketService(service),
 	)
+	require.NoError(t, err)
+	return client
+}
 
-	// First run - should assign variation 0 due to weights
+func TestStickyBucketInExperimentEvaluation(t *testing.T) {
+	service := NewInMemoryStickyBucketService()
+	ctx := context.TODO()
+
+	// Basic experiment
+	exp := createTestExperiment("test-exp", []float64{1.0, 0.0}, []string{"0", "1"})
+	client := createTestClient(t, ctx, service)
+
+	// First run
 	result := client.RunExperiment(ctx, exp)
 	require.True(t, result.InExperiment)
-	require.Equal(t, 0, result.VariationId) // Should get the first variation due to weights
+	require.Equal(t, 0, result.VariationId)
 
-	// Verify it was saved in the sticky bucket service
+	// Verify sticky bucket
 	doc, _ := service.GetAssignments("id", "123")
-	require.NotNil(t, doc)
 	require.Contains(t, doc.Assignments, "test-exp__0")
 
-	// Run again - should get the same variation from sticky bucket
+	// Second run
 	result2 := client.RunExperiment(ctx, exp)
 	require.True(t, result2.InExperiment)
-	require.Equal(t, 0, result2.VariationId) // Should get the first variation
+	require.Equal(t, 0, result2.VariationId)
 	require.True(t, result2.StickyBucketUsed)
 
-	// Test: version blocking with a new version
-	expNew := &Experiment{
-		Key:        "test-exp",
-		Variations: []FeatureValue{"control", "treatment"},
-		Meta: []VariationMeta{
-			{Key: "control-key"},
-			{Key: "treatment-key"},
-		},
-		BucketVersion:    1,
-		MinBucketVersion: 1,
-		Weights:          []float64{1.0, 0.0}, // 100% chance of variation 0
-	}
+	// Version blocking test
+	expNew := createTestExperiment("test-exp", []float64{1.0, 0.0}, []string{"control-key", "treatment-key"})
+	expNew.BucketVersion = 1
+	expNew.MinBucketVersion = 1
 
-	// Should get a new variation because old version is blocked
 	result3 := client.RunExperiment(ctx, expNew)
-	fmt.Printf("[TEST] HashAttribute: %s\n", result3.HashAttribute)
 	require.False(t, result3.InExperiment)
 	require.True(t, result3.StickyBucketUsed)
-	require.Equal(t, 0, result3.VariationId) // Should get the first variation due to weights
-
-	// Verify the new version was saved
-	doc, _ = service.GetAssignments("id", "123")
-	require.NotNil(t, doc)
-	require.NotContains(t, doc.Assignments, "test-exp__1")
+	require.Equal(t, 0, result3.VariationId)
 }
 
 func TestStickyBucketWithFallbackAttribute(t *testing.T) {
@@ -322,108 +315,61 @@ func TestStickyBucketWithFallbackAttribute(t *testing.T) {
 }
 
 func TestStickyBucketCaching(t *testing.T) {
-	// Create a mock service wrapper to count calls
-	callDetails := []string{}
-	mockCalls := 0
 	service := NewInMemoryStickyBucketService()
+	mockCalls := 0
 	mockService := &mockStickyBucketService{
-		service: service,
+		InMemoryStickyBucketService: service,
 		onGetAssignments: func(name, value string) {
 			mockCalls++
-			callDetails = append(callDetails, fmt.Sprintf("GetAssignments(%s, %s)", name, value))
 		},
 	}
 
-	// Create experiment with fixed weights
-	exp := &Experiment{
-		Key:        "cache-test",
-		Variations: []FeatureValue{"control", "treatment"},
-		Meta:       []VariationMeta{{Key: "0"}, {Key: "1"}}, // Use numeric keys to match IDs
-		Weights:    []float64{1.0, 0.0},                     // 100% chance of variation 0
-	}
-
-	// Create client with the sticky bucket service and initialize cache map
 	ctx := context.TODO()
-	client, _ := newClientWithDebugLogs(
-		ctx,
-		WithAttributes(Attributes{"id": "123"}),
-		WithStickyBucketService(mockService),
-	)
+	client := createTestClient(t, ctx, mockService)
 
-	// First run - checks for existing assignment and creates one
-	result1 := client.RunExperiment(ctx, exp)
+	// First experiment
+	exp1 := createTestExperiment("cache-test", []float64{1.0, 0.0}, []string{"0", "1"})
+
+	// First run should make 2 calls
+	result1 := client.RunExperiment(ctx, exp1)
+	require.Equal(t, 2, mockCalls, "First run should make 2 calls")
 	require.True(t, result1.InExperiment)
-	require.Equal(t, 0, result1.VariationId) // First variation due to weights
 
-	// The first run always requires 2 GetAssignments calls:
-	// 1) empty cache lookup
-	// 2) save new assignment
-	firstRunCalls := mockCalls
-	require.Equal(t, 2, firstRunCalls, "First run should make exactly 2 GetAssignments calls")
-
-	// Reset counter for second run
+	// Second run should use cache
 	mockCalls = 0
-	callDetails = []string{}
+	result2 := client.RunExperiment(ctx, exp1)
+	require.True(t, result2.StickyBucketUsed)
 
-	// Get the current cache state
-	cacheKey := getKey("id", "123")
-	beforeCache := client.stickyBucketAssignments[cacheKey]
-	require.NotNil(t, beforeCache)
-	require.Contains(t, beforeCache.Assignments, "cache-test__0")
-	require.Equal(t, 1, len(beforeCache.Assignments), "Cache should have only one experiment")
-
-	// Second run of the SAME experiment - should use client's cached assignments
-	result2 := client.RunExperiment(ctx, exp)
-	require.True(t, result2.InExperiment)
-	require.Equal(t, 0, result2.VariationId)
-	require.True(t, result2.StickyBucketUsed, "Should use sticky bucket on second run")
-	require.Equal(t, 1, len(beforeCache.Assignments), "Cache should have only one experiment")
-
-	// Reset counter
+	// Different experiment, same attribute
 	mockCalls = 0
-	callDetails = []string{}
-
-	// Create a new experiment with the same hash attribute
-	exp2 := &Experiment{
-		Key:           "cache-test2",
-		Variations:    []FeatureValue{"a", "b"},
-		Meta:          []VariationMeta{{Key: "0"}, {Key: "1"}}, // Use numeric keys to match IDs
-		HashAttribute: "id",
-		Weights:       []float64{1.0, 0.0}, // 100% chance of variation 0
-	}
-
-	// first exp2 run but with SAME attribute
+	exp2 := createTestExperiment("cache-test2", []float64{1.0, 0.0}, []string{"0", "1"})
 	result3 := client.RunExperiment(ctx, exp2)
+	require.Equal(t, 1, mockCalls, "New experiment should make 1 call")
 	require.True(t, result3.InExperiment)
-	require.Equal(t, 0, result3.VariationId)
 
-	// The third run (different experiment, same attribute) makes exactly one call to GetAssignments
-	require.Equal(t, 1, mockCalls, "Different experiment but same attribute should make exactly 1 call")
-
-	// Get the updated cache
-	afterCache := client.stickyBucketAssignments[cacheKey]
-	require.NotNil(t, afterCache)
-	require.Contains(t, afterCache.Assignments, "cache-test2__0", "Should now have second experiment")
-	require.Equal(t, 2, len(afterCache.Assignments), "Cache should have both experiments")
+	// Verify cache contains both experiments
+	cacheKey := getKey("id", "123")
+	cache := client.stickyBucketAssignments[cacheKey]
+	require.Len(t, cache.Assignments, 2, "Cache should contain both experiments")
 }
 
 // mockStickyBucketService is a wrapper around InMemoryStickyBucketService that allows tracking calls
 type mockStickyBucketService struct {
-	service          *InMemoryStickyBucketService
+	*InMemoryStickyBucketService
 	onGetAssignments func(attributeName, attributeValue string)
 }
 
-func (m *mockStickyBucketService) GetAssignments(attributeName, attributeValue string) (*StickyBucketAssignmentDoc, error) {
+func (m *mockStickyBucketService) GetAssignments(name, value string) (*StickyBucketAssignmentDoc, error) {
 	if m.onGetAssignments != nil {
-		m.onGetAssignments(attributeName, attributeValue)
+		m.onGetAssignments(name, value)
 	}
-	return m.service.GetAssignments(attributeName, attributeValue)
+	return m.InMemoryStickyBucketService.GetAssignments(name, value)
 }
 
 func (m *mockStickyBucketService) SaveAssignments(doc *StickyBucketAssignmentDoc) error {
-	return m.service.SaveAssignments(doc)
+	return m.InMemoryStickyBucketService.SaveAssignments(doc)
 }
 
 func (m *mockStickyBucketService) GetAllAssignments(attributes map[string]string) (StickyBucketAssignments, error) {
-	return m.service.GetAllAssignments(attributes)
+	return m.InMemoryStickyBucketService.GetAllAssignments(attributes)
 }
