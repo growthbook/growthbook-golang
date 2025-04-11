@@ -108,7 +108,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			exp.MinBucketVersion,
 			exp.Meta,
 			e.client.stickyBucketService,
-			exp.HashAttribute,
+			hashAttribute,
 			exp.FallbackAttribute,
 			attributes,
 			e.client.stickyBucketAssignments,
@@ -128,6 +128,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	}
 
 	if stickyBucketVersionBlocked {
+		e.client.logger.Debug("Skip experiment because sticky bucket version is blocked", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, true)
 	}
 
@@ -224,7 +225,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	result := e.getExperimentResult(exp, stickyBucketVariation, true, featureId, n, stickyBucketFound)
 
 	// 13.5 Save sticky bucket assignment if in experiment and sticky bucketing is enabled
-	if e.client.stickyBucketService != nil && !exp.DisableStickyBucketing {
+	if e.client.stickyBucketService != nil && !exp.DisableStickyBucketing && result.InExperiment {
 		// Create the sticky bucket assignment and save it
 		SaveStickyBucketAssignment(
 			exp.Key,
