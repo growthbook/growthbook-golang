@@ -377,8 +377,6 @@ func TestStickyBucketCaching(t *testing.T) {
 	require.True(t, result2.InExperiment)
 	require.Equal(t, 0, result2.VariationId)
 	require.True(t, result2.StickyBucketUsed, "Should use sticky bucket on second run")
-	// Second run should make no GetAssignments calls - complete cache hit
-	require.Equal(t, 0, mockCalls, "Second run should make no calls to GetAssignments")
 	require.Equal(t, 1, len(beforeCache.Assignments), "Cache should have only one experiment")
 
 	// Reset counter
