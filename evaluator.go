@@ -124,7 +124,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	// Skip steps 7-8 if we found a sticky bucket or version is blocked
 	if stickyBucketFound {
 		e.client.logger.Debug("Found sticky bucket for experiment. Assigning sticky variation", "id", exp.Key, "variation", stickyBucketVariation)
-		return e.getExperimentResult(exp, stickyBucketVariation, true, featureId, nil, true)
+		// Continue to step 8.3
 	}
 
 	if stickyBucketVersionBlocked {
