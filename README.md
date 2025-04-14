@@ -1,17 +1,15 @@
-![](growthbook-hero-go-sdks.png)
+![GrowthBook Go SDK Hero Image](growthbook-hero-go-sdks.png)
 
-# GrowthBook Go SDK
+<div align="center">
+<h1>GrowthBook Go SDK</h1>
 
-GrowthBook is a modular feature flagging and experimentation platform.
+[![Go Report Card](https://goreportcard.com/badge/github.com/growthbook/growthbook-golang)](https://goreportcard.com/report/github.com/growthbook/growthbook-golang)
+[![GoDoc](https://pkg.go.dev/badge/github.com/growthbook/growthbook-golang)](https://pkg.go.dev/github.com/growthbook/growthbook-golang)
+[![License](https://img.shields.io/github/license/growthbook/growthbook-golang)](https://github.com/growthbook/growthbook-golang/blob/main/LICENSE)
+[![Release](https://img.shields.io/github/v/release/growthbook/growthbook-golang)](https://github.com/growthbook/growthbook-golang/releases/latest)
 
-This is the Go client library that lets you evaluate feature flags and run experiments (A/B tests) within a Go application.
-
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Documentation](#documentation)
-
----
+GrowthBook is a modular feature flagging and experimentation platform. You can use GrowthBook for feature flags, running no-code experiments with a visual editor, analyzing experiment results, or any combination of the above.
+</div>
 
 ## Requirements
 
@@ -84,7 +82,7 @@ if darkMode.On {
 
 The client is the core component of the GrowthBook SDK. After installing and importing the SDK, create a single shared instance of `growthbook.Client` using the `growthbook.NewClient` function with a list of options. You can customize the client with options like a custom logger, client key, decryption key, default attributes, or a feature list from JSON. The client is thread-safe and can be safely used from multiple goroutines.
 
-While you can evaluate features directly using the main client instance, it’s recommended to create child client instances that include session- or query-specific data. To create a child client with local attributes, call `client.WithAttributes`:
+While you can evaluate features directly using the main client instance, it's recommended to create child client instances that include session- or query-specific data. To create a child client with local attributes, call `client.WithAttributes`:
 
 ```go
 attrs := gb.Attributes{"id": 100, "user": "Bob"}
@@ -111,6 +109,52 @@ You can set up two callbacks to track experiment results and feature usage in yo
 2. **`FeatureUsageCallback`**: Triggered on each feature evaluation.
 
 You can also attach extra data that will be sent with each callback. These callbacks can be set globally via the `NewClient` function using the `WithExperimentCallback` and `WithFeatureUsageCallback` options. Alternatively, you can set them locally when creating child clients using similar methods like `client.WithExperimentCallback`. Extra data is set via the `WithExtraData` option.
+
+---
+
+### Sticky Bucketing
+
+Sticky Bucketing ensures users see consistent experiment variations across sessions and devices. The SDK provides an in-memory implementation by default, but you can implement your own storage solution.
+
+#### Basic Usage
+
+```go
+// Create an in-memory sticky bucket service
+service := gb.NewInMemoryStickyBucketService()
+
+// Create a client with sticky bucketing
+client, err := gb.NewClient(
+    context.Background(),
+    gb.WithClientKey("sdk-XXXX"),
+    gb.WithStickyBucketService(service),
+)
+
+// Run an experiment with sticky bucketing
+exp := &gb.Experiment{
+    Key:        "my-experiment",
+    Variations: []gb.FeatureValue{"control", "treatment"},
+    Meta: []gb.VariationMeta{
+        {Key: "0"}, // Use numeric keys to match variation IDs
+        {Key: "1"},
+    },
+    BucketVersion:    1,
+    MinBucketVersion: 0,
+}
+
+result := client.RunExperiment(context.Background(), exp)
+```
+
+#### Custom Implementation
+
+Implement the `StickyBucketService` interface for custom storage:
+
+#### Concurrency & Caching
+
+- The in-memory implementation is thread-safe using `sync.RWMutex`
+- Assignments are cached in memory to reduce storage calls
+- Cache is shared across all clients using the same service instance
+
+For more details, see the [official documentation](https://docs.growthbook.io/app/sticky-bucketing).
 
 ---
 
