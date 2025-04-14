@@ -13,7 +13,7 @@ import (
 const defaultApiHost = "https://cdn.growthbook.io"
 
 var (
-	ErrNoDecryptionKey = errors.New("No decryption key provided")
+	ErrNoDecryptionKey = errors.New("no decryption key provided")
 )
 
 // Client is a GrowthBook SDK client.
@@ -28,6 +28,14 @@ type Client struct {
 	featureUsageCallback FeatureUsageCallback
 	logger               *slog.Logger
 	extraData            any
+	// StickyBucketService for storing experiment assignments
+	stickyBucketService StickyBucketService
+
+	// StickyBucketAttributes for identifying users
+	stickyBucketAttributes StickyBucketAttributes
+
+	// StickyBucketAssignments caches assignments
+	stickyBucketAssignments StickyBucketAssignments
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
@@ -73,11 +81,12 @@ func (client *Client) Close() error {
 
 func defaultClient() *Client {
 	return &Client{
-		data:       newData(),
-		enabled:    true,
-		qaMode:     false,
-		logger:     slog.Default(),
-		attributes: value.ObjValue{},
+		data:                    newData(),
+		enabled:                 true,
+		qaMode:                  false,
+		logger:                  slog.Default(),
+		attributes:              value.ObjValue{},
+		stickyBucketAssignments: make(StickyBucketAssignments),
 	}
 }
 

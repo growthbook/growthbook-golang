@@ -149,6 +149,25 @@ func WithFeatureUsageCallback(cb FeatureUsageCallback) ClientOption {
 	}
 }
 
+// StickyBucketAttributes is a map of attribute names to attribute values
+type StickyBucketAttributes map[string]string
+
+// WithStickyBucketService adds a sticky bucket service to the client
+func WithStickyBucketService(service StickyBucketService) ClientOption {
+	return func(c *Client) error {
+		c.stickyBucketService = service
+		return nil
+	}
+}
+
+// WithStickyBucketAttributes sets sticky bucket attributes for the client
+func WithStickyBucketAttributes(attributes StickyBucketAttributes) ClientOption {
+	return func(c *Client) error {
+		c.stickyBucketAttributes = attributes
+		return nil
+	}
+}
+
 // Child client instance options
 
 // WithEnabled creates child client instance with updated enabled switch.

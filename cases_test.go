@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -25,6 +26,7 @@ type cases struct {
 	InNamespace            JsonTuples[inNamespaceCase]            `json:"inNamespace"`
 	GetEqualWeights        JsonTuples[getEqualWeightsCase]        `json:"getEqualWeights"`
 	Decrypt                JsonTuples[decryptCase]                `json:"decrypt"`
+	StickyBucket           JsonTuples[stickyBucketTestCase]       `json:"stickyBucket"`
 }
 
 type evalConditionCase struct {
@@ -102,6 +104,15 @@ type decryptCase struct {
 	Expected  string
 }
 
+type stickyBucketTestCase struct {
+	Name                string
+	Env                 env
+	ExistingAssignments []StickyBucketAssignmentDoc
+	FeatureName         string
+	Expected            *ExperimentResult
+	ExpectedAssignments map[string]*StickyBucketAssignmentDoc
+}
+
 type env struct {
 	Attributes       Attributes            `json:"attributes"`
 	Features         FeatureMap            `json:"features"`
@@ -165,6 +176,7 @@ func TestCasesJson(t *testing.T) {
 	cases.InNamespace.run("inNamespace", t)
 	cases.GetEqualWeights.run("getEqualWeights", t)
 	cases.Decrypt.run("decrypt", t)
+	cases.StickyBucket.run("stickyBucket", t)
 }
 
 func (c evalConditionCase) test(t *testing.T) {
@@ -260,6 +272,76 @@ func (c decryptCase) test(t *testing.T) {
 			require.Equal(t, "", res)
 		}
 	})
+}
+
+func (c stickyBucketTestCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		// Create and populate service
+		service := NewInMemoryStickyBucketService()
+		for _, assignment := range c.ExistingAssignments {
+			err := service.SaveAssignments(&assignment)
+			require.NoError(t, err)
+		}
+
+		// Create client
+		client, err := c.Env.client()
+		require.NoError(t, err)
+		client.stickyBucketService = service
+		client.stickyBucketAssignments = make(StickyBucketAssignments)
+
+		// Evaluate feature
+		result := client.EvalFeature(context.TODO(), c.FeatureName)
+
+		// Check experiment result
+		if c.Expected == nil {
+			require.Nil(t, result.ExperimentResult)
+			return
+		}
+
+		require.NotNil(t, result.ExperimentResult)
+		exp := result.ExperimentResult
+		expected := c.Expected
+
+		// Use a table of assertions
+		assertions := []struct {
+			name    string
+			got     interface{}
+			want    interface{}
+			message string
+		}{
+			{"Value", exp.Value, expected.Value, "Value mismatch"},
+			{"VariationId", exp.VariationId, expected.VariationId, "VariationId mismatch"},
+			{"InExperiment", exp.InExperiment, expected.InExperiment, "InExperiment mismatch"},
+			{"Key", exp.Key, expected.Key, "Key mismatch"},
+			{"HashAttribute", exp.HashAttribute, expected.HashAttribute, "HashAttribute mismatch"},
+			{"StickyBucketUsed", exp.StickyBucketUsed, expected.StickyBucketUsed, "StickyBucketUsed mismatch"},
+		}
+
+		for _, a := range assertions {
+			require.Equal(t, a.want, a.got, a.message)
+		}
+
+		// Check assignments if expected
+		if c.ExpectedAssignments != nil {
+			for key, expectedDoc := range c.ExpectedAssignments {
+				attributeName, attributeValue := parseKey(key)
+				actualDoc, err := service.GetAssignments(attributeName, attributeValue)
+				require.NoError(t, err)
+				require.NotNil(t, actualDoc, "Missing document for %s", key)
+				require.Equal(t, expectedDoc.Assignments, actualDoc.Assignments,
+					"Assignment mismatch for %s", key)
+			}
+		}
+	})
+}
+
+// Helper function to parse key (moved from parseAttributeKey)
+func parseKey(key string) (string, string) {
+	parts := strings.Split(key, "||")
+	if len(parts) != 2 {
+		return "", ""
+	}
+	return parts[0], parts[1]
 }
 
 func (e *env) client() (*Client, error) {

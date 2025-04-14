@@ -24,8 +24,16 @@ type FeatureRule struct {
 	Namespace *Namespace `json:"namespace"`
 	// What user attribute should be used to assign variations (defaults to id)
 	HashAttribute string `json:"hashAttribute"`
+	// When using sticky bucketing, can be used as a fallback to assign variations
+	FallbackAttribute string `json:"fallbackAttribute"`
+	// If true, sticky bucketing will be disabled for this experiment.
+	DisableStickyBucketing bool `json:"disableStickyBucketing"`
 	// The hash version to use (default to 1)
 	HashVersion int `json:"hashVersion"`
+	// An sticky bucket version number that can be used to force a re-bucketing of users (default to 0)
+	BucketVersion int `json:"bucketVersion"`
+	// Any users with a sticky bucket version less than this will be excluded from the experiment
+	MinBucketVersion int `json:"minBucketVersion"`
 	// A more precise version of coverage
 	Range *BucketRange `json:"range"`
 	// Ranges for experiment variations
