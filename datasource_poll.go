@@ -61,14 +61,15 @@ func (ds *PollDataSource) Close() error {
 }
 
 func (ds *PollDataSource) startPolling(ctx context.Context) {
+	timer := time.Tick(ds.interval)
+
 	for {
-		timer := time.NewTimer(ds.interval)
 		select {
 		case <-ctx.Done():
 			ds.ready = false
 			ds.logger.Info("Finished polling due to context")
 			return
-		case <-timer.C:
+		case <-timer:
 			err := ds.loadData(ctx)
 			if err != nil {
 				ds.logger.Error("Error loading features", "error", err)
