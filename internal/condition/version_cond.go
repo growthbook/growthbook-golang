@@ -59,7 +59,8 @@ func paddedVersionString(input value.Value) string {
 	for i, p := range parts {
 		isNumber := versionNumRe.MatchString(p)
 		if isNumber && len(p) < 5 {
-			parts[i] = strings.Repeat(" ", 5-len(p)) + p
+			val := strings.TrimLeft(p, "0") // remove leading zeros
+			parts[i] = strings.Repeat(" ", 5-len(val)) + val
 		}
 	}
 	return strings.Join(parts, "-")
