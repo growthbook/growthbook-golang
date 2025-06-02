@@ -7,6 +7,13 @@ type DataSource interface {
 	Close() error
 }
 
+func WithDataSource(dataSource DataSource) ClientOption {
+	return func(c *Client) error {
+		c.data.dataSource = dataSource
+		return nil
+	}
+}
+
 func (client *Client) startDataSource(ctx context.Context) {
 	defer close(client.data.dsStartWait)
 	ds := client.data.dataSource
