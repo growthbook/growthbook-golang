@@ -73,7 +73,7 @@ func (ds *SseDataSource) connect(ctx context.Context) error {
 	ds.setReqHeaders(req)
 	sseClient := &sse.Client{
 		HTTPClient: ds.client.data.httpClient,
-		OnRetry:    ds.onRetry,
+		OnRetry:    ds.onRetry(ctx),
 	}
 	sseConn := sseClient.NewConnection(req)
 	buf := make([]byte, minbufsize)
@@ -85,8 +85,13 @@ func (ds *SseDataSource) connect(ctx context.Context) error {
 	return nil
 }
 
-func (ds *SseDataSource) onRetry(err error, delay time.Duration) {
-	ds.logger.Info("Reconnect", "reason", err, "delay", delay)
+func (ds *SseDataSource) onRetry(ctx context.Context) func(err error, delay time.Duration) {
+	return func(err error, delay time.Duration) {
+		ds.logger.Info("Reconnect", "reason", err, "delay", delay)
+		if err := ds.loadData(ctx); err != nil {
+			ds.logger.Error("Error loading features", "error", err)
+		}
+	}
 }
 
 func (ds *SseDataSource) processEvent(event sse.Event) {
