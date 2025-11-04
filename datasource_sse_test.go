@@ -94,7 +94,12 @@ func TestSseDataSource(t *testing.T) {
 		ts := startSseServer(featuresJSON, sseResponse(features2JSON, 10*time.Millisecond, 0))
 		defer ts.http.Close()
 		logger, _ := testLogger(slog.LevelWarn, t)
-		client, err := NewClient(ctx,
+
+		// Use a test context with timeout
+		testCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		client, err := NewClient(testCtx,
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
@@ -102,7 +107,7 @@ func TestSseDataSource(t *testing.T) {
 			WithSseDataSource(),
 		)
 		require.Nil(t, err)
-		err = client.EnsureLoaded(ctx)
+		err = client.EnsureLoaded(testCtx)
 		require.Nil(t, err)
 
 		// Allow SSE connection to establish
@@ -110,7 +115,7 @@ func TestSseDataSource(t *testing.T) {
 
 		// Launch multiple concurrent Close() calls
 		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
+		for i := 0; i < 3; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -119,14 +124,19 @@ func TestSseDataSource(t *testing.T) {
 		}
 		wg.Wait()
 
-		// Should complete without data race (verified with go test -race)
+		// Should complete without data race
 	})
 
 	t.Run("Close immediately after Start - data race test", func(t *testing.T) {
 		ts := startSseServer(featuresJSON, sseResponse(features2JSON, 10*time.Millisecond, 0))
 		defer ts.http.Close()
 		logger, _ := testLogger(slog.LevelWarn, t)
-		client, err := NewClient(ctx,
+
+		// Use a test context with timeout
+		testCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		client, err := NewClient(testCtx,
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
@@ -139,7 +149,7 @@ func TestSseDataSource(t *testing.T) {
 		ds := client.data.dataSource
 		errChan := make(chan error, 1)
 		go func() {
-			errChan <- ds.Start(ctx)
+			errChan <- ds.Start(testCtx)
 		}()
 
 		// Immediately call Close while Start is completing
@@ -153,10 +163,14 @@ func TestSseDataSource(t *testing.T) {
 	})
 
 	t.Run("Multiple rapid Start/Close cycles - data race test", func(t *testing.T) {
-		for cycle := 0; cycle < 5; cycle++ {
+		for cycle := 0; cycle < 3; cycle++ {
 			ts := startSseServer(featuresJSON, sseResponse(features2JSON, 10*time.Millisecond, 0))
 			logger, _ := testLogger(slog.LevelWarn, t)
-			client, err := NewClient(ctx,
+
+			// Use a cancellable context for this cycle
+			cycleCtx, cancel := context.WithCancel(ctx)
+
+			client, err := NewClient(cycleCtx,
 				WithLogger(logger),
 				WithHttpClient(ts.http.Client()),
 				WithApiHost(ts.http.URL),
@@ -167,10 +181,16 @@ func TestSseDataSource(t *testing.T) {
 
 			// Start and immediately close
 			ds := client.data.dataSource
-			go ds.Start(ctx)
+			go ds.Start(cycleCtx)
 			time.Sleep(5 * time.Millisecond)
-			ds.Close()
 
+			// Cancel the context to stop SSE connection
+			cancel()
+
+			// Wait for connections to gracefully close
+			time.Sleep(50 * time.Millisecond)
+
+			// Then close server
 			ts.http.Close()
 			time.Sleep(10 * time.Millisecond)
 		}

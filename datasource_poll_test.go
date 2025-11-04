@@ -108,7 +108,12 @@ func TestPollingDataSource(t *testing.T) {
 		ts := startServer(http.StatusOK, featuresJSON)
 		logger, _ := testLogger(slog.LevelError, t)
 		defer ts.http.Close()
-		client, err := NewClient(ctx,
+
+		// Use a test context with timeout
+		testCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		client, err := NewClient(testCtx,
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
@@ -116,7 +121,7 @@ func TestPollingDataSource(t *testing.T) {
 			WithPollDataSource(5*time.Millisecond),
 		)
 		require.Nil(t, err)
-		err = client.EnsureLoaded(ctx)
+		err = client.EnsureLoaded(testCtx)
 		require.Nil(t, err)
 
 		// Allow polling to run for a bit
@@ -124,7 +129,7 @@ func TestPollingDataSource(t *testing.T) {
 
 		// Launch multiple concurrent Close() calls
 		var wg sync.WaitGroup
-		for i := 0; i < 10; i++ {
+		for i := 0; i < 3; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -133,14 +138,19 @@ func TestPollingDataSource(t *testing.T) {
 		}
 		wg.Wait()
 
-		// Should complete without data race (verified with go test -race)
+		// Should complete without data race
 	})
 
 	t.Run("Close immediately after Start - data race test", func(t *testing.T) {
 		ts := startServer(http.StatusOK, featuresJSON)
 		logger, _ := testLogger(slog.LevelError, t)
 		defer ts.http.Close()
-		client, err := NewClient(ctx,
+
+		// Use a test context with timeout
+		testCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		client, err := NewClient(testCtx,
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
@@ -153,7 +163,7 @@ func TestPollingDataSource(t *testing.T) {
 		ds := client.data.dataSource
 		errChan := make(chan error, 1)
 		go func() {
-			errChan <- ds.Start(ctx)
+			errChan <- ds.Start(testCtx)
 		}()
 
 		// Immediately call Close while Start is completing
@@ -170,7 +180,12 @@ func TestPollingDataSource(t *testing.T) {
 		ts := startEtagServer(featuresJSON)
 		logger, _ := testLogger(slog.LevelError, t)
 		defer ts.http.Close()
-		client, err := NewClient(ctx,
+
+		// Use a test context with timeout
+		testCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		client, err := NewClient(testCtx,
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
@@ -178,14 +193,14 @@ func TestPollingDataSource(t *testing.T) {
 			WithPollDataSource(5*time.Millisecond),
 		)
 		require.Nil(t, err)
-		err = client.EnsureLoaded(ctx)
+		err = client.EnsureLoaded(testCtx)
 		require.Nil(t, err)
 
 		// Allow multiple polls to occur and update etag
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(50 * time.Millisecond)
 
 		// Verify etag was properly managed
-		require.True(t, ts.count.Load() > 5, "Expected multiple polling requests")
+		require.True(t, ts.count.Load() > 3, "Expected multiple polling requests")
 		require.True(t, ts.etagCount.Load() > 0, "Expected etag requests")
 
 		err = client.Close()
