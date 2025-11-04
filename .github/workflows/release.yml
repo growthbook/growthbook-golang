@@ -22,7 +22,7 @@ jobs:
           go-version: '1.23'
 
       - name: Run tests before release
-        run: go test -v -race ./...
+        run: go test -v -race ./
 
       - name: Generate release notes
         id: release_notes
