@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -12,6 +13,7 @@ type evaluator struct {
 	savedGroups condition.SavedGroups
 	evaluated   stack[string]
 	client      *Client
+	ctx         context.Context
 }
 
 func (e *evaluator) evalFeature(key string) *FeatureResult {
@@ -40,38 +42,38 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 
 	// 1. If experiment.variations has fewer than 2 variations, return getExperimentResult(experiment)
 	if len(exp.Variations) < 2 {
-		e.client.logger.Debug("Invalid experiment", "id", exp.Key)
+		e.client.logger.DebugContext(e.ctx, "Invalid experiment", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 2. If context.enabled is false, return getExperimentResult(experiment)
 	if !e.client.enabled {
-		e.client.logger.Debug("Client disabled", "id", exp.Key)
+		e.client.logger.DebugContext(e.ctx, "Client disabled", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 3. If context.url exists
 	if qsOverride, ok := getQueryStringOverride(exp.Key, e.client.url, len(exp.Variations)); ok {
-		e.client.logger.Debug("Force via querystring", "id", exp.Key, "variation", qsOverride)
+		e.client.logger.DebugContext(e.ctx, "Force via querystring", "id", exp.Key, "variation", qsOverride)
 		return e.getExperimentResult(exp, qsOverride, false, featureId, nil, false)
 	}
 
 	// 4. Return if forced via context
 	if varId, ok := e.client.forcedVariations[exp.Key]; ok {
-		e.client.logger.Debug("Force via dev tools", "id", exp.Key, "variation", varId)
+		e.client.logger.DebugContext(e.ctx, "Force via dev tools", "id", exp.Key, "variation", varId)
 		return e.getExperimentResult(exp, varId, false, featureId, nil, false)
 	}
 
 	// 5. If experiment.active is set to false, return getExperimentResult(experiment)
 	if !exp.getActive() {
-		e.client.logger.Debug("Skip experiment because it is inactive", "id", exp.Key)
+		e.client.logger.DebugContext(e.ctx, "Skip experiment because it is inactive", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 6. Get the user hash value and return if empty
 	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, exp.FallbackAttribute)
 	if hashValue == "" {
-		e.client.logger.Debug("Skip experiment because of missing hashAttribute", "id", exp.Key)
+		e.client.logger.DebugContext(e.ctx, "Skip experiment because of missing hashAttribute", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 	}
 
@@ -123,12 +125,12 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 
 	// Skip steps 7-8 if we found a sticky bucket or version is blocked
 	if stickyBucketFound {
-		e.client.logger.Debug("Found sticky bucket for experiment. Assigning sticky variation", "id", exp.Key, "variation", stickyBucketVariation)
+		e.client.logger.DebugContext(e.ctx, "Found sticky bucket for experiment. Assigning sticky variation", "id", exp.Key, "variation", stickyBucketVariation)
 		// Continue to step 8.3
 	}
 
 	if stickyBucketVersionBlocked {
-		e.client.logger.Debug("Skip experiment because sticky bucket version is blocked", "id", exp.Key)
+		e.client.logger.DebugContext(e.ctx, "Skip experiment because sticky bucket version is blocked", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, true)
 	}
 
@@ -136,11 +138,11 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		// 7. Apply filters and namespace
 		if len(exp.Filters) > 0 {
 			if e.isFilteredOut(exp.Filters) {
-				e.client.logger.Debug("Skip because of filters", "id", exp.Key)
+				e.client.logger.DebugContext(e.ctx, "Skip because of filters", "id", exp.Key)
 				return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 			}
 		} else if exp.Namespace != nil && !exp.Namespace.inNamespace(hashValue) {
-			e.client.logger.Debug("Skip because of namespace", "id", exp.Key)
+			e.client.logger.DebugContext(e.ctx, "Skip because of namespace", "id", exp.Key)
 			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 		}
 
@@ -148,7 +150,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 
 		// 8 Return if any conditions are not met, return
 		if !exp.Condition.Eval(e.client.attributes, e.savedGroups) {
-			e.client.logger.Debug("Skip because of condition exp", "id", exp.Key)
+			e.client.logger.DebugContext(e.ctx, "Skip because of condition exp", "id", exp.Key)
 			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 		}
 
@@ -158,19 +160,19 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			for _, parent := range exp.ParentConditions {
 				res := e.evalFeature(parent.Id)
 				if res == nil {
-					e.client.logger.Debug("Skip because of prerequisite fails", "id", exp.Key)
+					e.client.logger.DebugContext(e.ctx, "Skip because of prerequisite fails", "id", exp.Key)
 					return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 				}
 
 				if res.Source == CyclicPrerequisiteResultSource {
-					e.client.logger.Debug("Skip experiment because of cyclic prerequisite", "id", exp.Key)
+					e.client.logger.DebugContext(e.ctx, "Skip experiment because of cyclic prerequisite", "id", exp.Key)
 					return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 				}
 
 				evalObj := value.ObjValue{"value": value.New(res.Value)}
 				evaled := parent.Condition.Eval(evalObj, e.savedGroups)
 				if !evaled {
-					e.client.logger.Debug("Skip because of prerequisite evaluation fails", "id", exp.Key)
+					e.client.logger.DebugContext(e.ctx, "Skip because of prerequisite evaluation fails", "id", exp.Key)
 					return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 				}
 			}
@@ -184,7 +186,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	// 9 Choose a variation - If a sticky bucket value exists, use it.
 	n := hash(exp.getSeed(), hashValue, if0(exp.HashVersion, 1))
 	if n == nil {
-		e.client.logger.Debug("Skip because of invalid hash version", "id", exp.Key)
+		e.client.logger.DebugContext(e.ctx, "Skip because of invalid hash version", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 	}
 
@@ -199,25 +201,25 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 
 	// # Unenroll if any prior sticky buckets are blocked by version
 	if stickyBucketVersionBlocked {
-		e.client.logger.Debug("Skip experiment because sticky bucket version is blocked", "id", exp.Key)
+		e.client.logger.DebugContext(e.ctx, "Skip experiment because sticky bucket version is blocked", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, true)
 	}
 
 	// 10. If assigned == -1, return getExperimentResult(experiment)
 	if stickyBucketVariation < 0 {
-		e.client.logger.Debug("Skip because of coverage", "id", exp.Key)
+		e.client.logger.DebugContext(e.ctx, "Skip because of coverage", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 11. If experiment has a forced variation, return
 	if exp.Force != nil {
-		e.client.logger.Debug("Force variation", "id", exp.Key, "variation", *exp.Force)
+		e.client.logger.DebugContext(e.ctx, "Force variation", "id", exp.Key, "variation", *exp.Force)
 		return e.getExperimentResult(exp, *exp.Force, false, featureId, nil, false)
 	}
 
 	// 12. If context.qaMode, return getExperimentResult(experiment)
 	if e.client.qaMode {
-		e.client.logger.Debug("Skip because of QA mode", "id", exp.Key)
+		e.client.logger.DebugContext(e.ctx, "Skip because of QA mode", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 	}
 

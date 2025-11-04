@@ -21,8 +21,8 @@ func newEmptyDataSource(client *Client) *emptyDataSource {
 	return &emptyDataSource{client}
 }
 
-func (ds *emptyDataSource) Start(_ context.Context) error {
-	ds.client.logger.Info("Starting empty data source")
+func (ds *emptyDataSource) Start(ctx context.Context) error {
+	ds.client.logger.InfoContext(ctx, "Starting empty data source")
 	return nil
 }
 

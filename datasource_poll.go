@@ -35,7 +35,7 @@ func newPollDataSource(client *Client, interval time.Duration) *PollDataSource {
 }
 
 func (ds *PollDataSource) Start(ctx context.Context) error {
-	ds.logger.Info("Starting")
+	ds.logger.InfoContext(ctx, "Starting")
 
 	ctx, cancel := context.WithCancel(ctx)
 	ds.cancel = cancel
@@ -44,13 +44,13 @@ func (ds *PollDataSource) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	ds.logger.Info("First load finished")
+	ds.logger.InfoContext(ctx, "First load finished")
 
 	ds.mu.Lock()
 	ds.ready = true
 	ds.mu.Unlock()
 	go ds.startPolling(ctx)
-	ds.logger.Info("Started")
+	ds.logger.InfoContext(ctx, "Started")
 
 	return nil
 }
@@ -77,15 +77,15 @@ func (ds *PollDataSource) startPolling(ctx context.Context) {
 			ds.mu.Lock()
 			ds.ready = false
 			ds.mu.Unlock()
-			ds.logger.Info("Finished polling due to context")
+			ds.logger.InfoContext(ctx, "Finished polling due to context")
 			return
 		case <-timer:
 			err := ds.loadData(ctx)
 			if err != nil {
-				ds.logger.Error("Error loading features", "error", err)
+				ds.logger.ErrorContext(ctx, "Error loading features", "error", err)
 			}
 			if errors.Is(err, context.Canceled) {
-				ds.logger.Info("Finished polling due to context")
+				ds.logger.InfoContext(ctx, "Finished polling due to context")
 				return
 			}
 		}

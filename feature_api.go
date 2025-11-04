@@ -56,10 +56,10 @@ func (c *Client) CallFeatureApi(ctx context.Context, etag string) (*FeatureApiRe
 		return &apiResp, err
 	}
 
-	c.logger.Info("Loading features")
+	c.logger.InfoContext(ctx, "Loading features")
 	err = json.Unmarshal(body, &apiResp)
 	if err != nil {
-		c.logger.Error("Error parsing features response", "error", err)
+		c.logger.ErrorContext(ctx, "Error parsing features response", "error", err)
 		return &apiResp, err
 	}
 
