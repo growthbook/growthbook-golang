@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type PollDataSource struct {
 	cancel   context.CancelFunc
 	ready    bool
 	etag     string
+	mu       sync.RWMutex
 }
 
 func WithPollDataSource(interval time.Duration) ClientOption {
@@ -44,7 +46,9 @@ func (ds *PollDataSource) Start(ctx context.Context) error {
 	}
 	ds.logger.Info("First load finished")
 
+	ds.mu.Lock()
 	ds.ready = true
+	ds.mu.Unlock()
 	go ds.startPolling(ctx)
 	ds.logger.Info("Started")
 
@@ -52,7 +56,11 @@ func (ds *PollDataSource) Start(ctx context.Context) error {
 }
 
 func (ds *PollDataSource) Close() error {
-	if !ds.ready {
+	ds.mu.RLock()
+	ready := ds.ready
+	ds.mu.RUnlock()
+
+	if !ready {
 		return fmt.Errorf("Datasource is not ready")
 	}
 	ds.logger.Info("Closing")
@@ -66,7 +74,9 @@ func (ds *PollDataSource) startPolling(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			ds.mu.Lock()
 			ds.ready = false
+			ds.mu.Unlock()
 			ds.logger.Info("Finished polling due to context")
 			return
 		case <-timer:
@@ -83,13 +93,19 @@ func (ds *PollDataSource) startPolling(ctx context.Context) {
 }
 
 func (ds *PollDataSource) loadData(ctx context.Context) error {
-	resp, err := ds.client.CallFeatureApi(ctx, ds.etag)
+	ds.mu.RLock()
+	etag := ds.etag
+	ds.mu.RUnlock()
+
+	resp, err := ds.client.CallFeatureApi(ctx, etag)
 	if err != nil {
 		return err
 	}
 
 	if resp.Etag != "" {
+		ds.mu.Lock()
 		ds.etag = resp.Etag
+		ds.mu.Unlock()
 	}
 
 	if resp.Features == nil {

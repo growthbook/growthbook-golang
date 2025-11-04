@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/tmaxmax/go-sse"
@@ -16,6 +17,7 @@ type SseDataSource struct {
 	ready  bool
 	retry  time.Duration
 	logger *slog.Logger
+	mu     sync.RWMutex
 }
 
 const minbufsize = 64 * 1024
@@ -47,7 +49,9 @@ func (ds *SseDataSource) Start(ctx context.Context) error {
 	}
 	ds.logger.Info("First load finished")
 
+	ds.mu.Lock()
 	ds.ready = true
+	ds.mu.Unlock()
 	go ds.connect(ctx)
 	ds.logger.Info("Started")
 
@@ -55,7 +59,11 @@ func (ds *SseDataSource) Start(ctx context.Context) error {
 }
 
 func (ds *SseDataSource) Close() error {
-	if !ds.ready {
+	ds.mu.RLock()
+	ready := ds.ready
+	ds.mu.RUnlock()
+
+	if !ready {
 		return fmt.Errorf("Datasource is not ready")
 	}
 	ds.logger.Info("Closing")
