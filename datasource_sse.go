@@ -15,7 +15,7 @@ type SseDataSource struct {
 	client *Client
 	cancel context.CancelFunc
 	ready  bool
-	retry  time.Duration
+	// retry  time.Duration
 	logger *slog.Logger
 	mu     sync.RWMutex
 }
@@ -64,7 +64,7 @@ func (ds *SseDataSource) Close() error {
 	ds.mu.RUnlock()
 
 	if !ready {
-		return fmt.Errorf("Datasource is not ready")
+		return fmt.Errorf("datasource is not ready")
 	}
 	ds.logger.Info("Closing")
 	ds.cancel()
@@ -120,7 +120,7 @@ func (ds *SseDataSource) loadData(ctx context.Context) error {
 	}
 
 	if !resp.SseSupport {
-		return fmt.Errorf("Sse is not supported")
+		return fmt.Errorf("sse is not supported")
 	}
 
 	if resp.Features == nil {

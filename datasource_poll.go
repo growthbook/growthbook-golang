@@ -69,7 +69,8 @@ func (ds *PollDataSource) Close() error {
 }
 
 func (ds *PollDataSource) startPolling(ctx context.Context) {
-	timer := time.Tick(ds.interval)
+	ticker := time.NewTicker(ds.interval)
+	defer ticker.Stop()
 
 	for {
 		select {
@@ -79,7 +80,7 @@ func (ds *PollDataSource) startPolling(ctx context.Context) {
 			ds.mu.Unlock()
 			ds.logger.InfoContext(ctx, "Finished polling due to context")
 			return
-		case <-timer:
+		case <-ticker.C:
 			err := ds.loadData(ctx)
 			if err != nil {
 				ds.logger.ErrorContext(ctx, "Error loading features", "error", err)
