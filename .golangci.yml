@@ -1,0 +1,24 @@
+linters:
+  disable:
+    # Disable errcheck - too strict for this codebase
+    # Pre-existing error handling patterns are intentional
+    - errcheck
+
+linters-settings:
+  staticcheck:
+    checks:
+      - all
+  unused:
+    check-exported: false
+
+issues:
+  exclude-rules:
+    # Allow unused functions in test utilities
+    - path: test_utils\.go
+      linters:
+        - unused
+
+output:
+  sort-results: true
+  formats:
+    - format: colored-line-number

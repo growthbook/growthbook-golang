@@ -63,7 +63,7 @@ func TestSseDataSource(t *testing.T) {
 			WithSseDataSource(),
 		)
 		require.Nil(t, err)
-		err = client.EnsureLoaded(ctx)
+		_ = client.EnsureLoaded(ctx)
 		time.Sleep(100 * time.Millisecond)
 		require.Greater(t, ts.ssecount.Load(), int32(1))
 		require.Equal(t, features2, client.Features())
@@ -83,7 +83,7 @@ func TestSseDataSource(t *testing.T) {
 			WithSseDataSource(),
 		)
 		require.Nil(t, err)
-		err = client.EnsureLoaded(ctx)
+		_ = client.EnsureLoaded(ctx)
 		client.Close()
 		old := ts.ssecount.Load()
 		time.Sleep(100 * time.Millisecond)
