@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -101,6 +102,94 @@ func TestPollingDataSource(t *testing.T) {
 		require.Equal(t, features, client.Features())
 		require.True(t, ts.count.Load() > 2)
 		require.Equal(t, ts.count.Load()-1, ts.etagCount.Load())
+	})
+
+	t.Run("Concurrent Close calls during active polling - data race test", func(t *testing.T) {
+		ts := startServer(http.StatusOK, featuresJSON)
+		logger, _ := testLogger(slog.LevelError, t)
+		defer ts.http.Close()
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithPollDataSource(5*time.Millisecond),
+		)
+		require.Nil(t, err)
+		err = client.EnsureLoaded(ctx)
+		require.Nil(t, err)
+
+		// Allow polling to run for a bit
+		time.Sleep(50 * time.Millisecond)
+
+		// Launch multiple concurrent Close() calls
+		var wg sync.WaitGroup
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				client.Close()
+			}()
+		}
+		wg.Wait()
+
+		// Should complete without data race (verified with go test -race)
+	})
+
+	t.Run("Close immediately after Start - data race test", func(t *testing.T) {
+		ts := startServer(http.StatusOK, featuresJSON)
+		logger, _ := testLogger(slog.LevelError, t)
+		defer ts.http.Close()
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithPollDataSource(1*time.Millisecond),
+		)
+		require.Nil(t, err)
+
+		// Race between Start completing and Close being called
+		ds := client.data.dataSource
+		errChan := make(chan error, 1)
+		go func() {
+			errChan <- ds.Start(ctx)
+		}()
+
+		// Immediately call Close while Start is completing
+		go func() {
+			time.Sleep(1 * time.Millisecond)
+			ds.Close()
+		}()
+
+		err = <-errChan
+		require.Nil(t, err)
+	})
+
+	t.Run("Etag concurrent access during polling - data race test", func(t *testing.T) {
+		ts := startEtagServer(featuresJSON)
+		logger, _ := testLogger(slog.LevelError, t)
+		defer ts.http.Close()
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithPollDataSource(5*time.Millisecond),
+		)
+		require.Nil(t, err)
+		err = client.EnsureLoaded(ctx)
+		require.Nil(t, err)
+
+		// Allow multiple polls to occur and update etag
+		time.Sleep(100 * time.Millisecond)
+
+		// Verify etag was properly managed
+		require.True(t, ts.count.Load() > 5, "Expected multiple polling requests")
+		require.True(t, ts.etagCount.Load() > 0, "Expected etag requests")
+
+		err = client.Close()
+		require.Nil(t, err)
 	})
 }
 
