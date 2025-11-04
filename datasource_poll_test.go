@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -101,6 +102,93 @@ func TestPollingDataSource(t *testing.T) {
 		require.Equal(t, features, client.Features())
 		require.True(t, ts.count.Load() > 2)
 		require.Equal(t, ts.count.Load()-1, ts.etagCount.Load())
+	})
+
+	t.Run("Concurrent Close calls during active polling - data race test", func(t *testing.T) {
+		ts := startServer(http.StatusOK, featuresJSON)
+		logger, _ := testLogger(slog.LevelError, t)
+		defer ts.http.Close()
+
+		// Use a test context with timeout
+		testCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		client, err := NewClient(testCtx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithPollDataSource(5*time.Millisecond),
+		)
+		require.Nil(t, err)
+		err = client.EnsureLoaded(testCtx)
+		require.Nil(t, err)
+
+		// Allow polling to run for a bit
+		time.Sleep(50 * time.Millisecond)
+
+		// Launch multiple concurrent Close() calls
+		var wg sync.WaitGroup
+		for i := 0; i < 3; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				client.Close()
+			}()
+		}
+		wg.Wait()
+
+		// Should complete without data race
+	})
+
+	t.Run("Close immediately after Start - data race test", func(t *testing.T) {
+		ts := startServer(http.StatusOK, featuresJSON)
+		logger, _ := testLogger(slog.LevelError, t)
+		defer ts.http.Close()
+
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithPollDataSource(1*time.Millisecond),
+		)
+		require.Nil(t, err)
+
+		// Close should be safe while polling is happening
+		err = client.Close()
+		require.Nil(t, err)
+	})
+
+	t.Run("Etag concurrent access during polling - data race test", func(t *testing.T) {
+		ts := startEtagServer(featuresJSON)
+		logger, _ := testLogger(slog.LevelError, t)
+		defer ts.http.Close()
+
+		// Use a test context with timeout
+		testCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		client, err := NewClient(testCtx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithPollDataSource(5*time.Millisecond),
+		)
+		require.Nil(t, err)
+		err = client.EnsureLoaded(testCtx)
+		require.Nil(t, err)
+
+		// Allow multiple polls to occur and update etag
+		time.Sleep(50 * time.Millisecond)
+
+		// Verify etag was properly managed
+		require.True(t, ts.count.Load() > 3, "Expected multiple polling requests")
+		require.True(t, ts.etagCount.Load() > 0, "Expected etag requests")
+
+		err = client.Close()
+		require.Nil(t, err)
 	})
 }
 

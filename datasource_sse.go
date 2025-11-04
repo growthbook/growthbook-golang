@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/tmaxmax/go-sse"
@@ -16,6 +17,7 @@ type SseDataSource struct {
 	ready  bool
 	retry  time.Duration
 	logger *slog.Logger
+	mu     sync.RWMutex
 }
 
 const minbufsize = 64 * 1024
@@ -36,7 +38,7 @@ func newSseDataSource(client *Client) *SseDataSource {
 }
 
 func (ds *SseDataSource) Start(ctx context.Context) error {
-	ds.logger.Info("Starting")
+	ds.logger.InfoContext(ctx, "Starting")
 
 	ctx, cancel := context.WithCancel(ctx)
 	ds.cancel = cancel
@@ -45,17 +47,23 @@ func (ds *SseDataSource) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	ds.logger.Info("First load finished")
+	ds.logger.InfoContext(ctx, "First load finished")
 
+	ds.mu.Lock()
 	ds.ready = true
+	ds.mu.Unlock()
 	go ds.connect(ctx)
-	ds.logger.Info("Started")
+	ds.logger.InfoContext(ctx, "Started")
 
 	return nil
 }
 
 func (ds *SseDataSource) Close() error {
-	if !ds.ready {
+	ds.mu.RLock()
+	ready := ds.ready
+	ds.mu.RUnlock()
+
+	if !ready {
 		return fmt.Errorf("Datasource is not ready")
 	}
 	ds.logger.Info("Closing")
@@ -87,9 +95,9 @@ func (ds *SseDataSource) connect(ctx context.Context) error {
 
 func (ds *SseDataSource) onRetry(ctx context.Context) func(err error, delay time.Duration) {
 	return func(err error, delay time.Duration) {
-		ds.logger.Info("Reconnect", "reason", err, "delay", delay)
+		ds.logger.InfoContext(ctx, "Reconnect", "reason", err, "delay", delay)
 		if err := ds.loadData(ctx); err != nil {
-			ds.logger.Error("Error loading features", "error", err)
+			ds.logger.ErrorContext(ctx, "Error loading features", "error", err)
 		}
 	}
 }

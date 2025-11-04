@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 )
 
@@ -15,6 +16,7 @@ type PollDataSource struct {
 	cancel   context.CancelFunc
 	ready    bool
 	etag     string
+	mu       sync.RWMutex
 }
 
 func WithPollDataSource(interval time.Duration) ClientOption {
@@ -33,7 +35,7 @@ func newPollDataSource(client *Client, interval time.Duration) *PollDataSource {
 }
 
 func (ds *PollDataSource) Start(ctx context.Context) error {
-	ds.logger.Info("Starting")
+	ds.logger.InfoContext(ctx, "Starting")
 
 	ctx, cancel := context.WithCancel(ctx)
 	ds.cancel = cancel
@@ -42,17 +44,23 @@ func (ds *PollDataSource) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	ds.logger.Info("First load finished")
+	ds.logger.InfoContext(ctx, "First load finished")
 
+	ds.mu.Lock()
 	ds.ready = true
+	ds.mu.Unlock()
 	go ds.startPolling(ctx)
-	ds.logger.Info("Started")
+	ds.logger.InfoContext(ctx, "Started")
 
 	return nil
 }
 
 func (ds *PollDataSource) Close() error {
-	if !ds.ready {
+	ds.mu.RLock()
+	ready := ds.ready
+	ds.mu.RUnlock()
+
+	if !ready {
 		return fmt.Errorf("Datasource is not ready")
 	}
 	ds.logger.Info("Closing")
@@ -66,16 +74,18 @@ func (ds *PollDataSource) startPolling(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			ds.mu.Lock()
 			ds.ready = false
-			ds.logger.Info("Finished polling due to context")
+			ds.mu.Unlock()
+			ds.logger.InfoContext(ctx, "Finished polling due to context")
 			return
 		case <-timer:
 			err := ds.loadData(ctx)
 			if err != nil {
-				ds.logger.Error("Error loading features", "error", err)
+				ds.logger.ErrorContext(ctx, "Error loading features", "error", err)
 			}
 			if errors.Is(err, context.Canceled) {
-				ds.logger.Info("Finished polling due to context")
+				ds.logger.InfoContext(ctx, "Finished polling due to context")
 				return
 			}
 		}
@@ -83,13 +93,19 @@ func (ds *PollDataSource) startPolling(ctx context.Context) {
 }
 
 func (ds *PollDataSource) loadData(ctx context.Context) error {
-	resp, err := ds.client.CallFeatureApi(ctx, ds.etag)
+	ds.mu.RLock()
+	etag := ds.etag
+	ds.mu.RUnlock()
+
+	resp, err := ds.client.CallFeatureApi(ctx, etag)
 	if err != nil {
 		return err
 	}
 
 	if resp.Etag != "" {
+		ds.mu.Lock()
 		ds.etag = resp.Etag
+		ds.mu.Unlock()
 	}
 
 	if resp.Features == nil {

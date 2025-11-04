@@ -174,7 +174,7 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
-	e := client.evaluator()
+	e := client.evaluator(ctx)
 	res := e.evalFeature(key)
 	if client.featureUsageCallback != nil {
 		client.featureUsageCallback(ctx, key, res, client.extraData)
@@ -186,7 +186,7 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 }
 
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
-	e := client.evaluator()
+	e := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
 	if client.experimentCallback != nil && res.InExperiment {
 		client.experimentCallback(ctx, exp, res, client.extraData)
@@ -199,12 +199,13 @@ func (client *Client) Features() FeatureMap {
 }
 
 // Internals
-func (client *Client) evaluator() *evaluator {
+func (client *Client) evaluator(ctx context.Context) *evaluator {
 	client.data.mu.RLock()
 	e := evaluator{
 		features:    client.data.features,
 		savedGroups: client.data.savedGroups,
 		client:      client,
+		ctx:         ctx,
 	}
 	client.data.mu.RUnlock()
 	return &e
