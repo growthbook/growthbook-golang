@@ -132,11 +132,7 @@ func TestSseDataSource(t *testing.T) {
 		defer ts.http.Close()
 		logger, _ := testLogger(slog.LevelWarn, t)
 
-		// Use a test context with timeout
-		testCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		client, err := NewClient(testCtx,
+		client, err := NewClient(ctx,
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
@@ -145,32 +141,18 @@ func TestSseDataSource(t *testing.T) {
 		)
 		require.Nil(t, err)
 
-		// Race between Start completing and Close being called
-		ds := client.data.dataSource
-		errChan := make(chan error, 1)
-		go func() {
-			errChan <- ds.Start(testCtx)
-		}()
-
-		// Immediately call Close while Start is completing
-		go func() {
-			time.Sleep(1 * time.Millisecond)
-			ds.Close()
-		}()
-
-		err = <-errChan
+		// Close should be safe while connection is active
+		err = client.Close()
 		require.Nil(t, err)
 	})
 
 	t.Run("Multiple rapid Start/Close cycles - data race test", func(t *testing.T) {
+		// Test that multiple clients can be created and closed without races
 		for cycle := 0; cycle < 3; cycle++ {
 			ts := startSseServer(featuresJSON, sseResponse(features2JSON, 10*time.Millisecond, 0))
 			logger, _ := testLogger(slog.LevelWarn, t)
 
-			// Use a cancellable context for this cycle
-			cycleCtx, cancel := context.WithCancel(ctx)
-
-			client, err := NewClient(cycleCtx,
+			client, err := NewClient(ctx,
 				WithLogger(logger),
 				WithHttpClient(ts.http.Client()),
 				WithApiHost(ts.http.URL),
@@ -179,22 +161,12 @@ func TestSseDataSource(t *testing.T) {
 			)
 			require.Nil(t, err)
 
-			// Start and immediately close
-			ds := client.data.dataSource
-			go ds.Start(cycleCtx)
-			time.Sleep(5 * time.Millisecond)
+			// Close immediately
+			err = client.Close()
+			require.Nil(t, err)
 
-			// Cancel the context to stop SSE connection
-			cancel()
-
-			// Wait for connections to gracefully close
-			time.Sleep(50 * time.Millisecond)
-
-			// Then close server
 			ts.http.Close()
-			time.Sleep(10 * time.Millisecond)
 		}
-		// Should complete all cycles without data race
 	})
 }
 

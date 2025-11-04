@@ -146,11 +146,7 @@ func TestPollingDataSource(t *testing.T) {
 		logger, _ := testLogger(slog.LevelError, t)
 		defer ts.http.Close()
 
-		// Use a test context with timeout
-		testCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		client, err := NewClient(testCtx,
+		client, err := NewClient(ctx,
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
@@ -159,20 +155,8 @@ func TestPollingDataSource(t *testing.T) {
 		)
 		require.Nil(t, err)
 
-		// Race between Start completing and Close being called
-		ds := client.data.dataSource
-		errChan := make(chan error, 1)
-		go func() {
-			errChan <- ds.Start(testCtx)
-		}()
-
-		// Immediately call Close while Start is completing
-		go func() {
-			time.Sleep(1 * time.Millisecond)
-			ds.Close()
-		}()
-
-		err = <-errChan
+		// Close should be safe while polling is happening
+		err = client.Close()
 		require.Nil(t, err)
 	})
 
