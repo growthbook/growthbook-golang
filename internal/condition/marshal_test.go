@@ -69,16 +69,20 @@ func TestValueMarshaling(t *testing.T) {
 
 		`{"$in": ["tag1", "tag2"]}`:  NewInCond(value.Arr("tag1", "tag2")),
 		`{"$nin": ["tag1", "tag2"]}`: NewNotInCond(value.Arr("tag1", "tag2")),
+		`{"$ini": ["tag1", "tag2"]}`:  NewIniCond(value.Arr("tag1", "tag2")),
+		`{"$nini": ["tag1", "tag2"]}`: NewNotIniCond(value.Arr("tag1", "tag2")),
 
 		`{"$inGroup": "admins"}`:    NewInGroupCond("admins"),
 		`{"$notInGroup": "admins"}`: NewNotInGroupCond("admins"),
 
 		`{"$regex": "foo"}`:           NewRegexCond(regexp.MustCompile("foo")),
+		`{"$regexi": "foo"}`:          NewRegexiCond(regexp.MustCompile("(?i)foo")),
 		`{"$size": 10}`:               NewSizeCond(NewValueCond(10)),
 		`{"$elemMatch": {"age": 10}}`: NewElemMatchCond(age10),
 		`{"$elemMatch": {"$eq": 10}}`: NewElemMatchCond(NewCompCond(eqOp, 10)),
-		`{"$all": [10, {"$eq": 10}]}`: AllConds{NewValueCond(10), NewCompCond(eqOp, 10)},
-		`{"$type": "string"}`:         NewTypeCond("string"),
+		`{"$all": [10, {"$eq": 10}]}`:  AllConds{NewValueCond(10), NewCompCond(eqOp, 10)},
+		`{"$alli": [10, {"$eq": 10}]}`: AlliConds{NewValueCondCaseInsensitive(10), NewCompCond(eqOp, 10)},
+		`{"$type": "string"}`:          NewTypeCond("string"),
 		`{"$exists": true}`:           NewExistsCond(true),
 	}
 	for s, result := range tests {
@@ -93,3 +97,53 @@ func TestValueMarshaling(t *testing.T) {
 	}
 
 }
+
+func TestCaseInsensitiveOperators(t *testing.T) {
+	t.Run("$regexi operator", func(t *testing.T) {
+		jsonStr := `{"email": {"$regexi": "@GMAIL\\.COM$"}}`
+		var b Base
+		err := json.Unmarshal([]byte(jsonStr), &b)
+		require.Nil(t, err)
+		
+		require.True(t, b.Eval(value.New(map[string]any{"email": "test@gmail.com"}), nil))
+		require.True(t, b.Eval(value.New(map[string]any{"email": "test@GMAIL.COM"}), nil))
+		require.True(t, b.Eval(value.New(map[string]any{"email": "test@GmAiL.CoM"}), nil))
+		require.False(t, b.Eval(value.New(map[string]any{"email": "test@yahoo.com"}), nil))
+	})
+
+	t.Run("$ini operator", func(t *testing.T) {
+		jsonStr := `{"browser": {"$ini": ["chrome", "firefox", "SAFARI"]}}`
+		var b Base
+		err := json.Unmarshal([]byte(jsonStr), &b)
+		require.Nil(t, err)
+		
+		require.True(t, b.Eval(value.New(map[string]any{"browser": "chrome"}), nil))
+		require.True(t, b.Eval(value.New(map[string]any{"browser": "CHROME"}), nil))
+		require.True(t, b.Eval(value.New(map[string]any{"browser": "Safari"}), nil))
+		require.False(t, b.Eval(value.New(map[string]any{"browser": "edge"}), nil))
+	})
+
+	t.Run("$nini operator", func(t *testing.T) {
+		jsonStr := `{"browser": {"$nini": ["chrome", "firefox"]}}`
+		var b Base
+		err := json.Unmarshal([]byte(jsonStr), &b)
+		require.Nil(t, err)
+		
+		require.False(t, b.Eval(value.New(map[string]any{"browser": "chrome"}), nil))
+		require.False(t, b.Eval(value.New(map[string]any{"browser": "CHROME"}), nil))
+		require.True(t, b.Eval(value.New(map[string]any{"browser": "safari"}), nil))
+	})
+
+	t.Run("$alli operator", func(t *testing.T) {
+		jsonStr := `{"tags": {"$alli": ["javascript", "REACT"]}}`
+		var b Base
+		err := json.Unmarshal([]byte(jsonStr), &b)
+		require.Nil(t, err)
+		
+		require.True(t, b.Eval(value.New(map[string]any{"tags": []string{"JAVASCRIPT", "react", "node"}}), nil))
+		require.True(t, b.Eval(value.New(map[string]any{"tags": []string{"JavaScript", "React"}}), nil))
+		require.False(t, b.Eval(value.New(map[string]any{"tags": []string{"JAVASCRIPT", "vue"}}), nil))
+		require.False(t, b.Eval(value.New(map[string]any{"tags": []string{"python", "django"}}), nil))
+	})
+}
+
