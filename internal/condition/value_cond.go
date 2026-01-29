@@ -15,3 +15,16 @@ func NewValueCond(arg any) ValueCond {
 func (c ValueCond) Eval(actual value.Value, _ SavedGroups) bool {
 	return valueCompare(actual, c.expected)
 }
+
+// ValueCondCaseInsensitive is like ValueCond but uses case-insensitive comparison for strings
+type ValueCondCaseInsensitive struct {
+	expected value.Value
+}
+
+func NewValueCondCaseInsensitive(arg any) ValueCondCaseInsensitive {
+	return ValueCondCaseInsensitive{value.New(arg)}
+}
+
+func (c ValueCondCaseInsensitive) Eval(actual value.Value, _ SavedGroups) bool {
+	return equalCaseInsensitive(actual, c.expected)
+}
