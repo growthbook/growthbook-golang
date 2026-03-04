@@ -1,6 +1,8 @@
 package growthbook
 
-import ()
+import (
+	"slices"
+)
 
 type stack[T comparable] struct {
 	stack []T
@@ -21,10 +23,5 @@ func (s *stack[T]) pop() (T, bool) {
 }
 
 func (s *stack[T]) has(v T) bool {
-	for _, i := range s.stack {
-		if i == v {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(s.stack, v)
 }
