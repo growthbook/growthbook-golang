@@ -172,6 +172,20 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 	return client.UpdateFromApiResponse(&resp)
 }
 
+// RefreshFeatures immediately fetches the latest features from the GrowthBook API
+// and updates the client. Useful in manual mode when no background datasource is
+// configured and the caller wants to control when features are refreshed.
+func (client *Client) RefreshFeatures(ctx context.Context) error {
+	resp, err := client.CallFeatureApi(ctx, "")
+	if err != nil {
+		return err
+	}
+	if resp.Features == nil && resp.EncryptedFeatures == "" {
+		return nil
+	}
+	return client.UpdateFromApiResponse(resp)
+}
+
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
 	e := client.evaluator(ctx)
