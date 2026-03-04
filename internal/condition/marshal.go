@@ -117,6 +117,15 @@ func buildValueCond(json value.Value) (Condition, error) {
 	return buildObjCond(obj)
 }
 
+func buildValueCondCaseInsensitive(json value.Value) (Condition, error) {
+	obj, ok := json.(value.ObjValue)
+	if !(ok && isOperatorObject(obj)) {
+		return NewValueCondCaseInsensitive(json), nil
+	}
+
+	return buildObjCond(obj)
+}
+
 func buildObjCond(obj value.ObjValue) (Condition, error) {
 	var conds []Condition
 	for op, arg := range obj {
@@ -150,6 +159,18 @@ func buildOpCond(op Operator, arg value.Value) (Condition, error) {
 			return False{}, nil
 		}
 		return NewNotInCond(arr), nil
+	case iniOp:
+		arr, ok := arg.(value.ArrValue)
+		if !ok {
+			return False{}, nil
+		}
+		return NewIniCond(arr), nil
+	case niniOp:
+		arr, ok := arg.(value.ArrValue)
+		if !ok {
+			return False{}, nil
+		}
+		return NewNotIniCond(arr), nil
 	case inGroupOp:
 		str, ok := arg.(value.StrValue)
 		if !ok {
@@ -164,6 +185,8 @@ func buildOpCond(op Operator, arg value.Value) (Condition, error) {
 		return NewNotInGroupCond(string(str)), nil
 	case regexOp:
 		return buildRegexCond(arg)
+	case regexiOp:
+		return buildRegexiCond(arg)
 	case sizeOp:
 		cond, err := buildValueCond(arg)
 		if err != nil {
@@ -182,6 +205,8 @@ func buildOpCond(op Operator, arg value.Value) (Condition, error) {
 		return buildElemMatchCond(arg)
 	case allOp:
 		return buildAllConds(arg)
+	case alliOp:
+		return buildAlliConds(arg)
 	case notOp:
 		cond, err := buildValueCond(arg)
 		if err != nil {
@@ -215,6 +240,21 @@ func buildRegexCond(arg value.Value) (Condition, error) {
 	return NewRegexCond(r), nil
 }
 
+func buildRegexiCond(arg value.Value) (Condition, error) {
+	s, ok := arg.(value.StrValue)
+	if !ok {
+		return nil, fmt.Errorf("RegexiOp argument %v isn't a string", arg)
+	}
+
+	// Add case-insensitive flag to the pattern
+	pattern := "(?i)" + string(s)
+	r, err := regexp.Compile(pattern)
+	if err != nil {
+		return False{}, nil
+	}
+	return NewRegexiCond(r), nil
+}
+
 func buildElemMatchCond(arg value.Value) (Condition, error) {
 	obj, ok := arg.(value.ObjValue)
 	if !ok {
@@ -244,6 +284,22 @@ func buildAllConds(arg value.Value) (Condition, error) {
 		c, err := buildValueCond(v)
 		if err != nil {
 			return nil, fmt.Errorf("$all arg is invalid: %w", err)
+		}
+		res = append(res, c)
+	}
+	return res, nil
+}
+
+func buildAlliConds(arg value.Value) (Condition, error) {
+	arr, ok := arg.(value.ArrValue)
+	if !ok {
+		return nil, fmt.Errorf("$alli arg %v is not an array", arg)
+	}
+	res := AlliConds{}
+	for _, v := range arr {
+		c, err := buildValueCondCaseInsensitive(v)
+		if err != nil {
+			return nil, fmt.Errorf("$alli arg is invalid: %w", err)
 		}
 		res = append(res, c)
 	}

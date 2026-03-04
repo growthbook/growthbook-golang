@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"testing"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -175,6 +176,51 @@ func TestClientFeatureUsageTracking(t *testing.T) {
 	require.Equal(t, 0.0, res.Value)
 	require.Equal(t, 2, count)
 	require.Equal(t, "NEW", extraData)
+}
+
+func TestRefreshFeatures(t *testing.T) {
+	ctx := context.TODO()
+	featuresJSON := []byte(`{
+      "features": {
+        "foo": {
+          "defaultValue": "refreshed"
+        }
+      },
+      "experiments": [],
+      "dateUpdated": "2030-01-01T00:00:00Z"
+    }`)
+	expectedFeatures := FeatureMap{"foo": &Feature{DefaultValue: "refreshed"}}
+
+	t.Run("Fetches and updates features in manual mode (no datasource)", func(t *testing.T) {
+		ts := startServer(http.StatusOK, featuresJSON)
+		defer ts.http.Close()
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+		)
+		require.Nil(t, err)
+		require.Empty(t, client.Features())
+
+		err = client.RefreshFeatures(ctx)
+		require.Nil(t, err)
+		require.Equal(t, expectedFeatures, client.Features())
+	})
+
+	t.Run("Returns error on non-200 response", func(t *testing.T) {
+		ts := startServer(http.StatusNotFound, []byte(""))
+		defer ts.http.Close()
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+		)
+		require.Nil(t, err)
+
+		err = client.RefreshFeatures(ctx)
+		require.Error(t, err)
+		require.Empty(t, client.Features())
+	})
 }
 
 func TestClientExperimentTracking(t *testing.T) {

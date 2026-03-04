@@ -28,3 +28,30 @@ func check(c Condition, arr value.ArrValue, groups SavedGroups) bool {
 	}
 	return false
 }
+
+// AlliConds checks each condition is true for at least
+// one array element (case-insensitive for strings).
+type AlliConds []Condition
+
+func (cs AlliConds) Eval(actual value.Value, groups SavedGroups) bool {
+	arr, ok := actual.(value.ArrValue)
+	if !ok {
+		return false
+	}
+
+	for _, c := range cs {
+		if !checkCaseInsensitive(c, arr, groups) {
+			return false
+		}
+	}
+	return true
+}
+
+func checkCaseInsensitive(c Condition, arr value.ArrValue, groups SavedGroups) bool {
+	for _, v := range arr {
+		if c.Eval(v, groups) {
+			return true
+		}
+	}
+	return false
+}

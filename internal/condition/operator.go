@@ -26,11 +26,15 @@ const (
 	inGroupOp    Operator = "$inGroup"
 	ninOp        Operator = "$nin"
 	notInGroupOp Operator = "$notInGroup"
+	iniOp        Operator = "$ini"
+	niniOp       Operator = "$nini"
 
-	regexOp     Operator = "$regex"
-	sizeOp      Operator = "$size"
+	regexOp  Operator = "$regex"
+	regexiOp Operator = "$regexi"
+	sizeOp   Operator = "$size"
 	elemMatchOp Operator = "$elemMatch"
 	allOp       Operator = "$all"
+	alliOp      Operator = "$alli"
 	typeOp      Operator = "$type"
 	existsOp    Operator = "$exists"
 )

@@ -21,3 +21,19 @@ func (c RegexCond) Eval(actual value.Value, _ SavedGroups) bool {
 	}
 	return false
 }
+
+// RegexiCond implements case-insensitive regex comparison
+type RegexiCond struct {
+	rx *regexp.Regexp
+}
+
+func NewRegexiCond(rx *regexp.Regexp) RegexiCond {
+	return RegexiCond{rx}
+}
+
+func (c RegexiCond) Eval(actual value.Value, _ SavedGroups) bool {
+	if s, ok := actual.(value.StrValue); ok {
+		return c.rx.MatchString(string(s))
+	}
+	return false
+}

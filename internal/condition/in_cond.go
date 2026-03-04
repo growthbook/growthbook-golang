@@ -27,3 +27,29 @@ func (c InCond) Eval(actual value.Value, _ SavedGroups) bool {
 	}
 	return isIn(actual, c.expected)
 }
+
+// IniCond checks if value is in array (case-insensitive for strings)
+type IniCond struct {
+	expected value.ArrValue
+}
+
+func NewIniCond(arg value.ArrValue) IniCond {
+	return IniCond{arg}
+}
+
+func NewNotIniCond(arg value.ArrValue) Condition {
+	cond := NewIniCond(arg)
+	return NotCond{cond}
+}
+
+func (c IniCond) Eval(actual value.Value, _ SavedGroups) bool {
+	if arr, ok := actual.(value.ArrValue); ok {
+		for _, v := range arr {
+			if isInCaseInsensitive(v, c.expected) {
+				return true
+			}
+		}
+		return false
+	}
+	return isInCaseInsensitive(actual, c.expected)
+}
