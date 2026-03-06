@@ -168,6 +168,25 @@ func WithStickyBucketAttributes(attributes StickyBucketAttributes) ClientOption 
 	}
 }
 
+// WithPlugins adds plugins to the client. Plugins are initialized
+// after all client options are applied and are shared with child clients.
+func WithPlugins(plugins ...Plugin) ClientOption {
+	return func(c *Client) error {
+		c.data.plugins = append(c.data.plugins, plugins...)
+		return nil
+	}
+}
+
+// WithGrowthBookTracking is a convenience option that adds a
+// GrowthBookTrackingPlugin to the client with the given configuration.
+func WithGrowthBookTracking(config TrackingPluginConfig) ClientOption {
+	return func(c *Client) error {
+		plugin := NewGrowthBookTrackingPlugin(config)
+		c.data.plugins = append(c.data.plugins, plugin)
+		return nil
+	}
+}
+
 // Child client instance options
 
 // WithEnabled creates child client instance with updated enabled switch.
