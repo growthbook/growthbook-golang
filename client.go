@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
 	"net/url"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -63,6 +64,16 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 		}
 	}
 
+	// Initialize plugins. Errors are logged but do not prevent client
+	// creation — plugin functionality must never interfere with SDK
+	// evaluation. Plugins that fail Init are kept in the list but must
+	// guard their tracking methods against being called uninitialised.
+	for _, p := range client.data.plugins {
+		if err := p.Init(client); err != nil {
+			client.logger.Error("Plugin initialization failed", "error", err)
+		}
+	}
+
 	if client.data.dataSource != nil {
 		go client.startDataSource(ctx)
 	}
@@ -70,13 +81,25 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	return client, nil
 }
 
-// Close client's background goroutines
+// Close client's background goroutines and plugins.
 func (client *Client) Close() error {
-	ds := client.data.dataSource
-	if ds == nil || !client.data.getDsStarted() {
-		return nil
+	var errs []error
+
+	// Close plugins first so they can flush remaining events.
+	for _, p := range client.data.getPlugins() {
+		if err := p.Close(); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	return ds.Close()
+
+	ds := client.data.dataSource
+	if ds != nil && client.data.getDsStarted() {
+		if err := ds.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 func defaultClient() *Client {
@@ -196,6 +219,13 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 	if client.experimentCallback != nil && res.InExperiment() {
 		client.experimentCallback(ctx, res.Experiment, res.ExperimentResult, client.extraData)
 	}
+	// Notify plugins. Panics are recovered so plugins never interrupt evaluation.
+	for _, p := range client.data.getPlugins() {
+		client.safePluginFeatureEvaluated(ctx, p, key, res)
+		if res.InExperiment() {
+			client.safePluginExperimentViewed(ctx, p, res.Experiment, res.ExperimentResult)
+		}
+	}
 	return res
 }
 
@@ -205,11 +235,34 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 	if client.experimentCallback != nil && res.InExperiment {
 		client.experimentCallback(ctx, exp, res, client.extraData)
 	}
+	// Notify plugins.
+	for _, p := range client.data.getPlugins() {
+		if res.InExperiment {
+			client.safePluginExperimentViewed(ctx, p, exp, res)
+		}
+	}
 	return res
 }
 
 func (client *Client) Features() FeatureMap {
 	return client.data.getFeatures()
+}
+
+// ClientKey returns the SDK client key used to authenticate with the GrowthBook API.
+func (client *Client) ClientKey() string {
+	return client.data.getClientKey()
+}
+
+// HttpClient returns the HTTP client used by the GrowthBook client.
+func (client *Client) HttpClient() *http.Client {
+	client.data.mu.RLock()
+	defer client.data.mu.RUnlock()
+	return client.data.httpClient
+}
+
+// Logger returns the logger used by the GrowthBook client.
+func (client *Client) Logger() *slog.Logger {
+	return client.logger
 }
 
 // Internals
@@ -228,4 +281,26 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 func (client *Client) clone() *Client {
 	c := *client
 	return &c
+}
+
+// safePluginExperimentViewed calls the plugin's OnExperimentViewed,
+// recovering from any panic so that plugin errors never interrupt SDK functions.
+func (client *Client) safePluginExperimentViewed(ctx context.Context, p Plugin, exp *Experiment, res *ExperimentResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			client.logger.ErrorContext(ctx, "Plugin panicked in OnExperimentViewed", "error", r)
+		}
+	}()
+	p.OnExperimentViewed(ctx, exp, res)
+}
+
+// safePluginFeatureEvaluated calls the plugin's OnFeatureEvaluated,
+// recovering from any panic so that plugin errors never interrupt SDK functions.
+func (client *Client) safePluginFeatureEvaluated(ctx context.Context, p Plugin, key string, res *FeatureResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			client.logger.ErrorContext(ctx, "Plugin panicked in OnFeatureEvaluated", "error", r)
+		}
+	}()
+	p.OnFeatureEvaluated(ctx, key, res)
 }
