@@ -103,12 +103,88 @@ To stop background updates, call `client.Close()` on the main client instance wh
 
 ### Tracking
 
-You can set up two callbacks to track experiment results and feature usage in your analytics or event tracking system:
+#### Built-in GrowthBook Tracking Plugin
+
+The SDK includes a built-in tracking plugin that automatically sends experiment and feature evaluation events to the GrowthBook warehouse. This is the easiest way to get analytics data flowing without any custom integration.
+
+```go
+client, err := gb.NewClient(
+    context.Background(),
+    gb.WithClientKey("sdk-XXXX"),
+    gb.WithSseDataSource(),
+    gb.WithGrowthBookTracking(gb.TrackingPluginConfig{
+        // Defaults to "https://us1.gb-ingest.com"
+        IngestorHost: "https://us1.gb-ingest.com",
+    }),
+)
+defer client.Close() // flushes remaining events
+```
+
+The plugin batches events and sends them in the background. Configuration options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `IngestorHost` | `https://us1.gb-ingest.com` | GrowthBook event ingestor endpoint |
+| `BatchSize` | `100` | Max events before auto-flush |
+| `BatchTimeout` | `10s` | Max wait time before auto-flush |
+| `HTTPClient` | Client's HTTP client | Custom HTTP client for sending events |
+| `Logger` | Client's logger | Custom logger for error reporting |
+
+Events tracked automatically:
+- **`experiment_viewed`** — when a user is bucketed into an experiment
+- **`feature_evaluated`** — every time a feature flag is evaluated
+
+If plugin initialization fails (e.g., missing client key), the plugin silently becomes a no-op — it never interferes with SDK evaluation.
+
+#### Custom Tracking via Callbacks
+
+For custom analytics integrations, you can set up two callbacks:
 
 1. **`ExperimentCallback`**: Triggered when a user is included in an experiment.
 2. **`FeatureUsageCallback`**: Triggered on each feature evaluation.
 
 You can also attach extra data that will be sent with each callback. These callbacks can be set globally via the `NewClient` function using the `WithExperimentCallback` and `WithFeatureUsageCallback` options. Alternatively, you can set them locally when creating child clients using similar methods like `client.WithExperimentCallback`. Extra data is set via the `WithExtraData` option.
+
+```go
+client, err := gb.NewClient(
+    context.Background(),
+    gb.WithClientKey("sdk-XXXX"),
+    gb.WithExperimentCallback(func(ctx context.Context, exp *gb.Experiment, result *gb.ExperimentResult, extraData any) {
+        // Send to your analytics provider
+    }),
+    gb.WithFeatureUsageCallback(func(ctx context.Context, key string, result *gb.FeatureResult, extraData any) {
+        // Track feature usage
+    }),
+    gb.WithExtraData(myAnalyticsService),
+)
+```
+
+Callbacks and the tracking plugin can be used together — they operate independently.
+
+#### Custom Plugins
+
+You can implement the `Plugin` interface to create custom tracking or other plugins:
+
+```go
+type Plugin interface {
+    Init(client *gb.Client) error
+    OnExperimentViewed(ctx context.Context, experiment *gb.Experiment, result *gb.ExperimentResult)
+    OnFeatureEvaluated(ctx context.Context, featureKey string, result *gb.FeatureResult)
+    Close() error
+}
+```
+
+Register custom plugins using `WithPlugins`:
+
+```go
+client, err := gb.NewClient(
+    context.Background(),
+    gb.WithClientKey("sdk-XXXX"),
+    gb.WithPlugins(myCustomPlugin),
+)
+```
+
+Plugins are shared with child clients. Any panics in plugin methods are recovered and logged — they never interrupt SDK evaluation.
 
 ---
 

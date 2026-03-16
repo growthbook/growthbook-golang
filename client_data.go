@@ -21,6 +21,7 @@ type data struct {
 	dsStarted     bool
 	dsStartWait   chan struct{}
 	dsStartErr    error
+	plugins       []Plugin
 }
 
 func newData() *data {
@@ -65,6 +66,18 @@ func (d *data) getDsStarted() bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.dsStarted
+}
+
+func (d *data) getPlugins() []Plugin {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.plugins
+}
+
+func (d *data) getClientKey() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.clientKey
 }
 
 type dataUpdate func(*data) error
