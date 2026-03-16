@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"sync"
 	"time"
 )
@@ -19,6 +20,43 @@ const (
 	eventExperimentViewed = "experiment_viewed"
 	eventFeatureEvaluated = "feature_evaluated"
 )
+
+var (
+	sdkVersionOnce  sync.Once
+	sdkVersionValue string
+)
+
+// sdkVersion returns the module version of the growthbook-golang SDK,
+// derived from go.mod via runtime/debug.ReadBuildInfo. The result is
+// cached after the first call.
+func sdkVersion() string {
+	sdkVersionOnce.Do(func() {
+		info, ok := debug.ReadBuildInfo()
+		if !ok {
+			sdkVersionValue = "unknown"
+			return
+		}
+		// When used as a dependency, the main module version is the
+		// consumer's version. Walk the dependency list instead.
+		for _, dep := range info.Deps {
+			if dep.Path == "github.com/growthbook/growthbook-golang" {
+				sdkVersionValue = dep.Version
+				return
+			}
+		}
+		// If this IS the main module (running tests, etc.), use the
+		// main module version.
+		if info.Main.Path == "github.com/growthbook/growthbook-golang" {
+			sdkVersionValue = info.Main.Version
+			if sdkVersionValue == "(devel)" || sdkVersionValue == "" {
+				sdkVersionValue = "dev"
+			}
+			return
+		}
+		sdkVersionValue = "unknown"
+	})
+	return sdkVersionValue
+}
 
 // TrackingPluginConfig configures the GrowthBookTrackingPlugin.
 type TrackingPluginConfig struct {
@@ -121,7 +159,6 @@ func (p *GrowthBookTrackingPlugin) OnExperimentViewed(ctx context.Context, exper
 	event := trackingEvent{
 		"event_type":      eventExperimentViewed,
 		"timestamp":       time.Now().UnixMilli(),
-		"client_key":      p.clientKey,
 		"sdk_language":    "go",
 		"sdk_version":     sdkVersion(),
 		"experiment_id":   experiment.Key,
@@ -151,7 +188,6 @@ func (p *GrowthBookTrackingPlugin) OnFeatureEvaluated(ctx context.Context, featu
 	event := trackingEvent{
 		"event_type":    eventFeatureEvaluated,
 		"timestamp":     time.Now().UnixMilli(),
-		"client_key":    p.clientKey,
 		"sdk_language":  "go",
 		"sdk_version":   sdkVersion(),
 		"feature_key":   featureKey,
@@ -221,8 +257,10 @@ func (p *GrowthBookTrackingPlugin) enqueue(event trackingEvent) {
 			p.timer.Stop()
 			p.timer = nil
 		}
-		p.mu.Unlock()
+		// wg.Add must happen before unlock so Close's wg.Wait cannot
+		// return while a send goroutine is about to be launched.
 		p.wg.Add(1)
+		p.mu.Unlock()
 		go func() {
 			defer p.wg.Done()
 			p.sendBatch(context.Background(), events)
@@ -240,13 +278,20 @@ func (p *GrowthBookTrackingPlugin) enqueue(event trackingEvent) {
 // timerFlush is called by the batch timeout timer.
 func (p *GrowthBookTrackingPlugin) timerFlush() {
 	p.mu.Lock()
+	if p.closed {
+		p.mu.Unlock()
+		return
+	}
 	events := p.events
 	p.events = nil
 	p.timer = nil
+	// wg.Add must happen before unlock — same reasoning as enqueue.
+	if len(events) > 0 {
+		p.wg.Add(1)
+	}
 	p.mu.Unlock()
 
 	if len(events) > 0 {
-		p.wg.Add(1)
 		go func() {
 			defer p.wg.Done()
 			p.sendBatch(context.Background(), events)
@@ -255,6 +300,9 @@ func (p *GrowthBookTrackingPlugin) timerFlush() {
 }
 
 // sendBatch POSTs a batch of events to the ingestor endpoint.
+// Delivery is best-effort: transient errors are logged and the batch
+// is dropped. No retry is attempted to keep the implementation simple
+// and avoid unbounded memory growth or complex retry state.
 func (p *GrowthBookTrackingPlugin) sendBatch(ctx context.Context, events []trackingEvent) {
 	body, err := json.Marshal(trackingRequest{
 		Events:    events,
