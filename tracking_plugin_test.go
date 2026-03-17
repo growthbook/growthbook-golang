@@ -348,22 +348,14 @@ func TestTrackingPluginRunExperiment(t *testing.T) {
 	require.NoError(t, client.Close())
 
 	captured := getRequests(reqs, mu)
-	require.NotEmpty(t, captured)
+	require.Len(t, captured, 1)
 
-	var allEvents []trackingEvent
-	for _, batch := range captured {
-		allEvents = append(allEvents, batch.Events...)
-	}
-
-	// RunExperiment only triggers experiment_viewed, not feature_evaluated.
-	var expEvents []trackingEvent
-	for _, e := range allEvents {
-		if e["event_type"] == eventExperimentViewed {
-			expEvents = append(expEvents, e)
-		}
-	}
-	require.NotEmpty(t, expEvents)
-	require.Equal(t, "my-experiment", expEvents[0]["experiment_id"])
+	allEvents := captured[0].Events
+	// RunExperiment produces exactly one event: experiment_viewed.
+	// feature_evaluated is only emitted by EvalFeature.
+	require.Len(t, allEvents, 1)
+	require.Equal(t, eventExperimentViewed, allEvents[0]["event_type"])
+	require.Equal(t, "my-experiment", allEvents[0]["experiment_id"])
 }
 
 func TestTrackingPluginWithExistingCallbacks(t *testing.T) {
@@ -404,8 +396,21 @@ func TestTrackingPluginWithExistingCallbacks(t *testing.T) {
 	require.True(t, callbackCalled, "experiment callback should still fire")
 	require.True(t, featureCbCalled, "feature usage callback should still fire")
 
-	captured := getRequests(reqs, mu)
-	require.NotEmpty(t, captured, "plugin should have sent events too")
+	var allEvents []trackingEvent
+	for _, batch := range getRequests(reqs, mu) {
+		allEvents = append(allEvents, batch.Events...)
+	}
+	var hasExpViewed, hasFeatEval bool
+	for _, e := range allEvents {
+		switch e["event_type"] {
+		case eventExperimentViewed:
+			hasExpViewed = true
+		case eventFeatureEvaluated:
+			hasFeatEval = true
+		}
+	}
+	require.True(t, hasExpViewed, "plugin should have sent experiment_viewed")
+	require.True(t, hasFeatEval, "plugin should have sent feature_evaluated")
 }
 
 func TestTrackingPluginChildClientSharesPlugin(t *testing.T) {
@@ -470,8 +475,9 @@ func TestTrackingPluginPanicRecovery(t *testing.T) {
 	require.NoError(t, client.Close())
 }
 
-// TestTrackingPluginCloseRace verifies that concurrent Close and batch-triggered
-// flushes do not lose events. This exercises the wg.Add-before-unlock ordering.
+// TestTrackingPluginCloseRace verifies that no events are lost when a
+// size-triggered batch flush races with Close. Specifically it guards
+// the wg.Add-before-unlock ordering fixed in enqueue and timerFlush.
 func TestTrackingPluginCloseRace(t *testing.T) {
 	srv, reqs, mu := newTestIngestor(t)
 	defer srv.Close()
@@ -491,13 +497,21 @@ func TestTrackingPluginCloseRace(t *testing.T) {
 	featuresJSON := `{"flag": {"defaultValue": true}}`
 	require.NoError(t, client.SetJSONFeatures(featuresJSON))
 
-	// Fill the batch from one goroutine while Close races from another.
+	// Pre-fill 3 events synchronously before the race. Because these are
+	// already in p.events when the race starts, they are guaranteed to be
+	// delivered: either Close's synchronous flush sends them, or they land
+	// in a size-triggered batch flush that wg.Wait will wait for.
+	for i := 0; i < 3; i++ {
+		client.EvalFeature(ctx, "flag")
+	}
+
+	// Race: add 2 more events (which may trigger the BatchSize=5 flush)
+	// concurrently with Close.
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		// 5 evals — triggers a size-based background flush mid-way.
-		for i := 0; i < 5; i++ {
+		for i := 0; i < 2; i++ {
 			client.EvalFeature(ctx, "flag")
 		}
 	}()
@@ -507,16 +521,14 @@ func TestTrackingPluginCloseRace(t *testing.T) {
 	}()
 	wg.Wait()
 
-	// All events that were enqueued before Close must have been sent —
-	// either via the background flush or the synchronous Close flush.
 	var total int
 	for _, batch := range getRequests(reqs, mu) {
 		total += len(batch.Events)
 	}
-	// We can't assert an exact count since the race determines how many
-	// events land before Close drains them, but there must be no panic
-	// and the count must be non-negative (no crash = success).
-	require.GreaterOrEqual(t, total, 0)
+	// Lower bound: the 3 pre-race events must always be delivered.
+	// Upper bound: no event can be double-sent (mutex prevents it).
+	require.GreaterOrEqual(t, total, 3, "pre-race events must never be lost")
+	require.LessOrEqual(t, total, 5, "no event should be sent more than once")
 }
 
 // panickyPlugin is a test plugin that panics on tracking calls.
