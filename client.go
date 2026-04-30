@@ -24,6 +24,7 @@ type Client struct {
 	attributes           value.ObjValue
 	url                  *url.URL
 	forcedVariations     ForcedVariationsMap
+	groups               map[string]bool
 	qaMode               bool
 	experimentCallback   ExperimentCallback
 	featureUsageCallback FeatureUsageCallback

@@ -64,6 +64,20 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		return e.getExperimentResult(exp, varId, false, featureId, nil, false)
 	}
 
+	// 4.5 Status check: stopped honors only Force; draft is skipped unless qaMode/forced.
+	switch exp.Status {
+	case StoppedStatus:
+		if exp.Force != nil {
+			e.client.logger.DebugContext(e.ctx, "Stopped experiment with forced variation", "id", exp.Key, "variation", *exp.Force)
+			return e.getExperimentResult(exp, *exp.Force, false, featureId, nil, false)
+		}
+		e.client.logger.DebugContext(e.ctx, "Skip stopped experiment without force", "id", exp.Key)
+		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+	case DraftStatus:
+		e.client.logger.DebugContext(e.ctx, "Skip draft experiment", "id", exp.Key)
+		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+	}
+
 	// 5. If experiment.active is set to false, return getExperimentResult(experiment)
 	if !exp.getActive() {
 		e.client.logger.DebugContext(e.ctx, "Skip experiment because it is inactive", "id", exp.Key)
@@ -126,7 +140,6 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	// Skip steps 7-8 if we found a sticky bucket or version is blocked
 	if stickyBucketFound {
 		e.client.logger.DebugContext(e.ctx, "Found sticky bucket for experiment. Assigning sticky variation", "id", exp.Key, "variation", stickyBucketVariation)
-		// Continue to step 8.3
 	}
 
 	if stickyBucketVersionBlocked {
@@ -178,10 +191,24 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			}
 		}
 
-		//# 8.2. TODO Make sure user is in a matching group
-	}
+		// 8.2 Legacy groups: experiment requires the user to belong to at least one named group.
+		if len(exp.Groups) > 0 && !hasMatchingGroup(exp.Groups, e.client.groups) {
+			e.client.logger.DebugContext(e.ctx, "Skip because of group targeting", "id", exp.Key)
+			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		}
 
-	// 8.3 TODO Apply any url targeting based on experiment.urlPatterns, return if no match
+		// 8.3 URL targeting: if patterns are set, the client URL must match.
+		if len(exp.URLPatterns) > 0 {
+			clientURL := ""
+			if e.client.url != nil {
+				clientURL = e.client.url.String()
+			}
+			if !isURLTargeted(clientURL, exp.URLPatterns) {
+				e.client.logger.DebugContext(e.ctx, "Skip because of URL targeting", "id", exp.Key)
+				return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+			}
+		}
+	}
 
 	// 9 Choose a variation - If a sticky bucket value exists, use it.
 	n := hash(exp.getSeed(), hashValue, if0(exp.HashVersion, 1))
@@ -394,6 +421,15 @@ func (e *evaluator) isFilteredOut(filters []Filter) bool {
 			return true
 		}
 		if chooseVariation(*hash, filter.Ranges) == -1 {
+			return true
+		}
+	}
+	return false
+}
+
+func hasMatchingGroup(expGroups []string, userGroups map[string]bool) bool {
+	for _, g := range expGroups {
+		if userGroups[g] {
 			return true
 		}
 	}
