@@ -227,6 +227,9 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 			client.safePluginExperimentViewed(ctx, p, res.Experiment, res.ExperimentResult)
 		}
 	}
+	if res.Experiment != nil && res.ExperimentResult != nil {
+		client.notifySubscribers(ctx, res.Experiment, res.ExperimentResult)
+	}
 	return res
 }
 
@@ -242,6 +245,7 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 			client.safePluginExperimentViewed(ctx, p, exp, res)
 		}
 	}
+	client.notifySubscribers(ctx, exp, res)
 	return res
 }
 
