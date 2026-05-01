@@ -8,7 +8,13 @@ import (
 
 func valueCompare(actual, expected value.Value) bool {
 	switch expected.Type() {
-	case value.StrType, value.NumType, value.BoolType:
+	case value.BoolType:
+		if value.IsNull(actual) {
+			return false
+		}
+		casted := actual.Cast(expected.Type())
+		return value.Equal(expected, casted)
+	case value.StrType, value.NumType:
 		casted := actual.Cast(expected.Type())
 		return value.Equal(expected, casted)
 	case value.NullType:

@@ -21,6 +21,10 @@ func TestValueCond(t *testing.T) {
 		{0, 0, true},
 		{0, "", true},
 		{0, false, true},
+		{false, nil, false},
+		{true, nil, false},
+		{0, nil, true},
+		{nil, nil, true},
 	}
 	for _, tt := range tests {
 		var c Condition = NewValueCond(tt.e)
