@@ -242,7 +242,9 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 			client.safePluginExperimentViewed(ctx, p, exp, res)
 		}
 	}
-	client.notifySubscribers(ctx, exp, res)
+	if client.data.subscribers.hasSubscribers() {
+		client.notifySubscribers(ctx, exp, res)
+	}
 	return res
 }
 
