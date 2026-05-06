@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/url"
 	"os"
 	"reflect"
@@ -223,7 +225,7 @@ func (c featureCase) test(t *testing.T) {
 
 func (c getBucketRangeCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
-		client, err := NewClient(context.TODO())
+		client, err := NewClient(context.TODO(), withSilentTestLogger())
 		require.Nil(t, err)
 
 		i := c.Inputs.val
@@ -350,6 +352,7 @@ func (e *env) client() (*Client, error) {
 		WithForcedVariations(e.ForcedVariations),
 		WithFeatures(e.Features),
 		WithSavedGroups(e.SavedGroups),
+		withSilentTestLogger(),
 	)
 	if err != nil {
 		return nil, err
@@ -377,4 +380,8 @@ func (e *env) client() (*Client, error) {
 	}
 
 	return client, nil
+}
+
+func withSilentTestLogger() ClientOption {
+	return WithLogger(slog.New(slog.NewTextHandler(io.Discard, nil)))
 }
