@@ -214,6 +214,11 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *Ex
 		}
 
 	}
+	// 8.3 Legacy: experiment url targeting.
+	if exp.URL != "" && !isLegacyURLTargeted(e.client.url, exp.URL) {
+		e.client.logger.DebugContext(e.ctx, "Skip because of legacy URL targeting", "id", exp.Key)
+		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+	}
 
 	// 9 Choose a variation - If a sticky bucket value exists, use it.
 	n := hash(exp.getSeed(), hashValue, if0(exp.HashVersion, 1))

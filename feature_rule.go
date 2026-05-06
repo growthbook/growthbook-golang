@@ -50,6 +50,8 @@ type FeatureRule struct {
 	Phase string `json:"phase"`
 	// URL patterns to restrict where the rule's experiment runs. Empty means no URL restriction.
 	URLPatterns []URLTarget `json:"urlPatterns"`
+	// Legacy URL regex to restrict where the rule's experiment runs. Empty means no URL restriction.
+	URL string `json:"url"`
 	// Legacy group names — user must belong to at least one matching group (Client.WithGroups).
 	Groups []string `json:"groups"`
 	// Status — see Experiment.Status.

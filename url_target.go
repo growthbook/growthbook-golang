@@ -149,3 +149,35 @@ func ensureLeadingSlash(s string) string {
 	}
 	return "/" + s
 }
+
+func isLegacyURLTargeted(actual *url.URL, pattern string) bool {
+	if actual == nil {
+		return false
+	}
+	re, err := regexp.Compile(strings.ReplaceAll(pattern, `\/`, `/`))
+	if err != nil {
+		return false
+	}
+	full := actual.String()
+	if re.MatchString(full) {
+		return true
+	}
+	return re.MatchString(legacyURLPathOnly(actual))
+}
+
+func legacyURLPathOnly(actual *url.URL) string {
+	if actual.Host == "" {
+		return actual.String()
+	}
+	path := actual.EscapedPath()
+	if path == "" {
+		path = "/"
+	}
+	if actual.RawQuery != "" {
+		path += "?" + actual.RawQuery
+	}
+	if actual.Fragment != "" {
+		path += "#" + actual.EscapedFragment()
+	}
+	return path
+}

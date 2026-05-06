@@ -194,6 +194,70 @@ func TestExperimentURLPatterns_CheckedBeforeStickyBucket(t *testing.T) {
 	require.Equal(t, 0, res.VariationId)
 }
 
+func TestExperimentLegacyURL_MatchesFullURL(t *testing.T) {
+	c := newAttrClient(t)
+	c, err := c.WithUrl("https://example.com/checkout")
+	require.NoError(t, err)
+	exp := Experiment{
+		Key:        "exp",
+		Variations: []FeatureValue{0, 1},
+		URL:        `^https://example\.com/checkout$`,
+	}
+	res := c.RunExperiment(context.Background(), &exp)
+	require.True(t, res.InExperiment)
+}
+
+func TestExperimentLegacyURL_MatchesPathOnly(t *testing.T) {
+	c := newAttrClient(t)
+	c, err := c.WithUrl("https://example.com/checkout?step=1")
+	require.NoError(t, err)
+	exp := Experiment{
+		Key:        "exp",
+		Variations: []FeatureValue{0, 1},
+		URL:        `^/checkout\?step=1$`,
+	}
+	res := c.RunExperiment(context.Background(), &exp)
+	require.True(t, res.InExperiment)
+}
+
+func TestExperimentLegacyURL_NoMatchSkipped(t *testing.T) {
+	c := newAttrClient(t)
+	c, err := c.WithUrl("https://example.com/home")
+	require.NoError(t, err)
+	exp := Experiment{
+		Key:        "exp",
+		Variations: []FeatureValue{0, 1},
+		URL:        `^/checkout$`,
+	}
+	res := c.RunExperiment(context.Background(), &exp)
+	require.False(t, res.InExperiment)
+}
+
+func TestExperimentLegacyURL_CheckedWithStickyBucket(t *testing.T) {
+	service := NewInMemoryStickyBucketService()
+	err := service.SaveAssignments(&StickyBucketAssignmentDoc{
+		AttributeName:  "id",
+		AttributeValue: "user-1",
+		Assignments: map[string]string{
+			getStickyBucketExperimentKey("exp", 0): "one",
+		},
+	})
+	require.NoError(t, err)
+
+	c := newAttrClient(t, WithStickyBucketService(service))
+	c, err = c.WithUrl("https://example.com/home")
+	require.NoError(t, err)
+	exp := Experiment{
+		Key:        "exp",
+		Variations: []FeatureValue{0, 1},
+		Meta:       []VariationMeta{{Key: "zero"}, {Key: "one"}},
+		URL:        `^/checkout$`,
+	}
+	res := c.RunExperiment(context.Background(), &exp)
+	require.False(t, res.InExperiment)
+	require.Equal(t, 0, res.VariationId)
+}
+
 func mustCondition(t *testing.T, raw string) condition.Base {
 	t.Helper()
 	var cond condition.Base

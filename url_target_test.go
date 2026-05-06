@@ -1,6 +1,9 @@
 package growthbook
 
-import "testing"
+import (
+	"net/url"
+	"testing"
+)
 
 func boolPtr(b bool) *bool { return &b }
 
@@ -100,4 +103,29 @@ func TestIsURLTargeted_NoIncludeMatched(t *testing.T) {
 	if isURLTargeted("https://example.com/bar", targets) {
 		t.Fatal("when an include exists but none match, URL is not targeted")
 	}
+}
+
+func TestIsLegacyURLTargeted(t *testing.T) {
+	u := mustParseURL(t, "https://example.com/path/to/page?step=1#top")
+	if !isLegacyURLTargeted(u, `^https://example\.com/path/to/page\?step=1#top$`) {
+		t.Fatal("legacy URL should match full URL")
+	}
+	if !isLegacyURLTargeted(u, `^/path/to/page\?step=1#top$`) {
+		t.Fatal("legacy URL should match path-only URL")
+	}
+	if isLegacyURLTargeted(u, `^/other$`) {
+		t.Fatal("legacy URL should reject non-matching URL")
+	}
+	if isLegacyURLTargeted(nil, `.*`) {
+		t.Fatal("legacy URL should reject missing client URL")
+	}
+}
+
+func mustParseURL(t *testing.T, raw string) *url.URL {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return u
 }
