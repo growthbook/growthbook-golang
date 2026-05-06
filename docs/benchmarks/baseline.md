@@ -67,7 +67,7 @@ BenchmarkIsURLTargeted_Regex-10     	  486561	      4955 ns/op	    8211 B/op	   
 
 ## 2026-05-06 - Post-review parity fixes
 
-- Commit: `90c4b22` (branch `feat/sdk-parity-url-groups-subscribe`)
+- Commit: `5397795` (branch `feat/sdk-parity-url-groups-subscribe`)
 - Go: `go1.23.6 darwin/arm64`
 - CPU: Apple M1 Max
 - Note: After review fixes for URL/status/subscription parity, legacy `url`,
@@ -79,17 +79,17 @@ goos: darwin
 goarch: arm64
 pkg: github.com/growthbook/growthbook-golang
 cpu: Apple M1 Max
-BenchmarkEvalFeature_Cold-10        	18165979	       129.1 ns/op	     160 B/op	       3 allocs/op
-BenchmarkEvalFeature_Warm-10        	16952718	       138.7 ns/op	     160 B/op	       3 allocs/op
-BenchmarkRunExperiment-10           	 9479703	       250.2 ns/op	     280 B/op	       4 allocs/op
-BenchmarkEvalFeature_Parallel-10    	 8193786	       284.4 ns/op	     160 B/op	       3 allocs/op
-BenchmarkIsURLTargeted_Simple-10    	  291648	      8048 ns/op	   12137 B/op	     126 allocs/op
-BenchmarkIsURLTargeted_Regex-10     	  456600	      5016 ns/op	    8211 B/op	      94 allocs/op
+BenchmarkEvalFeature_Cold-10        	17892104	       129.2 ns/op	     160 B/op	       3 allocs/op
+BenchmarkEvalFeature_Warm-10        	16930773	       138.5 ns/op	     160 B/op	       3 allocs/op
+BenchmarkRunExperiment-10           	 9422572	       239.2 ns/op	     280 B/op	       4 allocs/op
+BenchmarkEvalFeature_Parallel-10    	 8419987	       283.8 ns/op	     160 B/op	       3 allocs/op
+BenchmarkIsURLTargeted_Simple-10    	  294308	      7881 ns/op	   12138 B/op	     126 allocs/op
+BenchmarkIsURLTargeted_Regex-10     	  462918	      4962 ns/op	    8211 B/op	      94 allocs/op
 ```
 
 ### Observations
 
 - `EvalFeature` remains close to the first baseline and keeps the same 3 allocs.
-- `RunExperiment` is modestly slower than the first baseline, but keeps the same
-  allocation count after avoiding subscriber work when no listeners exist.
+- `RunExperiment` is effectively back to the first baseline after avoiding
+  subscriber work when no listeners exist.
 - URL targeting remains the same hotspot as the first baseline.
