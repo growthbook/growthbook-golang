@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
@@ -40,7 +41,8 @@ func buildBaseCond(json value.Value) (Condition, error) {
 		return nil, fmt.Errorf("Base expected to be an object")
 	}
 	conds := []Condition{}
-	for f, fv := range obj {
+	for _, f := range orderedConditionKeys(obj) {
+		fv := obj[f]
 		cond, err := buildLogicCond(f, fv)
 		if err != nil {
 			return Base{}, fmt.Errorf("Error building %v : %v", f, err)
@@ -51,6 +53,26 @@ func buildBaseCond(json value.Value) (Condition, error) {
 		return conds[0], nil
 	}
 	return AndConds(conds), nil
+}
+
+func orderedConditionKeys(obj value.ObjValue) []string {
+	keys := make([]string, 0, len(obj))
+	seen := make(map[string]bool, len(obj))
+	for _, op := range []Operator{andOp, orOp, norOp, notOp} {
+		key := string(op)
+		if _, ok := obj[key]; ok {
+			keys = append(keys, key)
+			seen[key] = true
+		}
+	}
+	var fields []string
+	for key := range obj {
+		if !seen[key] {
+			fields = append(fields, key)
+		}
+	}
+	sort.Strings(fields)
+	return append(keys, fields...)
 }
 
 func buildLogicCond(op string, arg value.Value) (Condition, error) {

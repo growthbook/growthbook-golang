@@ -18,7 +18,11 @@ func NewNotInGroupCond(group string) Condition {
 
 func (c InGroupCond) Eval(actual value.Value, groups SavedGroups) bool {
 	if arr, ok := groups[c.group]; ok {
-		return isIn(actual, arr)
+		for _, v := range arr {
+			if value.Equal(actual, v) {
+				return true
+			}
+		}
 	}
 	return false
 }
