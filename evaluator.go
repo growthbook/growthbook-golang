@@ -9,11 +9,12 @@ import (
 )
 
 type evaluator struct {
-	features    FeatureMap
-	savedGroups condition.SavedGroups
-	evaluated   stack[string]
-	client      *Client
-	ctx         context.Context
+	features              FeatureMap
+	savedGroups           condition.SavedGroups
+	evaluated             stack[string]
+	client                *Client
+	ctx                   context.Context
+	onExperimentEvaluated func(*Experiment, *ExperimentResult)
 }
 
 func (e *evaluator) evalFeature(key string) *FeatureResult {
@@ -38,7 +39,12 @@ func (e *evaluator) evalFeature(key string) *FeatureResult {
 	return getFeatureResult(feature.DefaultValue, DefaultValueResultSource, "", nil, nil)
 }
 
-func (e *evaluator) runExperiment(exp *Experiment, featureId string) *ExperimentResult {
+func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *ExperimentResult) {
+	defer func() {
+		if e.onExperimentEvaluated != nil && result != nil {
+			e.onExperimentEvaluated(exp, result)
+		}
+	}()
 
 	// 1. If experiment.variations has fewer than 2 variations, return getExperimentResult(experiment)
 	if len(exp.Variations) < 2 {
@@ -52,27 +58,37 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 	}
 
-	// 3. If context.url exists
+	// 3. URL targeting applies before any force or sticky assignment.
+	if len(exp.URLPatterns) > 0 {
+		clientURL := ""
+		if e.client.url != nil {
+			clientURL = e.client.url.String()
+		}
+		if !isURLTargeted(clientURL, exp.URLPatterns) {
+			e.client.logger.DebugContext(e.ctx, "Skip because of URL targeting", "id", exp.Key)
+			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		}
+	}
+
+	// 4. If context.url exists
 	if qsOverride, ok := getQueryStringOverride(exp.Key, e.client.url, len(exp.Variations)); ok {
 		e.client.logger.DebugContext(e.ctx, "Force via querystring", "id", exp.Key, "variation", qsOverride)
 		return e.getExperimentResult(exp, qsOverride, false, featureId, nil, false)
 	}
 
-	// 4. Return if forced via context
+	// 5. Return if forced via context
 	if varId, ok := e.client.forcedVariations[exp.Key]; ok {
 		e.client.logger.DebugContext(e.ctx, "Force via dev tools", "id", exp.Key, "variation", varId)
 		return e.getExperimentResult(exp, varId, false, featureId, nil, false)
 	}
 
-	// 4.5 Status check: stopped honors only Force; draft is skipped unless qaMode/forced.
+	// 6. Stopped experiments only continue when they define Force.
 	switch exp.Status {
 	case StoppedStatus:
-		if exp.Force != nil {
-			e.client.logger.DebugContext(e.ctx, "Stopped experiment with forced variation", "id", exp.Key, "variation", *exp.Force)
-			return e.getExperimentResult(exp, *exp.Force, false, featureId, nil, false)
+		if exp.Force == nil {
+			e.client.logger.DebugContext(e.ctx, "Skip stopped experiment without force", "id", exp.Key)
+			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 		}
-		e.client.logger.DebugContext(e.ctx, "Skip stopped experiment without force", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 	case DraftStatus:
 		e.client.logger.DebugContext(e.ctx, "Skip draft experiment", "id", exp.Key)
 		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
@@ -197,17 +213,6 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
 		}
 
-		// 8.3 URL targeting: if patterns are set, the client URL must match.
-		if len(exp.URLPatterns) > 0 {
-			clientURL := ""
-			if e.client.url != nil {
-				clientURL = e.client.url.String()
-			}
-			if !isURLTargeted(clientURL, exp.URLPatterns) {
-				e.client.logger.DebugContext(e.ctx, "Skip because of URL targeting", "id", exp.Key)
-				return e.getExperimentResult(exp, -1, false, featureId, nil, false)
-			}
-		}
 	}
 
 	// 9 Choose a variation - If a sticky bucket value exists, use it.
@@ -251,7 +256,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	}
 
 	// 13. Build the result object
-	result := e.getExperimentResult(exp, stickyBucketVariation, true, featureId, n, stickyBucketFound)
+	result = e.getExperimentResult(exp, stickyBucketVariation, true, featureId, n, stickyBucketFound)
 
 	// 13.5 Save sticky bucket assignment if in experiment and sticky bucketing is enabled
 	if e.client.stickyBucketService != nil && !exp.DisableStickyBucketing && result.InExperiment {

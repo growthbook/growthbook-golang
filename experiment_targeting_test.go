@@ -2,8 +2,10 @@ package growthbook
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
+	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,10 +18,6 @@ func newAttrClient(t *testing.T, opts ...ClientOption) *Client {
 }
 
 func TestExperimentStatus_StoppedHonorsForce(t *testing.T) {
-	// Stopped + Force returns the forced variation. Matches Go's existing
-	// forced-variation contract (InExperiment=true whenever the variation
-	// index is valid); cleaning up "valid variation but not in experiment"
-	// semantics is a separate change.
 	c := newAttrClient(t)
 	force := 1
 	exp := Experiment{
@@ -31,6 +29,27 @@ func TestExperimentStatus_StoppedHonorsForce(t *testing.T) {
 	res := c.RunExperiment(context.Background(), &exp)
 	require.Equal(t, 1, res.VariationId)
 	require.False(t, res.HashUsed)
+}
+
+func TestExperimentStatus_StoppedForceStillRequiresEligibility(t *testing.T) {
+	c := newAttrClient(t)
+	force := 1
+	exp := Experiment{
+		Key:           "exp",
+		Variations:    []FeatureValue{0, 1},
+		Status:        StoppedStatus,
+		Force:         &force,
+		HashAttribute: "missing-id",
+	}
+	res := c.RunExperiment(context.Background(), &exp)
+	require.False(t, res.InExperiment)
+	require.Equal(t, 0, res.VariationId)
+
+	exp.HashAttribute = ""
+	exp.Condition = mustCondition(t, `{"country": "CA"}`)
+	res = c.RunExperiment(context.Background(), &exp)
+	require.False(t, res.InExperiment)
+	require.Equal(t, 0, res.VariationId)
 }
 
 func TestExperimentStatus_StoppedNoForceReturnsControl(t *testing.T) {
@@ -130,4 +149,54 @@ func TestExperimentURLPatterns_NoClientURLNoMatch(t *testing.T) {
 	}
 	res := c.RunExperiment(context.Background(), &exp)
 	require.False(t, res.InExperiment)
+}
+
+func TestExperimentURLPatterns_CheckedBeforeForcedVariations(t *testing.T) {
+	c := newAttrClient(t, WithForcedVariations(ForcedVariationsMap{"exp": 1}))
+	c, err := c.WithUrl("https://example.com/home")
+	require.NoError(t, err)
+	exp := Experiment{
+		Key:        "exp",
+		Variations: []FeatureValue{0, 1},
+		URLPatterns: []URLTarget{
+			{Type: URLTargetSimple, Pattern: "https://example.com/checkout"},
+		},
+	}
+	res := c.RunExperiment(context.Background(), &exp)
+	require.False(t, res.InExperiment)
+	require.Equal(t, 0, res.VariationId)
+}
+
+func TestExperimentURLPatterns_CheckedBeforeStickyBucket(t *testing.T) {
+	service := NewInMemoryStickyBucketService()
+	err := service.SaveAssignments(&StickyBucketAssignmentDoc{
+		AttributeName:  "id",
+		AttributeValue: "user-1",
+		Assignments: map[string]string{
+			getStickyBucketExperimentKey("exp", 0): "one",
+		},
+	})
+	require.NoError(t, err)
+
+	c := newAttrClient(t, WithStickyBucketService(service))
+	c, err = c.WithUrl("https://example.com/home")
+	require.NoError(t, err)
+	exp := Experiment{
+		Key:        "exp",
+		Variations: []FeatureValue{0, 1},
+		Meta:       []VariationMeta{{Key: "zero"}, {Key: "one"}},
+		URLPatterns: []URLTarget{
+			{Type: URLTargetSimple, Pattern: "https://example.com/checkout"},
+		},
+	}
+	res := c.RunExperiment(context.Background(), &exp)
+	require.False(t, res.InExperiment)
+	require.Equal(t, 0, res.VariationId)
+}
+
+func mustCondition(t *testing.T, raw string) condition.Base {
+	t.Helper()
+	var cond condition.Base
+	require.NoError(t, json.Unmarshal([]byte(raw), &cond))
+	return cond
 }

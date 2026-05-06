@@ -22,8 +22,8 @@ func TestSubscribe_FiresOnInExperiment(t *testing.T) {
 }
 
 func TestSubscribe_FiresEvenWhenNotInExperiment(t *testing.T) {
-	// Matches JS behavior: subscribers receive every run() result, including
-	// misses. Callers can filter on result.InExperiment.
+	// Matches JS behavior: subscribers receive assignment changes, including
+	// the first miss. Callers can filter on result.InExperiment.
 	c := newAttrClient(t)
 	var calls atomic.Int32
 	var lastInExperiment bool
@@ -34,6 +34,62 @@ func TestSubscribe_FiresEvenWhenNotInExperiment(t *testing.T) {
 
 	exp := Experiment{Key: "exp", Variations: []FeatureValue{0, 1}, Status: DraftStatus}
 	c.RunExperiment(context.Background(), &exp)
+	require.Equal(t, int32(1), calls.Load())
+	require.False(t, lastInExperiment)
+}
+
+func TestSubscribe_SkipsUnchangedAssignment(t *testing.T) {
+	c := newAttrClient(t)
+	var calls atomic.Int32
+	c.Subscribe(func(ctx context.Context, exp *Experiment, res *ExperimentResult) {
+		calls.Add(1)
+	})
+
+	exp := Experiment{Key: "exp", Variations: []FeatureValue{0, 1}, Status: DraftStatus}
+	c.RunExperiment(context.Background(), &exp)
+	c.RunExperiment(context.Background(), &exp)
+	require.Equal(t, int32(1), calls.Load())
+}
+
+func TestSubscribe_FiresWhenAssignmentChanges(t *testing.T) {
+	c := newAttrClient(t)
+	var calls atomic.Int32
+	var lastInExperiment bool
+	c.Subscribe(func(ctx context.Context, exp *Experiment, res *ExperimentResult) {
+		calls.Add(1)
+		lastInExperiment = res.InExperiment
+	})
+
+	exp := Experiment{Key: "exp", Variations: []FeatureValue{0, 1}, Status: DraftStatus}
+	c.RunExperiment(context.Background(), &exp)
+	exp.Status = RunningStatus
+	c.RunExperiment(context.Background(), &exp)
+	require.Equal(t, int32(2), calls.Load())
+	require.True(t, lastInExperiment)
+}
+
+func TestSubscribe_FiresForFeatureRuleMisses(t *testing.T) {
+	c := newAttrClient(t, WithFeatures(FeatureMap{
+		"feature": {
+			DefaultValue: "default",
+			Rules: []FeatureRule{
+				{
+					Key:        "exp",
+					Variations: []FeatureValue{"off", "on"},
+					Status:     DraftStatus,
+				},
+			},
+		},
+	}))
+	var calls atomic.Int32
+	var lastInExperiment bool
+	c.Subscribe(func(ctx context.Context, exp *Experiment, res *ExperimentResult) {
+		calls.Add(1)
+		lastInExperiment = res.InExperiment
+	})
+
+	res := c.EvalFeature(context.Background(), "feature")
+	require.Equal(t, FeatureValue("default"), res.Value)
 	require.Equal(t, int32(1), calls.Load())
 	require.False(t, lastInExperiment)
 }
