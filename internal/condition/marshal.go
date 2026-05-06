@@ -150,7 +150,8 @@ func buildValueCondCaseInsensitive(json value.Value) (Condition, error) {
 
 func buildObjCond(obj value.ObjValue) (Condition, error) {
 	var conds []Condition
-	for op, arg := range obj {
+	for _, op := range orderedOperatorKeys(obj) {
+		arg := obj[op]
 		cond, err := buildOpCond(Operator(op), arg)
 		if err != nil {
 			return nil, err
@@ -161,6 +162,15 @@ func buildObjCond(obj value.ObjValue) (Condition, error) {
 		return conds[0], nil
 	}
 	return AndConds(conds), nil
+}
+
+func orderedOperatorKeys(obj value.ObjValue) []string {
+	keys := make([]string, 0, len(obj))
+	for key := range obj {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func buildOpCond(op Operator, arg value.Value) (Condition, error) {
