@@ -213,9 +213,6 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
 	e := client.evaluator(ctx)
-	e.onExperimentEvaluated = func(exp *Experiment, res *ExperimentResult) {
-		client.notifySubscribers(ctx, exp, res)
-	}
 	res := e.evalFeature(key)
 	if client.featureUsageCallback != nil {
 		client.featureUsageCallback(ctx, key, res, client.extraData)

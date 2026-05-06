@@ -9,12 +9,11 @@ import (
 )
 
 type evaluator struct {
-	features              FeatureMap
-	savedGroups           condition.SavedGroups
-	evaluated             stack[string]
-	client                *Client
-	ctx                   context.Context
-	onExperimentEvaluated func(*Experiment, *ExperimentResult)
+	features    FeatureMap
+	savedGroups condition.SavedGroups
+	evaluated   stack[string]
+	client      *Client
+	ctx         context.Context
 }
 
 func (e *evaluator) evalFeature(key string) *FeatureResult {
@@ -39,23 +38,17 @@ func (e *evaluator) evalFeature(key string) *FeatureResult {
 	return getFeatureResult(feature.DefaultValue, DefaultValueResultSource, "", nil, nil)
 }
 
-func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *ExperimentResult) {
-	defer func() {
-		if e.onExperimentEvaluated != nil && result != nil {
-			e.onExperimentEvaluated(exp, result)
-		}
-	}()
-
+func (e *evaluator) runExperiment(exp *Experiment, featureId string) *ExperimentResult {
 	// 1. If experiment.variations has fewer than 2 variations, return getExperimentResult(experiment)
 	if len(exp.Variations) < 2 {
 		e.client.logger.DebugContext(e.ctx, "Invalid experiment", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		return e.experimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 2. If context.enabled is false, return getExperimentResult(experiment)
 	if !e.client.enabled {
 		e.client.logger.DebugContext(e.ctx, "Client disabled", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		return e.experimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 3. URL targeting applies before any force or sticky assignment.
@@ -66,20 +59,20 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *Ex
 		}
 		if !isURLTargeted(clientURL, exp.URLPatterns) {
 			e.client.logger.DebugContext(e.ctx, "Skip because of URL targeting", "id", exp.Key)
-			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+			return e.experimentResult(exp, -1, false, featureId, nil, false)
 		}
 	}
 
 	// 4. If context.url exists
 	if qsOverride, ok := getQueryStringOverride(exp.Key, e.client.url, len(exp.Variations)); ok {
 		e.client.logger.DebugContext(e.ctx, "Force via querystring", "id", exp.Key, "variation", qsOverride)
-		return e.getExperimentResult(exp, qsOverride, false, featureId, nil, false)
+		return e.experimentResult(exp, qsOverride, false, featureId, nil, false)
 	}
 
 	// 5. Return if forced via context
 	if varId, ok := e.client.forcedVariations[exp.Key]; ok {
 		e.client.logger.DebugContext(e.ctx, "Force via dev tools", "id", exp.Key, "variation", varId)
-		return e.getExperimentResult(exp, varId, false, featureId, nil, false)
+		return e.experimentResult(exp, varId, false, featureId, nil, false)
 	}
 
 	// 6. Stopped experiments only continue when they define Force.
@@ -87,24 +80,24 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *Ex
 	case StoppedStatus:
 		if exp.Force == nil {
 			e.client.logger.DebugContext(e.ctx, "Skip stopped experiment without force", "id", exp.Key)
-			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+			return e.experimentResult(exp, -1, false, featureId, nil, false)
 		}
 	case DraftStatus:
 		e.client.logger.DebugContext(e.ctx, "Skip draft experiment", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		return e.experimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 5. If experiment.active is set to false, return getExperimentResult(experiment)
 	if !exp.getActive() {
 		e.client.logger.DebugContext(e.ctx, "Skip experiment because it is inactive", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		return e.experimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 6. Get the user hash value and return if empty
 	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, exp.FallbackAttribute)
 	if hashValue == "" {
 		e.client.logger.DebugContext(e.ctx, "Skip experiment because of missing hashAttribute", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		return e.experimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 6.5 If sticky bucketing is permitted, check to see if a sticky bucket value exists
@@ -160,7 +153,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *Ex
 
 	if stickyBucketVersionBlocked {
 		e.client.logger.DebugContext(e.ctx, "Skip experiment because sticky bucket version is blocked", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, true)
+		return e.experimentResult(exp, -1, false, featureId, nil, true)
 	}
 
 	if !stickyBucketFound {
@@ -168,11 +161,11 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *Ex
 		if len(exp.Filters) > 0 {
 			if e.isFilteredOut(exp.Filters) {
 				e.client.logger.DebugContext(e.ctx, "Skip because of filters", "id", exp.Key)
-				return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+				return e.experimentResult(exp, -1, false, featureId, nil, false)
 			}
 		} else if exp.Namespace != nil && !exp.Namespace.inNamespace(hashValue) {
 			e.client.logger.DebugContext(e.ctx, "Skip because of namespace", "id", exp.Key)
-			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+			return e.experimentResult(exp, -1, false, featureId, nil, false)
 		}
 
 		// 7.5. If experiment has an include property - include is deprecated property. Hence skipping this step.
@@ -180,7 +173,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *Ex
 		// 8 Return if any conditions are not met, return
 		if !exp.Condition.Eval(e.client.attributes, e.savedGroups) {
 			e.client.logger.DebugContext(e.ctx, "Skip because of condition exp", "id", exp.Key)
-			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+			return e.experimentResult(exp, -1, false, featureId, nil, false)
 		}
 
 		// # 8.05 Exclude if parent conditions are not met
@@ -190,19 +183,19 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *Ex
 				res := e.evalFeature(parent.Id)
 				if res == nil {
 					e.client.logger.DebugContext(e.ctx, "Skip because of prerequisite fails", "id", exp.Key)
-					return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+					return e.experimentResult(exp, -1, false, featureId, nil, false)
 				}
 
 				if res.Source == CyclicPrerequisiteResultSource {
 					e.client.logger.DebugContext(e.ctx, "Skip experiment because of cyclic prerequisite", "id", exp.Key)
-					return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+					return e.experimentResult(exp, -1, false, featureId, nil, false)
 				}
 
 				evalObj := value.ObjValue{"value": value.New(res.Value)}
 				evaled := parent.Condition.Eval(evalObj, e.savedGroups)
 				if !evaled {
 					e.client.logger.DebugContext(e.ctx, "Skip because of prerequisite evaluation fails", "id", exp.Key)
-					return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+					return e.experimentResult(exp, -1, false, featureId, nil, false)
 				}
 			}
 		}
@@ -210,21 +203,21 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *Ex
 		// 8.2 Legacy groups: experiment requires the user to belong to at least one named group.
 		if len(exp.Groups) > 0 && !hasMatchingGroup(exp.Groups, e.client.groups) {
 			e.client.logger.DebugContext(e.ctx, "Skip because of group targeting", "id", exp.Key)
-			return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+			return e.experimentResult(exp, -1, false, featureId, nil, false)
 		}
 
 	}
 	// 8.3 Legacy: experiment url targeting.
 	if exp.URL != "" && !isLegacyURLTargeted(e.client.url, exp.URL) {
 		e.client.logger.DebugContext(e.ctx, "Skip because of legacy URL targeting", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		return e.experimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 9 Choose a variation - If a sticky bucket value exists, use it.
 	n := hash(exp.getSeed(), hashValue, if0(exp.HashVersion, 1))
 	if n == nil {
 		e.client.logger.DebugContext(e.ctx, "Skip because of invalid hash version", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		return e.experimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 9.2 Else, calculate bucket ranges for the variations and choose one
@@ -239,29 +232,29 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *Ex
 	// # Unenroll if any prior sticky buckets are blocked by version
 	if stickyBucketVersionBlocked {
 		e.client.logger.DebugContext(e.ctx, "Skip experiment because sticky bucket version is blocked", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, true)
+		return e.experimentResult(exp, -1, false, featureId, nil, true)
 	}
 
 	// 10. If assigned == -1, return getExperimentResult(experiment)
 	if stickyBucketVariation < 0 {
 		e.client.logger.DebugContext(e.ctx, "Skip because of coverage", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		return e.experimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 11. If experiment has a forced variation, return
 	if exp.Force != nil {
 		e.client.logger.DebugContext(e.ctx, "Force variation", "id", exp.Key, "variation", *exp.Force)
-		return e.getExperimentResult(exp, *exp.Force, false, featureId, nil, false)
+		return e.experimentResult(exp, *exp.Force, false, featureId, nil, false)
 	}
 
 	// 12. If context.qaMode, return getExperimentResult(experiment)
 	if e.client.qaMode {
 		e.client.logger.DebugContext(e.ctx, "Skip because of QA mode", "id", exp.Key)
-		return e.getExperimentResult(exp, -1, false, featureId, nil, false)
+		return e.experimentResult(exp, -1, false, featureId, nil, false)
 	}
 
 	// 13. Build the result object
-	result = e.getExperimentResult(exp, stickyBucketVariation, true, featureId, n, stickyBucketFound)
+	result := e.experimentResult(exp, stickyBucketVariation, true, featureId, n, stickyBucketFound)
 
 	// 13.5 Save sticky bucket assignment if in experiment and sticky bucketing is enabled
 	if e.client.stickyBucketService != nil && !exp.DisableStickyBucketing && result.InExperiment {
@@ -278,6 +271,21 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) (result *Ex
 		)
 	}
 
+	return result
+}
+
+func (e *evaluator) experimentResult(
+	exp *Experiment,
+	variationId int,
+	hashUsed bool,
+	featureId string,
+	bucket *float64,
+	isStickyBucketUsed bool,
+) *ExperimentResult {
+	result := e.getExperimentResult(exp, variationId, hashUsed, featureId, bucket, isStickyBucketUsed)
+	if featureId != "" && e.client.data.subscribers.hasSubscribers() {
+		e.client.notifySubscribers(e.ctx, exp, result)
+	}
 	return result
 }
 
