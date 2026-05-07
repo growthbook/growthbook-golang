@@ -22,6 +22,7 @@ type data struct {
 	dsStartWait   chan struct{}
 	dsStartErr    error
 	plugins       []Plugin
+	subscribers   subscriberRegistry
 }
 
 func newData() *data {

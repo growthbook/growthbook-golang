@@ -101,6 +101,16 @@ func WithForcedVariations(forcedVariations ForcedVariationsMap) ClientOption {
 	}
 }
 
+// WithGroups sets legacy group membership for the user, used by experiments that
+// declare a `groups` array. Distinct from saved groups, which power $inGroup
+// conditions on `condition`.
+func WithGroups(groups map[string]bool) ClientOption {
+	return func(c *Client) error {
+		c.groups = groups
+		return nil
+	}
+}
+
 // WithQaMode if true, random assignment is disabled and only explicitly forced variations are used.
 func WithQaMode(qaMode bool) ClientOption {
 	return func(c *Client) error {
@@ -224,6 +234,11 @@ func (c *Client) WithUrl(rawUrl string) (*Client, error) {
 // WithForcedVariations creates child client with updated forced variations.
 func (c *Client) WithForcedVariations(forcedVariations ForcedVariationsMap) (*Client, error) {
 	return c.cloneWith(WithForcedVariations(forcedVariations))
+}
+
+// WithGroups creates child client with updated legacy group membership.
+func (c *Client) WithGroups(groups map[string]bool) (*Client, error) {
+	return c.cloneWith(WithGroups(groups))
 }
 
 // WithExtraData creates child client with extra data that will be sent to a callback.

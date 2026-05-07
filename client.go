@@ -24,6 +24,7 @@ type Client struct {
 	attributes           value.ObjValue
 	url                  *url.URL
 	forcedVariations     ForcedVariationsMap
+	groups               map[string]bool
 	qaMode               bool
 	experimentCallback   ExperimentCallback
 	featureUsageCallback FeatureUsageCallback
@@ -240,6 +241,9 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 		if res.InExperiment {
 			client.safePluginExperimentViewed(ctx, p, exp, res)
 		}
+	}
+	if client.data.subscribers.hasSubscribers() {
+		client.notifySubscribers(ctx, exp, res)
 	}
 	return res
 }

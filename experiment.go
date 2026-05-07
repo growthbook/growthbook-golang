@@ -56,6 +56,15 @@ type Experiment struct {
 	BucketVersion int `json:"bucketVersion"`
 	// Any users with a sticky bucket version less than this will be excluded from the experiment
 	MinBucketVersion int `json:"minBucketVersion"`
+	// URL patterns to restrict where the experiment runs. Empty means no URL restriction.
+	URLPatterns []URLTarget `json:"urlPatterns"`
+	// Legacy URL regex to restrict where the experiment runs. Empty means no URL restriction.
+	URL string `json:"url"`
+	// Legacy group names — user must belong to at least one matching group (Client.WithGroups).
+	// Distinct from saved groups, which power $inGroup conditions.
+	Groups []string `json:"groups"`
+	// Status controls eval: "draft" is skipped unless qaMode/forced, "stopped" only honors Force, "running" is normal.
+	Status ExperimentStatus `json:"status"`
 }
 
 // NewExperiment creates an experiment with default settings: active,
@@ -92,6 +101,10 @@ func experimentFromFeatureRule(featureId string, rule *FeatureRule) *Experiment 
 		DisableStickyBucketing: rule.DisableStickyBucketing,
 		BucketVersion:          rule.BucketVersion,
 		MinBucketVersion:       rule.MinBucketVersion,
+		URLPatterns:            rule.URLPatterns,
+		URL:                    rule.URL,
+		Groups:                 rule.Groups,
+		Status:                 rule.Status,
 	}
 	return &exp
 }
