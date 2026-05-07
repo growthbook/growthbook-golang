@@ -13,7 +13,7 @@ type InCond struct {
 }
 
 func NewInCond(arg value.ArrValue) InCond {
-	return InCond{expected: arg, strSet: buildStrSet(arg, false)}
+	return InCond{expected: arg, strSet: buildStrSet(arg)}
 }
 
 func NewNotInCond(arg value.ArrValue) Condition {
@@ -50,7 +50,7 @@ type IniCond struct {
 }
 
 func NewIniCond(arg value.ArrValue) IniCond {
-	return IniCond{expected: arg, strSet: buildStrSet(arg, true)}
+	return IniCond{expected: arg, strSet: buildLowerASCIIStringSet(arg)}
 }
 
 func NewNotIniCond(arg value.ArrValue) Condition {
@@ -73,8 +73,11 @@ func (c IniCond) Eval(actual value.Value, _ SavedGroups) bool {
 func (c IniCond) contains(v value.Value) bool {
 	if c.strSet != nil {
 		if s, ok := v.(value.StrValue); ok {
-			_, hit := c.strSet[strings.ToLower(string(s))]
-			return hit
+			actual := string(s)
+			if isASCII(actual) {
+				_, hit := c.strSet[strings.ToLower(actual)]
+				return hit
+			}
 		}
 	}
 	return isInCaseInsensitive(v, c.expected)
@@ -82,7 +85,24 @@ func (c IniCond) contains(v value.Value) bool {
 
 // buildStrSet returns a string set when every element of arg is a StrValue,
 // otherwise nil so callers fall back to the linear scan.
-func buildStrSet(arg value.ArrValue, lower bool) map[string]struct{} {
+func buildStrSet(arg value.ArrValue) map[string]struct{} {
+	if len(arg) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(arg))
+	for _, v := range arg {
+		s, ok := v.(value.StrValue)
+		if !ok {
+			return nil
+		}
+		set[string(s)] = struct{}{}
+	}
+	return set
+}
+
+// buildLowerASCIIStringSet is the $ini fast path. It only indexes ASCII
+// strings so the slow path keeps the exact EqualFold behavior for Unicode.
+func buildLowerASCIIStringSet(arg value.ArrValue) map[string]struct{} {
 	if len(arg) == 0 {
 		return nil
 	}
@@ -93,10 +113,19 @@ func buildStrSet(arg value.ArrValue, lower bool) map[string]struct{} {
 			return nil
 		}
 		k := string(s)
-		if lower {
-			k = strings.ToLower(k)
+		if !isASCII(k) {
+			return nil
 		}
-		set[k] = struct{}{}
+		set[strings.ToLower(k)] = struct{}{}
 	}
 	return set
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] > 127 {
+			return false
+		}
+	}
+	return true
 }

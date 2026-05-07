@@ -25,6 +25,7 @@ func TestInCond(t *testing.T) {
 		require.True(t, c.Eval(value.New("a"), nil))
 		require.True(t, c.Eval(value.New("c"), nil))
 		require.False(t, c.Eval(value.New("d"), nil))
+		require.False(t, c.Eval(value.New("1"), nil))
 		require.False(t, c.Eval(value.New(1), nil))
 		require.True(t, c.Eval(value.Arr("x", "b"), nil))
 		require.False(t, c.Eval(value.Arr("x", "y"), nil))
@@ -91,6 +92,20 @@ func TestIniCond(t *testing.T) {
 		require.False(t, c.Eval(value.New(1), nil))
 	})
 
+	t.Run("non-ascii strings fall back to EqualFold scan", func(t *testing.T) {
+		c := NewIniCond(value.Arr("CAFÉ"))
+		require.Nil(t, c.strSet)
+		require.True(t, c.Eval(value.New("café"), nil))
+		require.False(t, c.Eval(value.New("cafe"), nil))
+	})
+
+	t.Run("non-ascii actual values fall back to EqualFold scan", func(t *testing.T) {
+		c := NewIniCond(value.Arr("k"))
+		require.NotNil(t, c.strSet)
+		require.True(t, c.Eval(value.New("K"), nil))
+		require.True(t, c.Eval(value.New("K"), nil))
+	})
+
 	t.Run("mixed-type array falls back to linear scan", func(t *testing.T) {
 		c := NewIniCond(value.Arr("Alpha", 1))
 		require.Nil(t, c.strSet)
@@ -111,5 +126,11 @@ func TestNotIniCond(t *testing.T) {
 	t.Run("empty array returns true", func(t *testing.T) {
 		c := NewNotIniCond(value.Arr())
 		require.True(t, c.Eval(value.New("test"), nil))
+	})
+
+	t.Run("inverts ascii set lookup", func(t *testing.T) {
+		c := NewNotIniCond(value.Arr("Alpha", "BETA"))
+		require.False(t, c.Eval(value.New("alpha"), nil))
+		require.True(t, c.Eval(value.New("gamma"), nil))
 	})
 }
