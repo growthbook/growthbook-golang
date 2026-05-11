@@ -24,11 +24,12 @@ type SseDataSource struct {
 type SseOption func(*SseDataSource)
 
 // WithSseMaxRetryInterval sets the maximum backoff interval between reconnection
-// attempts. By default the interval grows without bound; setting this caps it
-// (e.g. 30*time.Second).
+// attempts. Non-positive values keep the default cap.
 func WithSseMaxRetryInterval(d time.Duration) SseOption {
 	return func(ds *SseDataSource) {
-		ds.maxRetryInterval = d
+		if d > 0 {
+			ds.maxRetryInterval = d
+		}
 	}
 }
 
@@ -42,7 +43,9 @@ func WithSseDataSource(opts ...SseOption) ClientOption {
 	return func(c *Client) error {
 		ds := newSseDataSource(c)
 		for _, opt := range opts {
-			opt(ds)
+			if opt != nil {
+				opt(ds)
+			}
 		}
 		c.data.dataSource = ds
 		return nil
