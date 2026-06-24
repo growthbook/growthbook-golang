@@ -7,7 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
+	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
@@ -82,11 +84,62 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 		}
 	}
 
+	// Seed features from the cache before starting the data source so they are
+	// available immediately and survive an initial API failure (offline
+	// resilience).
+	client.seedFromCache(ctx)
+
 	if client.data.dataSource != nil {
 		go client.startDataSource(ctx)
 	}
 
 	return client, nil
+}
+
+// seedFromCache populates features from the configured FeatureCache when the
+// client has no fresher data yet. It is a no-op when no cache is configured.
+func (client *Client) seedFromCache(ctx context.Context) {
+	cache := client.data.getFeatureCache()
+	if cache == nil {
+		return
+	}
+	entry, ok := cache.Get(ctx, client.data.cacheKey())
+	if !ok || entry == nil {
+		return
+	}
+	client.data.withLock(func(d *data) error {
+		// Respect features the caller already provided (e.g. WithFeatures);
+		// only seed when we have nothing yet.
+		if d.features != nil {
+			return nil
+		}
+		d.features = entry.Features
+		d.savedGroups = entry.SavedGroups
+		d.dateUpdated = entry.DateUpdated
+		return nil
+	})
+}
+
+// writeCache persists the latest feature data to the configured FeatureCache.
+// A previously stored etag is preserved when this update carries none (e.g. SSE
+// events), so conditional requests still work after a restart.
+func (client *Client) writeCache(features FeatureMap, savedGroups condition.SavedGroups, dateUpdated time.Time, etag string) {
+	cache := client.data.getFeatureCache()
+	if cache == nil {
+		return
+	}
+	key := client.data.cacheKey()
+	if etag == "" {
+		if prev, ok := cache.Get(context.Background(), key); ok && prev != nil {
+			etag = prev.Etag
+		}
+	}
+	cache.Set(context.Background(), key, &FeatureCacheEntry{
+		Features:    features,
+		SavedGroups: savedGroups,
+		DateUpdated: dateUpdated,
+		Etag:        etag,
+	})
 }
 
 // Close client's background goroutines and plugins.
@@ -178,6 +231,7 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
+	client.writeCache(features, resp.SavedGroups, resp.DateUpdated, resp.Etag)
 	return nil
 }
 

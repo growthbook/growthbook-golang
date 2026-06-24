@@ -98,6 +98,16 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 	etag := ds.etag
 	ds.mu.RUnlock()
 
+	// On a cold start, reuse the etag stored alongside cached features so the
+	// first request can be conditional and a 304 keeps the seeded data.
+	if etag == "" {
+		if cache := ds.client.data.getFeatureCache(); cache != nil {
+			if entry, ok := cache.Get(ctx, ds.client.data.cacheKey()); ok && entry != nil {
+				etag = entry.Etag
+			}
+		}
+	}
+
 	resp, err := ds.client.CallFeatureApi(ctx, etag)
 	if err != nil {
 		return err
