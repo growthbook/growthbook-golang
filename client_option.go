@@ -101,6 +101,15 @@ func WithForcedVariations(forcedVariations ForcedVariationsMap) ClientOption {
 	}
 }
 
+// WithForcedFeatures forces specific features to always evaluate to a given value,
+// bypassing rules and experiments. The result uses the "override" source. Useful for QA.
+func WithForcedFeatures(forcedFeatures ForcedFeaturesMap) ClientOption {
+	return func(c *Client) error {
+		c.forcedFeatures = forcedFeatures
+		return nil
+	}
+}
+
 // WithGroups sets legacy group membership for the user, used by experiments that
 // declare a `groups` array. Distinct from saved groups, which power $inGroup
 // conditions on `condition`.
@@ -267,6 +276,11 @@ func (c *Client) WithUrl(rawUrl string) (*Client, error) {
 // WithForcedVariations creates child client with updated forced variations.
 func (c *Client) WithForcedVariations(forcedVariations ForcedVariationsMap) (*Client, error) {
 	return c.cloneWith(WithForcedVariations(forcedVariations))
+}
+
+// WithForcedFeatures creates child client with updated forced feature values.
+func (c *Client) WithForcedFeatures(forcedFeatures ForcedFeaturesMap) (*Client, error) {
+	return c.cloneWith(WithForcedFeatures(forcedFeatures))
 }
 
 // WithGroups creates child client with updated legacy group membership.

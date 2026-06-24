@@ -24,6 +24,7 @@ type Client struct {
 	attributes           value.ObjValue
 	url                  *url.URL
 	forcedVariations     ForcedVariationsMap
+	forcedFeatures       ForcedFeaturesMap
 	groups               map[string]bool
 	qaMode               bool
 	experimentCallback   ExperimentCallback
@@ -48,6 +49,11 @@ type Client struct {
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
 type ForcedVariationsMap map[string]int
+
+// ForcedFeaturesMap is a map from feature key to a forced value. When a feature
+// key is present, EvalFeature short-circuits and returns the forced value with
+// source "override", skipping rules and experiments. Useful for QA and testing.
+type ForcedFeaturesMap map[string]FeatureValue
 
 // ExperimentCallback function that is executed every time a user is included
 // in an Experiment, with the user context the evaluation ran with.

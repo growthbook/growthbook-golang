@@ -487,3 +487,63 @@ func TestReturnsNullWhenHittingPrerequisiteCycle(t *testing.T) {
 	require.Nil(t, result.Value)
 	require.Equal(t, CyclicPrerequisiteResultSource, result.Source)
 }
+
+func TestForcedFeatureOverridesRulesAndDefault(t *testing.T) {
+	featuresJson := `{
+    "feature": {"defaultValue": 0, "rules": [{"force": 1, "id": "foo"}]}
+    }`
+
+	client, _ := NewClient(ctx,
+		WithJsonFeatures(featuresJson),
+		WithForcedFeatures(ForcedFeaturesMap{"feature": 99}))
+
+	result := client.EvalFeature(ctx, "feature")
+	require.Equal(t, 99, result.Value)
+	require.Equal(t, OverrideResultSource, result.Source)
+	require.True(t, result.On)
+	// Forced override skips rules, so no rule id is reported.
+	require.Equal(t, "", result.RuleId)
+}
+
+func TestForcedFeatureWorksForUnknownFeature(t *testing.T) {
+	client, _ := NewClient(ctx,
+		WithForcedFeatures(ForcedFeaturesMap{"missing": "forced"}))
+
+	result := client.EvalFeature(ctx, "missing")
+	require.Equal(t, "forced", result.Value)
+	require.Equal(t, OverrideResultSource, result.Source)
+}
+
+func TestForcedFeatureDoesNotAffectOtherFeatures(t *testing.T) {
+	featuresJson := `{
+    "feature": {"defaultValue": 0, "rules": [{"force": 1, "id": "foo"}]}
+    }`
+
+	client, _ := NewClient(ctx,
+		WithJsonFeatures(featuresJson),
+		WithForcedFeatures(ForcedFeaturesMap{"other": true}))
+
+	result := client.EvalFeature(ctx, "feature")
+	require.Equal(t, float64(1), result.Value)
+	require.Equal(t, ForceResultSource, result.Source)
+}
+
+func TestChildClientWithForcedFeatures(t *testing.T) {
+	featuresJson := `{
+    "feature": {"defaultValue": 0, "rules": [{"force": 1, "id": "foo"}]}
+    }`
+
+	parent, _ := NewClient(ctx, WithJsonFeatures(featuresJson))
+	child, err := parent.WithForcedFeatures(ForcedFeaturesMap{"feature": 42})
+	require.Nil(t, err)
+
+	// Child sees the override.
+	childResult := child.EvalFeature(ctx, "feature")
+	require.Equal(t, 42, childResult.Value)
+	require.Equal(t, OverrideResultSource, childResult.Source)
+
+	// Parent is unaffected.
+	parentResult := parent.EvalFeature(ctx, "feature")
+	require.Equal(t, float64(1), parentResult.Value)
+	require.Equal(t, ForceResultSource, parentResult.Source)
+}

@@ -36,6 +36,14 @@ func (e *evaluator) doEvalFeature(key string) *FeatureResult {
 	e.evaluated.push(key)
 	defer e.evaluated.pop()
 
+	// Global override: a forced feature value short-circuits evaluation,
+	// returning the forced value with the "override" source. Works even for
+	// keys not present in the feature map.
+	if v, ok := e.client.forcedFeatures[key]; ok {
+		e.client.logger.DebugContext(e.ctx, "Global override for forced feature", "key", key)
+		return getFeatureResult(v, OverrideResultSource, "", nil, nil)
+	}
+
 	feature := e.features[key]
 	if feature == nil {
 		return getFeatureResult(nil, UnknownFeatureResultSource, "", nil, nil)
