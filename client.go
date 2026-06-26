@@ -122,6 +122,7 @@ func (client *Client) SetFeatures(features FeatureMap) error {
 		d.features = features
 		return nil
 	})
+	client.data.tracked.clear()
 	return nil
 }
 
@@ -173,6 +174,8 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
+	// Forget tracked assignments so the new configuration can re-emit tracking.
+	client.data.tracked.clear()
 	return nil
 }
 
@@ -219,13 +222,19 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 	if client.featureUsageCallback != nil {
 		client.featureUsageCallback(ctx, key, res, client.extraData)
 	}
-	if client.experimentCallback != nil && res.InExperiment() {
+	// experiment_viewed tracking is deduplicated per (hashAttribute, hashValue,
+	// experiment key, variation), so repeated evaluations of the same assignment
+	// fire the tracking callback and plugins only once. feature_evaluated still
+	// fires on every evaluation.
+	trackExperiment := res.InExperiment() &&
+		client.shouldTrackExperiment(res.Experiment, res.ExperimentResult)
+	if trackExperiment && client.experimentCallback != nil {
 		client.experimentCallback(ctx, res.Experiment, res.ExperimentResult, client.extraData)
 	}
 	// Notify plugins. Panics are recovered so plugins never interrupt evaluation.
 	for _, p := range client.data.getPlugins() {
 		client.safePluginFeatureEvaluated(ctx, p, key, res)
-		if res.InExperiment() {
+		if trackExperiment {
 			client.safePluginExperimentViewed(ctx, p, res.Experiment, res.ExperimentResult)
 		}
 	}
@@ -235,12 +244,14 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
 	e := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
-	if client.experimentCallback != nil && res.InExperiment {
+	// Deduplicate experiment_viewed tracking per unique assignment.
+	trackExperiment := res.InExperiment && client.shouldTrackExperiment(exp, res)
+	if trackExperiment && client.experimentCallback != nil {
 		client.experimentCallback(ctx, exp, res, client.extraData)
 	}
 	// Notify plugins.
 	for _, p := range client.data.getPlugins() {
-		if res.InExperiment {
+		if trackExperiment {
 			client.safePluginExperimentViewed(ctx, p, exp, res)
 		}
 	}

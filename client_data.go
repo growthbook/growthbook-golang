@@ -23,6 +23,7 @@ type data struct {
 	dsStartErr    error
 	plugins       []Plugin
 	subscribers   subscriberRegistry
+	tracked       trackedSet
 }
 
 func newData() *data {
