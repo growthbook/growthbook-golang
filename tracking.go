@@ -149,6 +149,11 @@ func (e *evaluator) recordFeatureUsage(key string, res *FeatureResult) {
 	if !e.recording {
 		return
 	}
+	// Forced (override) results are QA/test overrides, not real feature usage,
+	// so they are excluded from feature-usage reporting (callback and plugins).
+	if res.Source == OverrideResultSource {
+		return
+	}
 	stringified := stringifyFeatureValue(res.Value)
 	if prev, ok := e.trackedFeatures[key]; ok && prev == stringified {
 		return

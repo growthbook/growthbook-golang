@@ -514,6 +514,46 @@ func TestForcedFeatureWorksForUnknownFeature(t *testing.T) {
 	require.Equal(t, OverrideResultSource, result.Source)
 }
 
+// featureUsageSpyPlugin counts OnFeatureEvaluated calls for tests.
+type featureUsageSpyPlugin struct{ featureEvaluated int }
+
+func (p *featureUsageSpyPlugin) Init(*Client) error { return nil }
+func (p *featureUsageSpyPlugin) Close() error       { return nil }
+func (p *featureUsageSpyPlugin) OnExperimentViewed(context.Context, *Experiment, *ExperimentResult) {
+}
+func (p *featureUsageSpyPlugin) OnFeatureEvaluated(context.Context, string, *FeatureResult) {
+	p.featureEvaluated++
+}
+
+func TestForcedFeatureDoesNotReportFeatureUsage(t *testing.T) {
+	featuresJson := `{
+    "feature": {"defaultValue": 0, "rules": [{"force": 1, "id": "foo"}]},
+    "normal": {"defaultValue": 5}
+    }`
+
+	var calls int
+	spy := &featureUsageSpyPlugin{}
+	client, _ := NewClient(ctx,
+		WithJsonFeatures(featuresJson),
+		WithForcedFeatures(ForcedFeaturesMap{"feature": 99}),
+		WithPlugins(spy),
+		WithFeatureUsageCallback(func(_ context.Context, _ string, _ *FeatureResult, _ any) {
+			calls++
+		}))
+
+	// Forced (override) result must not be reported as feature usage on either
+	// the callback or the plugin.
+	res := client.EvalFeature(ctx, "feature")
+	require.Equal(t, OverrideResultSource, res.Source)
+	require.Equal(t, 0, calls)
+	require.Equal(t, 0, spy.featureEvaluated)
+
+	// A normal (non-forced) evaluation still reports usage on both.
+	client.EvalFeature(ctx, "normal")
+	require.Equal(t, 1, calls)
+	require.Equal(t, 1, spy.featureEvaluated)
+}
+
 func TestForcedFeatureDoesNotAffectOtherFeatures(t *testing.T) {
 	featuresJson := `{
     "feature": {"defaultValue": 0, "rules": [{"force": 1, "id": "foo"}]}
