@@ -101,6 +101,11 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 
 	resp, err := ds.client.CallFeatureApi(ctx, etag)
 	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourcePoll,
+				Error:  err})
 		return err
 	}
 
@@ -111,17 +116,20 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 	}
 
 	// Skip only genuine no-update responses. A 200 payload always applies:
-	// UpdateFromApiResponse preserves omitted sections, so a bandit-only or
+	// applyApiResponse preserves omitted sections, so a bandit-only or
 	// saved-groups-only response updates just what it carries (a features-only
 	// guard here used to drop those updates entirely).
 	if resp.Status == http.StatusNotModified {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source:      RefreshSourcePoll,
+				NotModified: true,
+				DateUpdated: ds.client.data.getDateUpdated()})
 		return nil
 	}
 
-	err = ds.client.UpdateFromApiResponse(resp)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	applied, dateUpdated, err := ds.client.applyApiResponse(resp)
+	ds.client.notifyRefreshOutcome(ctx, RefreshSourcePoll, applied, dateUpdated, err)
+	return err
 }
