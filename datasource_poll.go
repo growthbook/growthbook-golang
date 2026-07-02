@@ -124,7 +124,7 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 		return nil
 	}
 
-	if resp.Features == nil {
+	if resp.Features == nil && resp.EncryptedFeatures == "" {
 		return nil
 	}
 
@@ -139,11 +139,21 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 		return err
 	}
 
-	ds.client.notifyRefresh(
-		ctx,
-		RefreshResult{
-			Source:      RefreshSourcePoll,
-			Updated:     updated,
-			DateUpdated: resp.DateUpdated})
+	if updated {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source:      RefreshSourcePoll,
+				Updated:     updated,
+				DateUpdated: resp.DateUpdated})
+	} else {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source:      RefreshSourcePoll,
+				NotModified: true,
+				DateUpdated: resp.DateUpdated})
+	}
+
 	return nil
 }

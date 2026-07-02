@@ -107,13 +107,18 @@ func (ds *SseDataSource) processEvent(ctx context.Context, event sse.Event) {
 		return
 	}
 	ds.logger.Info("Updating features")
-	updated, err := ds.client.applyApiResponseJSON(event.Data)
+	updated, dateUpdated, err := ds.client.applyApiResponseJSON(event.Data)
 	if err != nil {
 		ds.logger.Error("Error updating features", "error", err)
 		ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, Error: err})
 		return
 	}
-	ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, Updated: updated})
+
+	if updated {
+		ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, Updated: true, DateUpdated: dateUpdated})
+	} else {
+		ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, NotModified: true, DateUpdated: dateUpdated})
+	}
 }
 
 func (ds *SseDataSource) loadData(ctx context.Context) error {
@@ -139,7 +144,7 @@ func (ds *SseDataSource) loadData(ctx context.Context) error {
 		return err
 	}
 
-	if resp.Features == nil {
+	if resp.Features == nil && resp.EncryptedFeatures == "" {
 		return nil
 	}
 
@@ -154,12 +159,11 @@ func (ds *SseDataSource) loadData(ctx context.Context) error {
 		return err
 	}
 
-	ds.client.notifyRefresh(
-		ctx,
-		RefreshResult{
-			Source:      RefreshSourceSSE,
-			Updated:     updated,
-			DateUpdated: resp.DateUpdated})
+	if updated {
+		ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, Updated: true, DateUpdated: resp.DateUpdated})
+	} else {
+		ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, NotModified: true, DateUpdated: resp.DateUpdated})
+	}
 	return nil
 }
 

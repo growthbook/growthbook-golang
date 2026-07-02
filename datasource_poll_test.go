@@ -361,3 +361,19 @@ func startEtagServer(response []byte) *testServer {
 	}))
 	return &ts
 }
+
+// startVersionedServer returns each response in order on successive requests;
+// once the list is exhausted it keeps returning the last one. Useful for
+// exercising ordered payloads (e.g. a fresh response followed by a stale one).
+func startVersionedServer(responses ...[]byte) *testServer {
+	var ts testServer
+	ts.http = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		i := int(ts.count.Add(1)) - 1
+		if i >= len(responses) {
+			i = len(responses) - 1
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(responses[i])
+	}))
+	return &ts
+}

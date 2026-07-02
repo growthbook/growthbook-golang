@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
@@ -173,12 +174,13 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, error) {
 	return true, nil
 }
 
-func (client *Client) applyApiResponseJSON(respJSON string) (bool, error) {
+func (client *Client) applyApiResponseJSON(respJSON string) (bool, time.Time, error) {
 	var resp FeatureApiResponse
 	if err := json.Unmarshal([]byte(respJSON), &resp); err != nil {
-		return false, err
+		return false, time.Time{}, err
 	}
-	return client.applyApiResponse(&resp)
+	updated, err := client.applyApiResponse(&resp)
+	return updated, resp.DateUpdated, err
 }
 
 // UpdateFromApiResponse updates shared data from Growthbook API response
@@ -201,7 +203,7 @@ func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
 }
 
 func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
-	_, err := client.applyApiResponseJSON(respJSON)
+	_, _, err := client.applyApiResponseJSON(respJSON)
 	return err
 }
 
@@ -222,7 +224,11 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 		client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, Error: err})
 		return err
 	}
-	client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, Updated: updated, DateUpdated: resp.DateUpdated})
+	if updated {
+		client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, Updated: true, DateUpdated: resp.DateUpdated})
+	} else {
+		client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, NotModified: true, DateUpdated: resp.DateUpdated})
+	}
 	return nil
 }
 

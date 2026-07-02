@@ -116,7 +116,8 @@ client, err := gb.NewClient(
             // Refresh failed — emit a metric / alert / fall back.
             metrics.Inc("growthbook.refresh.error")
         case r.NotModified:
-            // Server confirmed features are still current (HTTP 304).
+            // Cached features confirmed still current (HTTP 304, or a fetched
+            // response older than current data was refused).
             metrics.SetLastValidated(r.DateUpdated)
         case r.Updated:
             // New feature definitions were applied — invalidate derived caches.
@@ -126,15 +127,15 @@ client, err := gb.NewClient(
 )
 ```
 
-Exactly one of the following describes each event:
+Exactly one of `Updated`, `NotModified`, or `Error` is set on each event; `Source` and `DateUpdated` always accompany it:
 
 | Field | Meaning |
 |-------|---------|
-| `Updated` | New feature definitions were fetched and applied (`false` if refused as older than current data) |
-| `NotModified` | Server returned HTTP 304 — cached features confirmed current, no payload sent |
+| `Updated` | New feature definitions were fetched and applied |
+| `NotModified` | Cached features confirmed still current — either HTTP 304, or a fetched response older than current data was refused |
 | `Error` | The refresh attempt failed (network error, non-2xx/304 status, or decode/decrypt failure) |
 | `Source` | Which mechanism produced the event: `RefreshSourcePoll`, `RefreshSourceSSE`, or `RefreshSourceManual` |
-| `DateUpdated` | `dateUpdated` of the applied payload, or the currently stored value on a 304 |
+| `DateUpdated` | `dateUpdated` of the applied payload, or the currently stored value when nothing was applied |
 
 The handler is shared with child clients — register it once on the root client. Implementations should return quickly and must not block the datasource; any panics are recovered and logged.
 

@@ -24,10 +24,12 @@ type RefreshResult struct {
 	// or a manual RefreshFeatures call.
 	Source RefreshSource
 	// Updated is true when new feature definitions were fetched and applied.
-	// It is false when the response was refused as older than current data.
+	// A fetched response that was refused as older than current data is
+	// reported as NotModified, not Updated.
 	Updated bool
-	// NotModified is true when the server returned HTTP 304, confirming the
-	// cached features are still valid without sending a new payload.
+	// NotModified is true when the cached features were confirmed still current
+	// without being replaced - either the server returned HTTP 304, or a
+	// fetched response older than current data was refused.
 	NotModified bool
 	// Error is non-nil when the refresh attempt failed (network error,
 	// non-2xx/304 status, or decode/decrypt failure).
