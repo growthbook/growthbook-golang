@@ -1,19 +1,12 @@
 package growthbook
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
-
-func featureMapFromJSON(t *testing.T, s string) FeatureMap {
-	t.Helper()
-	fm := FeatureMap{}
-	require.NoError(t, json.Unmarshal([]byte(s), &fm))
-	return fm
-}
 
 func TestInMemoryFeatureCacheGetSet(t *testing.T) {
 	cache := NewInMemoryFeatureCache()
@@ -22,9 +15,8 @@ func TestInMemoryFeatureCacheGetSet(t *testing.T) {
 	require.False(t, ok)
 
 	entry := &FeatureCacheEntry{
-		Features:    featureMapFromJSON(t, `{"feat":{"defaultValue":"v"}}`),
-		DateUpdated: time.Now(),
-		Etag:        "e1",
+		Payload: json.RawMessage(`{"features":{"feat":{"defaultValue":"v"}}}`),
+		Etag:    "e1",
 	}
 	cache.Set(ctx, "k", entry)
 
@@ -36,9 +28,8 @@ func TestInMemoryFeatureCacheGetSet(t *testing.T) {
 func TestSeedsFeaturesFromCacheOnStartup(t *testing.T) {
 	cache := NewInMemoryFeatureCache()
 	cache.Set(ctx, "https://example.com::k", &FeatureCacheEntry{
-		Features:    featureMapFromJSON(t, `{"feat":{"defaultValue":"cached"}}`),
-		DateUpdated: time.Now(),
-		Etag:        "e1",
+		Payload: json.RawMessage(`{"features":{"feat":{"defaultValue":"cached"}}}`),
+		Etag:    "e1",
 	})
 
 	client, err := NewClient(ctx,
@@ -60,17 +51,15 @@ func TestWriteThroughToCacheOnUpdate(t *testing.T) {
 		WithFeatureCache(cache))
 	require.NoError(t, err)
 
-	resp := &FeatureApiResponse{
-		Features:    featureMapFromJSON(t, `{"feat":{"defaultValue":"fromApi"}}`),
-		DateUpdated: time.Now(),
-		Etag:        "etag123",
-	}
-	require.NoError(t, client.UpdateFromApiResponse(resp))
+	payload := `{"features":{"feat":{"defaultValue":"fromApi"}},"dateUpdated":"2020-01-01T00:00:00Z"}`
+	resp := &FeatureApiResponse{Etag: "etag123", raw: json.RawMessage(payload)}
+	require.NoError(t, json.Unmarshal([]byte(payload), resp))
+	require.NoError(t, client.updateFromApiResponse(ctx, resp))
 
 	entry, ok := cache.Get(ctx, "https://example.com::k")
 	require.True(t, ok)
 	require.Equal(t, "etag123", entry.Etag)
-	require.Contains(t, entry.Features, "feat")
+	require.JSONEq(t, payload, string(entry.Payload))
 }
 
 func TestWriteThroughPreservesEtagWhenUpdateHasNone(t *testing.T) {
@@ -82,17 +71,14 @@ func TestWriteThroughPreservesEtagWhenUpdateHasNone(t *testing.T) {
 	require.NoError(t, err)
 
 	// First update carries an etag (e.g. from a poll response).
-	require.NoError(t, client.UpdateFromApiResponse(&FeatureApiResponse{
-		Features:    featureMapFromJSON(t, `{"feat":{"defaultValue":1}}`),
-		DateUpdated: time.Now(),
-		Etag:        "etag-1",
-	}))
+	p1 := `{"features":{"feat":{"defaultValue":1}},"dateUpdated":"2020-01-01T00:00:00Z"}`
+	r1 := &FeatureApiResponse{Etag: "etag-1", raw: json.RawMessage(p1)}
+	require.NoError(t, json.Unmarshal([]byte(p1), r1))
+	require.NoError(t, client.updateFromApiResponse(ctx, r1))
 
 	// Second update has no etag (e.g. an SSE event) — must not clobber it.
-	require.NoError(t, client.UpdateFromApiResponse(&FeatureApiResponse{
-		Features:    featureMapFromJSON(t, `{"feat":{"defaultValue":2}}`),
-		DateUpdated: time.Now().Add(time.Second),
-	}))
+	p2 := `{"features":{"feat":{"defaultValue":2}},"dateUpdated":"2020-01-02T00:00:00Z"}`
+	require.NoError(t, client.UpdateFromApiResponseJSON(p2))
 
 	entry, ok := cache.Get(ctx, "https://example.com::k")
 	require.True(t, ok)
@@ -102,8 +88,7 @@ func TestWriteThroughPreservesEtagWhenUpdateHasNone(t *testing.T) {
 func TestInlineFeaturesNotOverwrittenByCache(t *testing.T) {
 	cache := NewInMemoryFeatureCache()
 	cache.Set(ctx, "https://example.com::k", &FeatureCacheEntry{
-		Features:    featureMapFromJSON(t, `{"feat":{"defaultValue":"cached"}}`),
-		DateUpdated: time.Now(),
+		Payload: json.RawMessage(`{"features":{"feat":{"defaultValue":"cached"}}}`),
 	})
 
 	client, err := NewClient(ctx,
@@ -121,9 +106,51 @@ func TestNoCacheConfiguredIsNoop(t *testing.T) {
 	// Without WithFeatureCache, updates must not panic and evaluation works.
 	client, err := NewClient(ctx, WithClientKey("k"))
 	require.NoError(t, err)
-	require.NoError(t, client.UpdateFromApiResponse(&FeatureApiResponse{
-		Features:    featureMapFromJSON(t, `{"feat":{"defaultValue":true}}`),
-		DateUpdated: time.Now(),
-	}))
+	require.NoError(t, client.UpdateFromApiResponseJSON(
+		`{"features":{"feat":{"defaultValue":true}},"dateUpdated":"2020-01-01T00:00:00Z"}`))
 	require.True(t, client.EvalFeature(ctx, "feat").On)
+}
+
+// jsonRoundTripCache simulates an external backend (e.g. Redis) that serializes
+// entries to JSON and back, to prove FeatureCacheEntry survives a round-trip.
+type jsonRoundTripCache struct{ store map[string][]byte }
+
+func (c *jsonRoundTripCache) Get(_ context.Context, key string) (*FeatureCacheEntry, bool) {
+	b, ok := c.store[key]
+	if !ok {
+		return nil, false
+	}
+	var entry FeatureCacheEntry
+	if err := json.Unmarshal(b, &entry); err != nil {
+		return nil, false
+	}
+	return &entry, true
+}
+
+func (c *jsonRoundTripCache) Set(_ context.Context, key string, entry *FeatureCacheEntry) {
+	b, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+	c.store[key] = b
+}
+
+func TestCachedFeatureWithConditionSurvivesJSONRoundTrip(t *testing.T) {
+	cache := &jsonRoundTripCache{store: map[string][]byte{}}
+	cache.Set(ctx, "https://example.com::k", &FeatureCacheEntry{
+		Payload: json.RawMessage(
+			`{"features":{"feat":{"defaultValue":"off","rules":[{"condition":{"country":"US"},"force":"on"}]}}}`),
+	})
+
+	client, err := NewClient(ctx,
+		WithApiHost("https://example.com"),
+		WithClientKey("k"),
+		WithAttributes(Attributes{"country": "US"}),
+		WithFeatureCache(cache))
+	require.NoError(t, err)
+
+	// If the condition survived serialization, the rule forces "on" for US.
+	res := client.EvalFeature(ctx, "feat")
+	require.Equal(t, "on", res.Value)
+	require.Equal(t, ForceResultSource, res.Source)
 }

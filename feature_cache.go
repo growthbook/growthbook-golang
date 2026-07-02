@@ -2,18 +2,22 @@ package growthbook
 
 import (
 	"context"
+	"encoding/json"
 	"sync"
-	"time"
-
-	"github.com/growthbook/growthbook-golang/internal/condition"
 )
 
 // FeatureCacheEntry is a snapshot of feature data persisted by a FeatureCache.
+//
+// Payload holds the raw GrowthBook feature API response JSON rather than parsed
+// structures. This keeps the entry trivially serializable for external backends
+// (e.g. Redis) and lets it round-trip without loss: parsed conditions do not
+// marshal back to JSON, so storing them would silently drop targeting rules.
+// Storing the raw payload also avoids aliasing the client's live feature map.
 type FeatureCacheEntry struct {
-	Features    FeatureMap
-	SavedGroups condition.SavedGroups
-	DateUpdated time.Time
-	Etag        string
+	// Payload is the raw feature API response JSON (may contain encrypted features).
+	Payload json.RawMessage
+	// Etag is the HTTP ETag for the payload, enabling conditional requests after a restart.
+	Etag string
 }
 
 // FeatureCache is a pluggable backend for persisting feature data so it can

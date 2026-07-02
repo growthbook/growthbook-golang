@@ -7,9 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
-	"time"
 
-	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
@@ -97,48 +95,48 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 }
 
 // seedFromCache populates features from the configured FeatureCache when the
-// client has no fresher data yet. It is a no-op when no cache is configured.
+// client has no features yet, parsing the stored raw payload through the normal
+// update path. It is a no-op when no cache is configured or features are already
+// set (so an inline WithFeatures is respected).
 func (client *Client) seedFromCache(ctx context.Context) {
 	cache := client.data.getFeatureCache()
-	if cache == nil {
+	if cache == nil || client.data.getFeatures() != nil {
 		return
 	}
 	entry, ok := cache.Get(ctx, client.data.cacheKey())
-	if !ok || entry == nil {
+	if !ok || entry == nil || len(entry.Payload) == 0 {
 		return
 	}
-	client.data.withLock(func(d *data) error {
-		// Respect features the caller already provided (e.g. WithFeatures);
-		// only seed when we have nothing yet.
-		if d.features != nil {
-			return nil
-		}
-		d.features = entry.Features
-		d.savedGroups = entry.SavedGroups
-		d.dateUpdated = entry.DateUpdated
-		return nil
-	})
+	var resp FeatureApiResponse
+	if err := json.Unmarshal(entry.Payload, &resp); err != nil {
+		client.logger.WarnContext(ctx, "Failed to parse cached features", "error", err)
+		return
+	}
+	resp.raw = entry.Payload
+	resp.Etag = entry.Etag
+	if err := client.updateFromApiResponse(ctx, &resp); err != nil {
+		client.logger.WarnContext(ctx, "Failed to seed features from cache", "error", err)
+	}
 }
 
-// writeCache persists the latest feature data to the configured FeatureCache.
-// A previously stored etag is preserved when this update carries none (e.g. SSE
-// events), so conditional requests still work after a restart.
-func (client *Client) writeCache(features FeatureMap, savedGroups condition.SavedGroups, dateUpdated time.Time, etag string) {
+// writeCache persists the raw feature payload to the configured FeatureCache. A
+// previously stored etag is preserved when this update carries none (e.g. SSE
+// events), so conditional requests still work after a restart. Writes are
+// skipped when there is no raw payload to store faithfully.
+func (client *Client) writeCache(ctx context.Context, payload json.RawMessage, etag string) {
 	cache := client.data.getFeatureCache()
-	if cache == nil {
+	if cache == nil || len(payload) == 0 {
 		return
 	}
 	key := client.data.cacheKey()
 	if etag == "" {
-		if prev, ok := cache.Get(context.Background(), key); ok && prev != nil {
+		if prev, ok := cache.Get(ctx, key); ok && prev != nil {
 			etag = prev.Etag
 		}
 	}
-	cache.Set(context.Background(), key, &FeatureCacheEntry{
-		Features:    features,
-		SavedGroups: savedGroups,
-		DateUpdated: dateUpdated,
-		Etag:        etag,
+	cache.Set(ctx, key, &FeatureCacheEntry{
+		Payload: payload,
+		Etag:    etag,
 	})
 }
 
@@ -208,6 +206,12 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 
 // UpdateFromApiResponse updates shared data from Growthbook API response
 func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+	return client.updateFromApiResponse(context.Background(), resp)
+}
+
+// updateFromApiResponse applies an API response and writes through to the
+// feature cache, using ctx for the cache backend.
+func (client *Client) updateFromApiResponse(ctx context.Context, resp *FeatureApiResponse) error {
 	dataUpdated := client.data.getDateUpdated()
 	apiUpdated := resp.DateUpdated
 	if apiUpdated.Before(dataUpdated) {
@@ -231,7 +235,7 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
-	client.writeCache(features, resp.SavedGroups, resp.DateUpdated, resp.Etag)
+	client.writeCache(ctx, resp.raw, resp.Etag)
 	return nil
 }
 
@@ -254,7 +258,9 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 	if err != nil {
 		return err
 	}
-	return client.UpdateFromApiResponse(&resp)
+	// Preserve the raw payload so it can be persisted verbatim to the cache.
+	resp.raw = json.RawMessage(respJSON)
+	return client.updateFromApiResponse(context.Background(), &resp)
 }
 
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
@@ -268,7 +274,7 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 	if resp.Features == nil && resp.EncryptedFeatures == "" {
 		return nil
 	}
-	return client.UpdateFromApiResponse(resp)
+	return client.updateFromApiResponse(ctx, resp)
 }
 
 // EvalFeature evaluates feature based on attributes and features map
