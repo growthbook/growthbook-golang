@@ -52,7 +52,7 @@ func TestExperimentTrackingPerUser(t *testing.T) {
 	require.Equal(t, 2, calls, "each distinct user should be tracked once")
 }
 
-func TestExperimentTrackingReemitsAfterFeatureChange(t *testing.T) {
+func TestExperimentTrackingPersistsAcrossFeatureUpdates(t *testing.T) {
 	var calls int
 	client, err := NewClient(ctx,
 		WithAttributes(Attributes{"id": "user-1"}),
@@ -67,10 +67,11 @@ func TestExperimentTrackingReemitsAfterFeatureChange(t *testing.T) {
 	client.EvalFeature(ctx, "feat")
 	require.Equal(t, 1, calls)
 
-	// Changing features clears the dedup cache, so tracking re-emits.
+	// A feature update must NOT reset the dedup cache — otherwise every poll
+	// that returns 200 would re-emit tracking for unchanged assignments.
 	require.NoError(t, client.SetJSONFeatures(expFeatureJSON))
 	client.EvalFeature(ctx, "feat")
-	require.Equal(t, 2, calls)
+	require.Equal(t, 1, calls)
 }
 
 func TestFeatureUsageNotDeduplicated(t *testing.T) {

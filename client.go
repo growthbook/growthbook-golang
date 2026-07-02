@@ -102,6 +102,9 @@ func (client *Client) Close() error {
 		}
 	}
 
+	// Release the experiment tracking dedup set.
+	client.data.tracked.clear()
+
 	return errors.Join(errs...)
 }
 
@@ -122,7 +125,6 @@ func (client *Client) SetFeatures(features FeatureMap) error {
 		d.features = features
 		return nil
 	})
-	client.data.tracked.clear()
 	return nil
 }
 
@@ -174,8 +176,6 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
-	// Forget tracked assignments so the new configuration can re-emit tracking.
-	client.data.tracked.clear()
 	return nil
 }
 
