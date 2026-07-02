@@ -168,6 +168,58 @@ func TestSseDataSource(t *testing.T) {
 			ts.http.Close()
 		}
 	})
+
+	t.Run("Fires Updated events for initial load and streamed update", func(t *testing.T) {
+		ts := startSseServer(featuresJSON, sseResponse(features2JSON, 10*time.Millisecond, 0))
+		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelWarn, t)
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+			WithSseDataSource(),
+		)
+		require.Nil(t, err)
+		require.Nil(t, client.EnsureLoaded(ctx))
+		time.Sleep(100 * time.Millisecond) // let the stream deliver the features event
+		require.Nil(t, client.Close())
+
+		// One Updated event from the initial load (loadData), one from the
+		// streamed features event (processEvent).
+		var updated int
+		for _, r := range c.all() {
+			if r.Updated && r.Source == RefreshSourceSSE {
+				updated++
+			}
+		}
+		require.GreaterOrEqual(t, updated, 2, "expected Updated events from both initial load and stream")
+	})
+
+	t.Run("Fires Error event when initial load fails", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer ts.Close()
+		logger, _ := testLogger(slog.LevelError, t)
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.Client()),
+			WithApiHost(ts.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+			WithSseDataSource(),
+		)
+		require.Nil(t, err)
+		require.Error(t, client.EnsureLoaded(ctx))
+
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.Error != nil && r.Source == RefreshSourceSSE
+		}), "expected an SSE Error event")
+	})
 }
 
 type sseTestServer struct {

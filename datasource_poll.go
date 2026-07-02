@@ -100,6 +100,11 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 
 	resp, err := ds.client.CallFeatureApi(ctx, etag)
 	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourcePoll,
+				Error:  err})
 		return err
 	}
 
@@ -109,14 +114,36 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 		ds.mu.Unlock()
 	}
 
+	if resp.Status == 304 {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source:      RefreshSourcePoll,
+				NotModified: true,
+				DateUpdated: ds.client.data.getDateUpdated()})
+		return nil
+	}
+
 	if resp.Features == nil {
 		return nil
 	}
 
-	err = ds.client.UpdateFromApiResponse(resp)
+	updated, err := ds.client.applyApiResponse(resp)
 	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourcePoll,
+				Error:  err})
+
 		return err
 	}
 
+	ds.client.notifyRefresh(
+		ctx,
+		RefreshResult{
+			Source:      RefreshSourcePoll,
+			Updated:     updated,
+			DateUpdated: resp.DateUpdated})
 	return nil
 }

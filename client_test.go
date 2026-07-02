@@ -221,6 +221,42 @@ func TestRefreshFeatures(t *testing.T) {
 		require.Error(t, err)
 		require.Empty(t, client.Features())
 	})
+
+	t.Run("Fires Updated event on manual refresh", func(t *testing.T) {
+		ts := startServer(http.StatusOK, featuresJSON)
+		defer ts.http.Close()
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+		)
+		require.Nil(t, err)
+		require.Nil(t, client.RefreshFeatures(ctx))
+
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.Updated && r.Source == RefreshSourceManual
+		}), "expected a manual Updated event")
+	})
+
+	t.Run("Fires Error event on failed manual refresh", func(t *testing.T) {
+		ts := startServer(http.StatusNotFound, []byte(""))
+		defer ts.http.Close()
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+		)
+		require.Nil(t, err)
+		require.Error(t, client.RefreshFeatures(ctx))
+
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.Error != nil && r.Source == RefreshSourceManual
+		}), "expected a manual Error event")
+	})
 }
 
 func TestClientExperimentTracking(t *testing.T) {

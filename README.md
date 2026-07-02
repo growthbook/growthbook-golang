@@ -101,6 +101,45 @@ To stop background updates, call `client.Close()` on the main client instance wh
 
 ---
 
+### Feature Refresh Handler
+
+To observe the feature refresh lifecycle, set a handler with `WithFeaturesRefreshHandler`. It is invoked after every refresh attempt — from the polling and SSE datasources, from a manual `RefreshFeatures` call, and on the initial load. This is useful for emitting metrics on failures, tracking data freshness, or invalidating derived state when features change.
+
+```go
+client, err := gb.NewClient(
+    context.Background(),
+    gb.WithClientKey("sdk-XXXX"),
+    gb.WithPollDataSource(60*time.Second),
+    gb.WithFeaturesRefreshHandler(func(ctx context.Context, r gb.RefreshResult) {
+        switch {
+        case r.Error != nil:
+            // Refresh failed — emit a metric / alert / fall back.
+            metrics.Inc("growthbook.refresh.error")
+        case r.NotModified:
+            // Server confirmed features are still current (HTTP 304).
+            metrics.SetLastValidated(r.DateUpdated)
+        case r.Updated:
+            // New feature definitions were applied — invalidate derived caches.
+            myCache.Invalidate()
+        }
+    }),
+)
+```
+
+Exactly one of the following describes each event:
+
+| Field | Meaning |
+|-------|---------|
+| `Updated` | New feature definitions were fetched and applied (`false` if refused as older than current data) |
+| `NotModified` | Server returned HTTP 304 — cached features confirmed current, no payload sent |
+| `Error` | The refresh attempt failed (network error, non-2xx/304 status, or decode/decrypt failure) |
+| `Source` | Which mechanism produced the event: `RefreshSourcePoll`, `RefreshSourceSSE`, or `RefreshSourceManual` |
+| `DateUpdated` | `dateUpdated` of the applied payload, or the currently stored value on a 304 |
+
+The handler is shared with child clients — register it once on the root client. Implementations should return quickly and must not block the datasource; any panics are recovered and logged.
+
+---
+
 ### Tracking
 
 #### Built-in GrowthBook Tracking Plugin
