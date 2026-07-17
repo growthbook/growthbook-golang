@@ -172,6 +172,14 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	} else {
 		features = resp.Features
 	}
+	if features == nil {
+		// Never overwrite a populated feature map with an empty payload. A
+		// response that omits "features" (e.g. a malformed SSE event) must not
+		// wipe the current features. The empty-map state remains reachable only
+		// via the explicit SetFeatures(FeatureMap{}) API.
+		client.logger.Warn("Api response contains no features, refuse to update")
+		return nil
+	}
 	client.data.withLock(func(d *data) error {
 		d.features = features
 		d.savedGroups = resp.SavedGroups

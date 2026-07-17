@@ -150,6 +150,33 @@ func TestClientNoUpdatesFromStaleApiData(t *testing.T) {
 	require.Equal(t, client.data.features["foo"], &Feature{DefaultValue: "api2"})
 }
 
+func TestClientRefusesToWipeFeaturesWithEmptyPayload(t *testing.T) {
+	apiJson := `{
+      "features": {
+        "foo": {
+          "defaultValue": "api"
+        }
+      },
+      "dateUpdated": "2000-05-01T00:00:12Z"
+    }`
+
+	// A later payload that omits "features" (e.g. a malformed SSE event) must
+	// not wipe the previously loaded feature map.
+	emptyJson := `{"dateUpdated": "2000-05-02T00:00:12Z"}`
+
+	ctx := context.TODO()
+	client, _ := NewClient(ctx)
+	require.Nil(t, client.UpdateFromApiResponseJSON(apiJson))
+	require.Equal(t, &Feature{DefaultValue: "api"}, client.data.features["foo"])
+
+	require.Nil(t, client.UpdateFromApiResponseJSON(emptyJson))
+
+	// Features are preserved and evaluation still works.
+	require.Equal(t, &Feature{DefaultValue: "api"}, client.data.features["foo"])
+	require.Equal(t, "api", client.EvalFeature(ctx, "foo").Value)
+	require.Equal(t, DefaultValueResultSource, client.EvalFeature(ctx, "foo").Source)
+}
+
 func TestClientFeatureUsageTracking(t *testing.T) {
 	ctx := context.TODO()
 	count := 0
