@@ -40,9 +40,10 @@ type Client struct {
 	// remoteEval, when true, evaluates features on a remote endpoint
 	// (/api/eval/{clientKey}) instead of locally. cacheKeyAttributes limits
 	// which attributes trigger a new remote request.
-	remoteEval         bool
-	cacheKeyAttributes []string
-	remoteEvalTTL      time.Duration
+	remoteEval          bool
+	cacheKeyAttributes  []string
+	remoteEvalTTL       time.Duration
+	remoteEvalCacheSize int
 
 	// StickyBucketService for storing experiment assignments
 	stickyBucketService StickyBucketService
@@ -138,6 +139,7 @@ func defaultClient() *Client {
 		attributes:              value.ObjValue{},
 		stickyBucketAssignments: newStickyBucketCache(defaultStickyBucketCacheSize),
 		remoteEvalTTL:           defaultRemoteEvalTTL,
+		remoteEvalCacheSize:     defaultRemoteEvalCacheSize,
 	}
 }
 

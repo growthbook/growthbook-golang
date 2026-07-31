@@ -18,6 +18,11 @@ import (
 // up. A value of 0 disables expiry.
 const defaultRemoteEvalTTL = 60 * time.Second
 
+// defaultRemoteEvalCacheSize bounds the number of cached remote-eval results
+// (one per distinct attribute set) so a long-running process with
+// high-cardinality attributes does not grow the cache without limit.
+const defaultRemoteEvalCacheSize = 1000
+
 // keyedMutex serializes work per key, coalescing concurrent remote fetches for
 // the same attributes so they issue a single request (single-flight).
 type keyedMutex struct {
@@ -38,6 +43,12 @@ func (k *keyedMutex) lock(key string) func() {
 	k.mu.Unlock()
 	mu.Lock()
 	return mu.Unlock
+}
+
+func (k *keyedMutex) delete(key string) {
+	k.mu.Lock()
+	delete(k.m, key)
+	k.mu.Unlock()
 }
 
 // WithRemoteEval enables remote evaluation: features are evaluated on a remote
@@ -66,6 +77,16 @@ func WithCacheKeyAttributes(attrs []string) ClientOption {
 func WithRemoteEvalTTL(ttl time.Duration) ClientOption {
 	return func(c *Client) error {
 		c.remoteEvalTTL = ttl
+		return nil
+	}
+}
+
+// WithRemoteEvalCacheSize bounds how many remote-eval results are cached (one
+// per distinct attribute set), evicting least-recently-used entries. A value of
+// 0 disables the bound. Defaults to 1000.
+func WithRemoteEvalCacheSize(size int) ClientOption {
+	return func(c *Client) error {
+		c.remoteEvalCacheSize = size
 		return nil
 	}
 }
@@ -157,7 +178,7 @@ func (client *Client) loadRemoteEval(ctx context.Context, force bool) error {
 		client.logger.WarnContext(ctx, "Remote eval response contains no features")
 		return nil
 	}
-	client.data.setRemoteEval(key, resp.Features)
+	client.data.setRemoteEval(key, resp.Features, client.remoteEvalCacheSize)
 	return nil
 }
 

@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"container/list"
 	"net/http"
 	"sync"
 	"time"
@@ -25,9 +26,11 @@ type data struct {
 	subscribers   subscriberRegistry
 
 	// remoteEvalCache maps a remote-eval cache key (derived from the relevant
-	// attributes) to the server-evaluated feature set. Shared across child
-	// clients so requests with the same attributes reuse one remote fetch.
-	remoteEvalCache map[string]*remoteEvalEntry
+	// attributes) to its list element; remoteEvalOrder tracks recency so the
+	// cache can be bounded with LRU eviction. Shared across child clients so
+	// requests with the same attributes reuse one remote fetch.
+	remoteEvalCache map[string]*list.Element
+	remoteEvalOrder *list.List
 	// remoteEvalFlight coalesces concurrent remote fetches for the same key.
 	remoteEvalFlight keyedMutex
 	// now returns the current time; overridable in tests for TTL checks.
@@ -36,6 +39,7 @@ type data struct {
 
 // remoteEvalEntry is a cached server-evaluated feature set with its fetch time.
 type remoteEvalEntry struct {
+	key       string
 	features  FeatureMap
 	fetchedAt time.Time
 }
@@ -82,17 +86,42 @@ func (d *data) getEvalUrl() string {
 func (d *data) getRemoteEval(key string) (*remoteEvalEntry, bool) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	e, ok := d.remoteEvalCache[key]
-	return e, ok
+	elem, ok := d.remoteEvalCache[key]
+	if !ok {
+		return nil, false
+	}
+	return elem.Value.(*remoteEvalEntry), true
 }
 
-func (d *data) setRemoteEval(key string, features FeatureMap) {
+// setRemoteEval stores features under key, refreshing recency. When maxSize > 0
+// the least-recently-used entries are evicted to keep the cache bounded.
+func (d *data) setRemoteEval(key string, features FeatureMap, maxSize int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.remoteEvalCache == nil {
-		d.remoteEvalCache = make(map[string]*remoteEvalEntry)
+		d.remoteEvalCache = make(map[string]*list.Element)
+		d.remoteEvalOrder = list.New()
 	}
-	d.remoteEvalCache[key] = &remoteEvalEntry{features: features, fetchedAt: d.now()}
+	if elem, ok := d.remoteEvalCache[key]; ok {
+		entry := elem.Value.(*remoteEvalEntry)
+		entry.features = features
+		entry.fetchedAt = d.now()
+		d.remoteEvalOrder.MoveToFront(elem)
+		return
+	}
+	elem := d.remoteEvalOrder.PushFront(&remoteEvalEntry{key: key, features: features, fetchedAt: d.now()})
+	d.remoteEvalCache[key] = elem
+
+	for maxSize > 0 && len(d.remoteEvalCache) > maxSize {
+		back := d.remoteEvalOrder.Back()
+		if back == nil {
+			break
+		}
+		evicted := back.Value.(*remoteEvalEntry)
+		d.remoteEvalOrder.Remove(back)
+		delete(d.remoteEvalCache, evicted.key)
+		d.remoteEvalFlight.delete(evicted.key)
+	}
 }
 
 func (d *data) getDsStartErr() error {

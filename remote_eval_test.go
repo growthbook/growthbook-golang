@@ -173,6 +173,33 @@ func TestRemoteEvalServesStaleOnFailure(t *testing.T) {
 	require.Equal(t, "on", client.EvalFeature(ctx, "feat").Value)
 }
 
+func TestRemoteEvalCacheEviction(t *testing.T) {
+	ts := startServer(http.StatusOK, []byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
+	defer ts.http.Close()
+
+	root := newRemoteEvalClient(t, ts, WithRemoteEvalCacheSize(2))
+
+	eval := func(id string) {
+		c, err := root.WithAttributes(Attributes{"id": id})
+		require.NoError(t, err)
+		c.EvalFeature(ctx, "feat")
+	}
+
+	eval("1") // cache: [1]
+	eval("2") // cache: [2,1]
+	eval("3") // cache: [3,2], evicts 1
+	require.Equal(t, int32(3), ts.count.Load())
+
+	// 2 and 3 are still cached (no new request).
+	eval("2")
+	eval("3")
+	require.Equal(t, int32(3), ts.count.Load())
+
+	// 1 was evicted, so it triggers a fresh request.
+	eval("1")
+	require.Equal(t, int32(4), ts.count.Load())
+}
+
 func TestRemoteEvalSingleFlight(t *testing.T) {
 	var count atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
