@@ -27,7 +27,17 @@ type data struct {
 	// remoteEvalCache maps a remote-eval cache key (derived from the relevant
 	// attributes) to the server-evaluated feature set. Shared across child
 	// clients so requests with the same attributes reuse one remote fetch.
-	remoteEvalCache map[string]FeatureMap
+	remoteEvalCache map[string]*remoteEvalEntry
+	// remoteEvalFlight coalesces concurrent remote fetches for the same key.
+	remoteEvalFlight keyedMutex
+	// now returns the current time; overridable in tests for TTL checks.
+	now func() time.Time
+}
+
+// remoteEvalEntry is a cached server-evaluated feature set with its fetch time.
+type remoteEvalEntry struct {
+	features  FeatureMap
+	fetchedAt time.Time
 }
 
 func newData() *data {
@@ -35,6 +45,7 @@ func newData() *data {
 		dsStartWait: make(chan struct{}),
 		apiHost:     defaultApiHost,
 		httpClient:  http.DefaultClient,
+		now:         time.Now,
 	}
 }
 
@@ -68,20 +79,20 @@ func (d *data) getEvalUrl() string {
 	return d.apiHost + "/api/eval/" + d.clientKey
 }
 
-func (d *data) getRemoteEval(key string) (FeatureMap, bool) {
+func (d *data) getRemoteEval(key string) (*remoteEvalEntry, bool) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	f, ok := d.remoteEvalCache[key]
-	return f, ok
+	e, ok := d.remoteEvalCache[key]
+	return e, ok
 }
 
 func (d *data) setRemoteEval(key string, features FeatureMap) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.remoteEvalCache == nil {
-		d.remoteEvalCache = make(map[string]FeatureMap)
+		d.remoteEvalCache = make(map[string]*remoteEvalEntry)
 	}
-	d.remoteEvalCache[key] = features
+	d.remoteEvalCache[key] = &remoteEvalEntry{features: features, fetchedAt: d.now()}
 }
 
 func (d *data) getDsStartErr() error {

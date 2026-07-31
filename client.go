@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
@@ -41,6 +42,7 @@ type Client struct {
 	// which attributes trigger a new remote request.
 	remoteEval         bool
 	cacheKeyAttributes []string
+	remoteEvalTTL      time.Duration
 
 	// StickyBucketService for storing experiment assignments
 	stickyBucketService StickyBucketService
@@ -135,6 +137,7 @@ func defaultClient() *Client {
 		logger:                  slog.Default(),
 		attributes:              value.ObjValue{},
 		stickyBucketAssignments: newStickyBucketCache(defaultStickyBucketCacheSize),
+		remoteEvalTTL:           defaultRemoteEvalTTL,
 	}
 }
 
@@ -317,8 +320,8 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 	if client.remoteEval {
 		features = nil
 		if key, err := client.remoteEvalCacheKey(); err == nil {
-			if f, ok := client.data.getRemoteEval(key); ok {
-				features = f
+			if entry, ok := client.data.getRemoteEval(key); ok {
+				features = entry.features
 			}
 		}
 	}
