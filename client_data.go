@@ -23,6 +23,11 @@ type data struct {
 	dsStartErr    error
 	plugins       []Plugin
 	subscribers   subscriberRegistry
+
+	// remoteEvalCache maps a remote-eval cache key (derived from the relevant
+	// attributes) to the server-evaluated feature set. Shared across child
+	// clients so requests with the same attributes reuse one remote fetch.
+	remoteEvalCache map[string]FeatureMap
 }
 
 func newData() *data {
@@ -55,6 +60,28 @@ func (d *data) getSseUrl() string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.apiHost + "/sub/" + d.clientKey
+}
+
+func (d *data) getEvalUrl() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.apiHost + "/api/eval/" + d.clientKey
+}
+
+func (d *data) getRemoteEval(key string) (FeatureMap, bool) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	f, ok := d.remoteEvalCache[key]
+	return f, ok
+}
+
+func (d *data) setRemoteEval(key string, features FeatureMap) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.remoteEvalCache == nil {
+		d.remoteEvalCache = make(map[string]FeatureMap)
+	}
+	d.remoteEvalCache[key] = features
 }
 
 func (d *data) getDsStartErr() error {

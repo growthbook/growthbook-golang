@@ -36,6 +36,11 @@ func (client *Client) startDataSource(ctx context.Context) {
 }
 
 func (client *Client) EnsureLoaded(ctx context.Context) error {
+	// In remote-eval mode there is no background data source; load the
+	// server-evaluated features for the client's current attributes instead.
+	if client.remoteEval {
+		return client.loadRemoteEval(ctx, false)
+	}
 	select {
 	case <-client.data.dsStartWait:
 		return client.data.getDsStartErr()
