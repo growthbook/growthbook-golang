@@ -173,6 +173,38 @@ func TestRemoteEvalServesStaleOnFailure(t *testing.T) {
 	require.Equal(t, "on", client.EvalFeature(ctx, "feat").Value)
 }
 
+func TestRemoteEvalCacheKeyIncludesAllInputs(t *testing.T) {
+	// Same attributes but different forced variations / URL must not reuse a
+	// cached result computed for different inputs.
+	t.Run("forced variations", func(t *testing.T) {
+		ts := startServer(http.StatusOK, []byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
+		defer ts.http.Close()
+
+		client := newRemoteEvalClient(t, ts, WithAttributes(Attributes{"id": "1"}))
+		client.EvalFeature(ctx, "feat")
+		require.Equal(t, int32(1), ts.count.Load())
+
+		forced, err := client.WithForcedVariations(ForcedVariationsMap{"exp": 1})
+		require.NoError(t, err)
+		forced.EvalFeature(ctx, "feat")
+		require.Equal(t, int32(2), ts.count.Load())
+	})
+
+	t.Run("url", func(t *testing.T) {
+		ts := startServer(http.StatusOK, []byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
+		defer ts.http.Close()
+
+		client := newRemoteEvalClient(t, ts, WithAttributes(Attributes{"id": "1"}))
+		client.EvalFeature(ctx, "feat")
+		require.Equal(t, int32(1), ts.count.Load())
+
+		withURL, err := client.WithUrl("https://example.com/pricing")
+		require.NoError(t, err)
+		withURL.EvalFeature(ctx, "feat")
+		require.Equal(t, int32(2), ts.count.Load())
+	})
+}
+
 func TestRemoteEvalCacheEviction(t *testing.T) {
 	ts := startServer(http.StatusOK, []byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
 	defer ts.http.Close()

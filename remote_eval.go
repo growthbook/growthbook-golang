@@ -114,8 +114,11 @@ func (client *Client) validateRemoteEval() error {
 	return nil
 }
 
-// remoteEvalCacheKey returns a stable key for the client's current attributes.
-// When cacheKeyAttributes is set, only those attributes contribute to the key.
+// remoteEvalCacheKey returns a stable key covering every input sent to the
+// remote-eval endpoint: the attributes, forced variations and URL. Keying on all
+// of them ensures a change to any (not just attributes) triggers a fresh
+// evaluation instead of reusing a result computed for different inputs. When
+// cacheKeyAttributes is set, only those attributes contribute to the key.
 func (client *Client) remoteEvalCacheKey() (string, error) {
 	attrs := client.attributes
 	if len(client.cacheKeyAttributes) > 0 {
@@ -127,8 +130,16 @@ func (client *Client) remoteEvalCacheKey() (string, error) {
 		}
 		attrs = selected
 	}
+	pageURL := ""
+	if client.url != nil {
+		pageURL = client.url.String()
+	}
 	// json.Marshal sorts map keys, so the key is deterministic.
-	b, err := json.Marshal(attrs)
+	b, err := json.Marshal(struct {
+		Attributes       value.ObjValue      `json:"attributes"`
+		ForcedVariations ForcedVariationsMap `json:"forcedVariations"`
+		URL              string              `json:"url"`
+	}{attrs, client.forcedVariations, pageURL})
 	if err != nil {
 		return "", err
 	}
