@@ -93,12 +93,26 @@ func WithRemoteEvalCacheSize(size int) ClientOption {
 
 // WithRemoteEval creates a child client with remote evaluation toggled.
 func (c *Client) WithRemoteEval(enabled bool) (*Client, error) {
-	return c.cloneWith(WithRemoteEval(enabled))
+	return remoteEvalChild(c.cloneWith(WithRemoteEval(enabled)))
 }
 
 // WithCacheKeyAttributes creates a child client with updated cache-key attributes.
 func (c *Client) WithCacheKeyAttributes(attrs []string) (*Client, error) {
-	return c.cloneWith(WithCacheKeyAttributes(attrs))
+	return remoteEvalChild(c.cloneWith(WithCacheKeyAttributes(attrs)))
+}
+
+// remoteEvalChild validates the remote-eval configuration of a freshly cloned
+// child, so child clients enforce the same rules as NewClient.
+func remoteEvalChild(client *Client, err error) (*Client, error) {
+	if err != nil {
+		return nil, err
+	}
+	if client.remoteEval {
+		if err := client.validateRemoteEval(); err != nil {
+			return nil, err
+		}
+	}
+	return client, nil
 }
 
 func (client *Client) validateRemoteEval() error {
@@ -223,9 +237,15 @@ func (client *Client) callEvalApi(ctx context.Context) (*FeatureApiResponse, err
 	if client.url != nil {
 		pageURL = client.url.String()
 	}
+	// Send an empty object rather than null when no forced variations are set,
+	// matching the other SDKs' wire shape.
+	forcedVariations := client.forcedVariations
+	if forcedVariations == nil {
+		forcedVariations = ForcedVariationsMap{}
+	}
 	body, err := json.Marshal(remoteEvalPayload{
 		Attributes:       attrs,
-		ForcedVariations: client.forcedVariations,
+		ForcedVariations: forcedVariations,
 		ForcedFeatures:   [][]any{},
 		URL:              pageURL,
 	})

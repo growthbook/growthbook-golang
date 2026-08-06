@@ -103,9 +103,10 @@ func (d *data) setRemoteEval(key string, features FeatureMap, maxSize int) {
 		d.remoteEvalOrder = list.New()
 	}
 	if elem, ok := d.remoteEvalCache[key]; ok {
-		entry := elem.Value.(*remoteEvalEntry)
-		entry.features = features
-		entry.fetchedAt = d.now()
+		// Replace the pointer instead of mutating in place: getRemoteEval hands
+		// the entry to callers that read it after releasing the RLock, so the
+		// entry must be an immutable snapshot.
+		elem.Value = &remoteEvalEntry{key: key, features: features, fetchedAt: d.now()}
 		d.remoteEvalOrder.MoveToFront(elem)
 		return
 	}

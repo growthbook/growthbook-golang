@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -230,6 +231,63 @@ func TestRemoteEvalCacheEviction(t *testing.T) {
 	// 1 was evicted, so it triggers a fresh request.
 	eval("1")
 	require.Equal(t, int32(4), ts.count.Load())
+}
+
+func TestRemoteEvalChildValidation(t *testing.T) {
+	// A child that enables remote eval must enforce the same rules as NewClient.
+	withKey, err := NewClient(ctx, WithClientKey("k"), WithDecryptionKey("dk"))
+	require.NoError(t, err)
+	_, err = withKey.WithRemoteEval(true)
+	require.ErrorIs(t, err, ErrRemoteEvalDecryptionKey)
+
+	noKey, err := NewClient(ctx)
+	require.NoError(t, err)
+	_, err = noKey.WithRemoteEval(true)
+	require.ErrorIs(t, err, ErrRemoteEvalNoClientKey)
+}
+
+func TestRemoteEvalPayloadForcedVariationsNotNull(t *testing.T) {
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"features":{}}`))
+	}))
+	defer srv.Close()
+
+	client, err := NewClient(ctx,
+		WithHttpClient(srv.Client()), WithApiHost(srv.URL), WithClientKey("k"),
+		WithRemoteEval(true), WithAttributes(Attributes{"id": "1"}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.EnsureLoaded(ctx))
+
+	require.Contains(t, string(body), `"forcedVariations":{}`)
+	require.NotContains(t, string(body), `"forcedVariations":null`)
+}
+
+func TestRemoteEvalConcurrentRefreshNoRace(t *testing.T) {
+	ts := startServer(http.StatusOK, []byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
+	defer ts.http.Close()
+
+	// A tiny TTL forces frequent refreshes; run under -race to catch mutation of
+	// a shared cache entry concurrently with readers.
+	client := newRemoteEvalClient(t, ts,
+		WithAttributes(Attributes{"id": "1"}),
+		WithRemoteEvalTTL(time.Millisecond),
+	)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 200; j++ {
+				time.Sleep(time.Millisecond)
+				require.Equal(t, "on", client.EvalFeature(ctx, "feat").Value)
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 func TestRemoteEvalSingleFlight(t *testing.T) {
