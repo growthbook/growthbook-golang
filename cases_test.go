@@ -24,6 +24,7 @@ type cases struct {
 	Hash                   JsonTuples[hashCase]                   `json:"hash"`
 	Run                    JsonTuples[runCase]                    `json:"run"`
 	Feature                JsonTuples[featureCase]                `json:"feature"`
+	ContextualBandit       JsonTuples[featureCase]                `json:"contextualBandit"`
 	GetBucketRange         JsonTuples[getBucketRangeCase]         `json:"getBucketRange"`
 	GetQueryStringOverride JsonTuples[getQueryStringOverrideCase] `json:"getQueryStringOverride"`
 	InNamespace            JsonTuples[inNamespaceCase]            `json:"inNamespace"`
@@ -153,13 +154,14 @@ type stickyBucketTestCase struct {
 }
 
 type env struct {
-	Attributes       Attributes            `json:"attributes"`
-	Features         FeatureMap            `json:"features"`
-	Enabled          *bool                 `json:"enabled"`
-	Url              string                `json:"url"`
-	ForcedVariations ForcedVariationsMap   `json:"forcedVariations"`
-	QaMode           *bool                 `json:"qaMode"`
-	SavedGroups      condition.SavedGroups `json:"savedGroups"`
+	Attributes        Attributes            `json:"attributes"`
+	Features          FeatureMap            `json:"features"`
+	Enabled           *bool                 `json:"enabled"`
+	Url               string                `json:"url"`
+	ForcedVariations  ForcedVariationsMap   `json:"forcedVariations"`
+	QaMode            *bool                 `json:"qaMode"`
+	SavedGroups       condition.SavedGroups `json:"savedGroups"`
+	ContextualBandits ContextualBanditsMap  `json:"contextualBandits"`
 }
 
 type JsonTuple[T any] struct {
@@ -210,6 +212,7 @@ func TestCasesJson(t *testing.T) {
 	cases.Hash.run("hash", t)
 	cases.Run.run("run", t)
 	cases.Feature.run("feature", t)
+	cases.ContextualBandit.run("contextualBandit", t)
 	cases.GetBucketRange.run("getBucketRange", t)
 	cases.GetQueryStringOverride.run("getQueryStringOverride", t)
 	cases.InNamespace.run("inNamespace", t)
@@ -415,6 +418,7 @@ func (e *env) client() (*Client, error) {
 		WithForcedVariations(e.ForcedVariations),
 		WithFeatures(e.Features),
 		WithSavedGroups(e.SavedGroups),
+		WithContextualBandits(e.ContextualBandits),
 		withSilentTestLogger(),
 	)
 	if err != nil {
