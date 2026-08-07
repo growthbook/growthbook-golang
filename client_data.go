@@ -46,12 +46,6 @@ func (d *data) getFeatures() FeatureMap {
 	return d.features
 }
 
-func (d *data) getContextualBandits() ContextualBanditsMap {
-	d.mu.RLock()
-	defer d.mu.RUnlock()
-	return d.contextualBandits
-}
-
 func (d *data) getApiUrl() string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
