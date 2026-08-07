@@ -87,7 +87,7 @@ func experimentFromFeatureRule(featureId string, rule *FeatureRule) *Experiment 
 	// twice; URLPatterns/URL/Groups/Status don't exist on JS feature rules.
 	exp := Experiment{
 		Key:                    expKey,
-		Variations:             rule.Variations,
+		Variations:             rule.variationsForExperiment(),
 		Coverage:               rule.Coverage,
 		Weights:                rule.Weights,
 		HashAttribute:          rule.HashAttribute,

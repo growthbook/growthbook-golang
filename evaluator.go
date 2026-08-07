@@ -9,11 +9,12 @@ import (
 )
 
 type evaluator struct {
-	features    FeatureMap
-	savedGroups condition.SavedGroups
-	evaluated   stack[string]
-	client      *Client
-	ctx         context.Context
+	features          FeatureMap
+	savedGroups       condition.SavedGroups
+	contextualBandits ContextualBanditsMap
+	evaluated         stack[string]
+	client            *Client
+	ctx               context.Context
 
 	recording          bool // false when no callbacks, plugins, or buffer consume tracking
 	userCtx            *TrackingUserContext
@@ -361,6 +362,58 @@ func (e *evaluator) getExperimentResult(
 	return &res
 }
 
+// applyContextualBandit resolves the rule's bandit ref and, if found, replaces
+// the experiment's weights with the matching leaf's (backend-computed) weights.
+// Returns the bandit attribution to surface on the result, or nil when the ref
+// is empty or its definition is missing (the experiment then keeps its own
+// weights and no bandit metadata is reported).
+func (e *evaluator) applyContextualBandit(exp *Experiment, ref string) *contextualBandit {
+	if ref == "" {
+		return nil
+	}
+	def := e.contextualBandits[ref]
+	if def == nil {
+		e.client.logger.DebugContext(e.ctx, "Contextual bandit definition not found", "ref", ref)
+		return nil
+	}
+
+	leaf := e.selectContextualBanditLeaf(def.Contexts)
+	if leaf != nil && leaf.Weights != nil {
+		exp.Weights = leaf.Weights
+		return &contextualBandit{
+			leafId:           leaf.LeafId,
+			variationWeights: leaf.Weights,
+			banditVersion:    def.BanditVersion,
+		}
+	}
+
+	// Definition found but no leaf matched (or the matched leaf had no weights):
+	// this is still a bandit exposure on the fallback weights.
+	fallbackWeights := exp.Weights
+	if fallbackWeights == nil {
+		fallbackWeights = getEqualWeights(len(exp.Variations))
+	}
+	exp.Weights = fallbackWeights
+	fallbackLeafId := contextualBanditFallbackLeafId
+	return &contextualBandit{
+		leafId:           &fallbackLeafId,
+		variationWeights: fallbackWeights,
+		banditVersion:    def.BanditVersion,
+	}
+}
+
+// selectContextualBanditLeaf returns the first context whose condition matches
+// the user's attributes. An absent/empty condition matches everyone.
+func (e *evaluator) selectContextualBanditLeaf(contexts []ContextualBanditContext) *ContextualBanditContext {
+	for i := range contexts {
+		leaf := &contexts[i]
+		if leaf.Condition.Eval(e.client.attributes, e.savedGroups) {
+			return leaf
+		}
+	}
+	return nil
+}
+
 func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult {
 	if len(rule.ParentConditions) > 0 {
 		for _, parent := range rule.ParentConditions {
@@ -400,12 +453,21 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 		return getFeatureResult(rule.Force, ForceResultSource, rule.Id, nil, nil)
 	}
 
-	if len(rule.Variations) == 0 {
+	if len(rule.variationsForExperiment()) == 0 {
 		return nil
 	}
 
 	exp := experimentFromFeatureRule(featureId, rule)
+	// Apply the contextual bandit before bucketing: it may replace the weights
+	// the user is hashed against.
+	cb := e.applyContextualBandit(exp, rule.ContextualBanditRef)
 	res := e.runExperiment(exp, featureId)
+	// Attribute bandit metadata only on a real hash-bucketed exposure.
+	if cb != nil && res.HashUsed && res.InExperiment {
+		res.LeafId = cb.leafId
+		res.VariationWeights = cb.variationWeights
+		res.BanditVersion = cb.banditVersion
+	}
 	if !res.InExperiment || res.Passthrough {
 		return nil
 	}

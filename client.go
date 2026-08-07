@@ -172,13 +172,33 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	} else {
 		features = resp.Features
 	}
+	bandits := resp.ContextualBandits
+	if resp.EncryptedContextualBandits != "" {
+		bandits, err = client.decryptContextualBandits(resp.EncryptedContextualBandits)
+		if err != nil {
+			return err
+		}
+	}
 	client.data.withLock(func(d *data) error {
 		d.features = features
 		d.savedGroups = resp.SavedGroups
 		d.dateUpdated = resp.DateUpdated
+		d.contextualBandits = bandits
 		return nil
 	})
 	return nil
+}
+
+func (client *Client) decryptContextualBandits(encrypted string) (ContextualBanditsMap, error) {
+	banditsJSON, err := client.data.decrypt(encrypted)
+	if err != nil {
+		return nil, err
+	}
+	var bandits ContextualBanditsMap
+	if err := json.Unmarshal([]byte(banditsJSON), &bandits); err != nil {
+		return nil, err
+	}
+	return bandits, nil
 }
 
 func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
@@ -290,10 +310,11 @@ func (client *Client) Logger() *slog.Logger {
 func (client *Client) evaluator(ctx context.Context) *evaluator {
 	client.data.mu.RLock()
 	e := evaluator{
-		features:    client.data.features,
-		savedGroups: client.data.savedGroups,
-		client:      client,
-		ctx:         ctx,
+		features:          client.data.features,
+		savedGroups:       client.data.savedGroups,
+		contextualBandits: client.data.contextualBandits,
+		client:            client,
+		ctx:               ctx,
 		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
 			client.deferredTracks != nil || len(client.data.plugins) > 0,
 	}

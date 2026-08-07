@@ -9,20 +9,21 @@ import (
 )
 
 type data struct {
-	mu            sync.RWMutex
-	features      FeatureMap
-	savedGroups   condition.SavedGroups
-	dateUpdated   time.Time
-	apiHost       string
-	clientKey     string
-	decryptionKey string
-	httpClient    *http.Client
-	dataSource    DataSource
-	dsStarted     bool
-	dsStartWait   chan struct{}
-	dsStartErr    error
-	plugins       []Plugin
-	subscribers   subscriberRegistry
+	mu                sync.RWMutex
+	features          FeatureMap
+	savedGroups       condition.SavedGroups
+	dateUpdated       time.Time
+	apiHost           string
+	clientKey         string
+	decryptionKey     string
+	httpClient        *http.Client
+	dataSource        DataSource
+	dsStarted         bool
+	dsStartWait       chan struct{}
+	dsStartErr        error
+	plugins           []Plugin
+	subscribers       subscriberRegistry
+	contextualBandits ContextualBanditsMap
 }
 
 func newData() *data {
@@ -43,6 +44,12 @@ func (d *data) getFeatures() FeatureMap {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.features
+}
+
+func (d *data) getContextualBandits() ContextualBanditsMap {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.contextualBandits
 }
 
 func (d *data) getApiUrl() string {

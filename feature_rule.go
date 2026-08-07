@@ -60,4 +60,21 @@ type FeatureRule struct {
 	// Deprecated: ignored during evaluation. Feature rules never carried a
 	// status in the JS SDK; use Experiment.Status with RunExperiment.
 	Status ExperimentStatus `json:"status"`
+	// ContextualBanditRef is the key into the feature payload's contextualBandits
+	// map identifying which bandit supplies this rule's per-segment weights.
+	ContextualBanditRef string `json:"contextualBanditRef"`
+	// ContextualVariations holds the variations for a contextual-bandit rule.
+	// Bandit rules ship variations here (not under variations) so SDKs without
+	// bandit support skip the rule instead of running it with weights they can't
+	// interpret.
+	ContextualVariations []FeatureValue `json:"contextualVariations"`
+}
+
+// variationsForExperiment returns the variations to run: the contextual-bandit
+// variations when present, otherwise the regular variations.
+func (rule *FeatureRule) variationsForExperiment() []FeatureValue {
+	if len(rule.ContextualVariations) > 0 {
+		return rule.ContextualVariations
+	}
+	return rule.Variations
 }
