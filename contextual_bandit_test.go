@@ -104,6 +104,23 @@ func TestContextualBanditRefMissingReportsNoMetadata(t *testing.T) {
 	require.Nil(t, res.ExperimentResult.BanditVersion)
 }
 
+func TestContextualBanditEncryptedFailureKeepsFeatures(t *testing.T) {
+	// A failed bandit decryption must not drop the features from the update.
+	client, err := NewClient(ctx,
+		WithDecryptionKey("Ns04T5n9+59rl2x3SlNHtQ=="),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	payload := `{"features": {"feat": {"defaultValue": "kept"}},
+      "encryptedContextualBandits": "not-a-valid-encrypted-blob",
+      "dateUpdated": "2020-01-01T00:00:00Z"}`
+	require.NoError(t, client.UpdateFromApiResponseJSON(payload))
+
+	// Features are preserved; the bad bandit payload is simply ignored.
+	require.Equal(t, "kept", client.EvalFeature(ctx, "feat").Value)
+}
+
 func TestContextualBanditViaWithOption(t *testing.T) {
 	// Bandits can be seeded directly via WithContextualBandits.
 	leafID := 9

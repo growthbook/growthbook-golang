@@ -174,9 +174,14 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	}
 	bandits := resp.ContextualBandits
 	if resp.EncryptedContextualBandits != "" {
-		bandits, err = client.decryptContextualBandits(resp.EncryptedContextualBandits)
-		if err != nil {
-			return err
+		// A bandit decryption/parse failure must not drop the features: log it
+		// and continue with no bandits, so rules referencing a bandit fall back
+		// to their own weights.
+		if decrypted, berr := client.decryptContextualBandits(resp.EncryptedContextualBandits); berr != nil {
+			client.logger.Warn("Failed to decrypt contextual bandits, ignoring", "error", berr)
+			bandits = nil
+		} else {
+			bandits = decrypted
 		}
 	}
 	client.data.withLock(func(d *data) error {
