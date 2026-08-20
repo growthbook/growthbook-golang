@@ -94,7 +94,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	}
 
 	// 6. Get the user hash value and return if empty
-	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, exp.FallbackAttribute)
+	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, e.stickyFallbackAttribute(exp.FallbackAttribute, exp.DisableStickyBucketing))
 	if hashValue == "" {
 		e.client.logger.DebugContext(e.ctx, "Skip experiment because of missing hashAttribute", "id", exp.Key)
 		return e.experimentResult(exp, -1, false, featureId, nil, false)
@@ -304,7 +304,7 @@ func (e *evaluator) getExperimentResult(
 		inExperiment = false
 	}
 
-	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, exp.FallbackAttribute)
+	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, e.stickyFallbackAttribute(exp.FallbackAttribute, exp.DisableStickyBucketing))
 
 	var meta *VariationMeta
 	if variationId >= 0 && variationId < len(exp.Meta) {

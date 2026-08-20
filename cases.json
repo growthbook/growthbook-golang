@@ -7116,6 +7116,39 @@
         "source": "experiment",
         "ruleId": ""
       }
+    ],
+    [
+      "experiment rules - fallbackAttribute ignored without sticky bucket service",
+      {
+        "attributes": {
+          "anonymousId": "123"
+        },
+        "features": {
+          "feature": {
+            "defaultValue": 0,
+            "rules": [
+              {
+                "variations": [
+                  0,
+                  1,
+                  2,
+                  3
+                ],
+                "hashAttribute": "id",
+                "fallbackAttribute": "anonymousId"
+              }
+            ]
+          }
+        }
+      },
+      "feature",
+      {
+        "value": 0,
+        "on": false,
+        "off": true,
+        "source": "defaultValue",
+        "ruleId": ""
+      }
     ]
   ],
   "run": [
