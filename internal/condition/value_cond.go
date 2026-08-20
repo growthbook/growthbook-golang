@@ -2,8 +2,8 @@ package condition
 
 import "github.com/growthbook/growthbook-golang/internal/value"
 
-// ValueCond used when field compared with another value directly, without any operator
-// Growthbook implementation casts field value to expected type in that case before comparison.
+// ValueCond used when field compared with another value directly, without any operator.
+// Matches JS SDK semantics: strict equality, with a null condition matching null or missing.
 type ValueCond struct {
 	expected value.Value
 }

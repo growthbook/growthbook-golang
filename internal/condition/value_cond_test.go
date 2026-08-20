@@ -13,14 +13,18 @@ func TestValueCond(t *testing.T) {
 		a any
 		r bool
 	}{
-		{"1", 1, true},
-		{"1", []any{1}, true},
+		{"1", 1, false},
+		{"1", []any{1}, false},
 		{"1", "1", true},
 		{"1", true, false},
-		{0, "0", true},
+		{0, "0", false},
 		{0, 0, true},
-		{0, "", true},
-		{0, false, true},
+		{0, "", false},
+		{0, false, false},
+		{false, false, true},
+		{false, nil, false},
+		{nil, nil, true},
+		{nil, "1", false},
 	}
 	for _, tt := range tests {
 		var c Condition = NewValueCond(tt.e)

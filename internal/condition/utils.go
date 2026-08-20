@@ -6,16 +6,15 @@ import (
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
+// valueCompare mirrors the JS SDK's direct comparison
+// (JSON.stringify(actual) === JSON.stringify(expected)): a null condition
+// matches null or missing attributes, everything else requires strict
+// type-and-value equality.
 func valueCompare(actual, expected value.Value) bool {
-	switch expected.Type() {
-	case value.StrType, value.NumType, value.BoolType:
-		casted := actual.Cast(expected.Type())
-		return value.Equal(expected, casted)
-	case value.NullType:
+	if expected.Type() == value.NullType {
 		return value.IsNull(actual)
-	default:
-		return value.Equal(actual, expected)
 	}
+	return value.Equal(actual, expected)
 }
 
 func isIn(fieldVal value.Value, expected value.ArrValue) bool {
