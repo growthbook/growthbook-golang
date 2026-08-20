@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -163,6 +164,11 @@ func TestCasesJson(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	data, err = stringifyHashValues(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+
 	var cases cases
 	if err := json.Unmarshal(data, &cases); err != nil {
 		t.Fatal(err)
@@ -179,6 +185,34 @@ func TestCasesJson(t *testing.T) {
 	cases.GetEqualWeights.run("getEqualWeights", t)
 	cases.Decrypt.run("decrypt", t)
 	cases.StickyBucket.run("stickyBucket", t)
+}
+
+// stringifyHashValues converts numeric hashValue fields in the corpus to
+// strings. The JS corpus stores hashValue with the raw attribute type, while
+// ExperimentResult.HashValue is a string.
+func stringifyHashValues(data []byte) ([]byte, error) {
+	var doc any
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, err
+	}
+	var walk func(node any)
+	walk = func(node any) {
+		switch n := node.(type) {
+		case map[string]any:
+			if v, ok := n["hashValue"].(float64); ok {
+				n["hashValue"] = strconv.FormatFloat(v, 'f', -1, 64)
+			}
+			for _, v := range n {
+				walk(v)
+			}
+		case []any:
+			for _, v := range n {
+				walk(v)
+			}
+		}
+	}
+	walk(doc)
+	return json.Marshal(doc)
 }
 
 func (c evalConditionCase) test(t *testing.T) {
