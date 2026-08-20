@@ -6851,6 +6851,271 @@
         "source": "defaultValue",
         "ruleId": ""
       }
+    ],
+    [
+      "experiment rules - parentConditions are not copied onto the experiment",
+      {
+        "attributes": {
+          "id": "123"
+        },
+        "features": {
+          "parent": {
+            "defaultValue": "on"
+          },
+          "feature": {
+            "defaultValue": 0,
+            "rules": [
+              {
+                "variations": [
+                  0,
+                  1
+                ],
+                "parentConditions": [
+                  {
+                    "id": "parent",
+                    "condition": {
+                      "value": "on"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "feature",
+      {
+        "value": 1,
+        "on": true,
+        "off": false,
+        "experiment": {
+          "key": "feature",
+          "variations": [
+            0,
+            1
+          ]
+        },
+        "experimentResult": {
+          "featureId": "feature",
+          "value": 1,
+          "variationId": 1,
+          "inExperiment": true,
+          "hashUsed": true,
+          "hashAttribute": "id",
+          "hashValue": "123",
+          "bucket": 0.863,
+          "key": "1",
+          "stickyBucketUsed": false
+        },
+        "source": "experiment",
+        "ruleId": ""
+      }
+    ],
+    [
+      "experiment rules - rule status is not copied onto the experiment (draft rule still runs)",
+      {
+        "attributes": {
+          "id": "123"
+        },
+        "features": {
+          "feature": {
+            "defaultValue": 0,
+            "rules": [
+              {
+                "variations": [
+                  "a",
+                  "b"
+                ],
+                "status": "draft"
+              }
+            ]
+          }
+        }
+      },
+      "feature",
+      {
+        "value": "b",
+        "on": true,
+        "off": false,
+        "experiment": {
+          "key": "feature",
+          "variations": [
+            "a",
+            "b"
+          ]
+        },
+        "experimentResult": {
+          "featureId": "feature",
+          "value": "b",
+          "variationId": 1,
+          "inExperiment": true,
+          "hashUsed": true,
+          "hashAttribute": "id",
+          "hashValue": "123",
+          "bucket": 0.863,
+          "key": "1",
+          "stickyBucketUsed": false
+        },
+        "source": "experiment",
+        "ruleId": ""
+      }
+    ],
+    [
+      "experiment rules - urlPatterns are not copied onto the experiment",
+      {
+        "attributes": {
+          "id": "123"
+        },
+        "url": "http://example.com/",
+        "features": {
+          "feature": {
+            "defaultValue": 0,
+            "rules": [
+              {
+                "variations": [
+                  "a",
+                  "b"
+                ],
+                "urlPatterns": [
+                  {
+                    "type": "simple",
+                    "pattern": "http://other.com",
+                    "include": true
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "feature",
+      {
+        "value": "b",
+        "on": true,
+        "off": false,
+        "experiment": {
+          "key": "feature",
+          "variations": [
+            "a",
+            "b"
+          ]
+        },
+        "experimentResult": {
+          "featureId": "feature",
+          "value": "b",
+          "variationId": 1,
+          "inExperiment": true,
+          "hashUsed": true,
+          "hashAttribute": "id",
+          "hashValue": "123",
+          "bucket": 0.863,
+          "key": "1",
+          "stickyBucketUsed": false
+        },
+        "source": "experiment",
+        "ruleId": ""
+      }
+    ],
+    [
+      "experiment rules - groups are not copied onto the experiment",
+      {
+        "attributes": {
+          "id": "123"
+        },
+        "features": {
+          "feature": {
+            "defaultValue": 0,
+            "rules": [
+              {
+                "variations": [
+                  "a",
+                  "b"
+                ],
+                "groups": [
+                  "internal"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "feature",
+      {
+        "value": "b",
+        "on": true,
+        "off": false,
+        "experiment": {
+          "key": "feature",
+          "variations": [
+            "a",
+            "b"
+          ]
+        },
+        "experimentResult": {
+          "featureId": "feature",
+          "value": "b",
+          "variationId": 1,
+          "inExperiment": true,
+          "hashUsed": true,
+          "hashAttribute": "id",
+          "hashValue": "123",
+          "bucket": 0.863,
+          "key": "1",
+          "stickyBucketUsed": false
+        },
+        "source": "experiment",
+        "ruleId": ""
+      }
+    ],
+    [
+      "experiment rules - legacy url is not copied onto the experiment",
+      {
+        "attributes": {
+          "id": "123"
+        },
+        "url": "http://example.com/",
+        "features": {
+          "feature": {
+            "defaultValue": 0,
+            "rules": [
+              {
+                "variations": [
+                  "a",
+                  "b"
+                ],
+                "url": "^/pricing$"
+              }
+            ]
+          }
+        }
+      },
+      "feature",
+      {
+        "value": "b",
+        "on": true,
+        "off": false,
+        "experiment": {
+          "key": "feature",
+          "variations": [
+            "a",
+            "b"
+          ]
+        },
+        "experimentResult": {
+          "featureId": "feature",
+          "value": "b",
+          "variationId": 1,
+          "inExperiment": true,
+          "hashUsed": true,
+          "hashAttribute": "id",
+          "hashValue": "123",
+          "bucket": 0.863,
+          "key": "1",
+          "stickyBucketUsed": false
+        },
+        "source": "experiment",
+        "ruleId": ""
+      }
     ]
   ],
   "run": [

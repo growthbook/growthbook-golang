@@ -69,6 +69,7 @@ func TestSubscribe_FiresWhenAssignmentChanges(t *testing.T) {
 }
 
 func TestSubscribe_FiresForFeatureRuleMisses(t *testing.T) {
+	zeroCoverage := 0.0
 	c := newAttrClient(t, WithFeatures(FeatureMap{
 		"feature": {
 			DefaultValue: "default",
@@ -76,7 +77,7 @@ func TestSubscribe_FiresForFeatureRuleMisses(t *testing.T) {
 				{
 					Key:        "exp",
 					Variations: []FeatureValue{"off", "on"},
-					Status:     DraftStatus,
+					Coverage:   &zeroCoverage,
 				},
 			},
 		},
