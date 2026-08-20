@@ -402,7 +402,7 @@ func (e *evaluator) isIncludedInRollout(featureId string, rule *FeatureRule) boo
 		return false
 	}
 
-	_, hashValue := e.getHashAttribute(rule.HashAttribute, "")
+	_, hashValue := e.getHashAttribute(rule.HashAttribute, e.stickyFallbackAttribute(rule.FallbackAttribute, rule.DisableStickyBucketing))
 	if hashValue == "" {
 		return false
 	}
@@ -425,6 +425,17 @@ func (e *evaluator) isIncludedInRollout(featureId string, rule *FeatureRule) boo
 	}
 
 	return true
+}
+
+// stickyFallbackAttribute mirrors the JS SDK (sdk-js core.ts evalFeature /
+// runExperiment): a fallbackAttribute is only consulted when a sticky bucket
+// service is configured and sticky bucketing isn't disabled for the rule or
+// experiment.
+func (e *evaluator) stickyFallbackAttribute(fallback string, disableStickyBucketing bool) string {
+	if e.client.stickyBucketService != nil && !disableStickyBucketing {
+		return fallback
+	}
+	return ""
 }
 
 func (e *evaluator) isFilteredOut(filters []Filter) bool {

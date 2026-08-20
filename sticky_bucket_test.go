@@ -670,3 +670,58 @@ func (s *postReadGateService) GetAssignments(name, value string) (*StickyBucketA
 	}
 	return doc, err
 }
+
+func TestRolloutRuleFallbackAttribute(t *testing.T) {
+	// Mirrors JS evalFeature (sdk-js core.ts): rollout inclusion passes the
+	// rule's fallbackAttribute to getHashAttribute only when a sticky bucket
+	// service is configured and the rule doesn't disable sticky bucketing.
+	ctx := context.TODO()
+	coverage := 1.0
+	newFeatures := func(disableStickyBucketing bool) FeatureMap {
+		return FeatureMap{
+			"feature": {
+				DefaultValue: 0,
+				Rules: []FeatureRule{{
+					Force:                  1,
+					Coverage:               &coverage,
+					FallbackAttribute:      "deviceId",
+					DisableStickyBucketing: disableStickyBucketing,
+				}},
+			},
+		}
+	}
+	attrs := Attributes{"deviceId": "device123"} // no "id" attribute
+
+	t.Run("fallback used with sticky bucket service", func(t *testing.T) {
+		client, err := NewClient(ctx,
+			WithAttributes(attrs),
+			WithFeatures(newFeatures(false)),
+			WithStickyBucketService(NewInMemoryStickyBucketService()),
+		)
+		require.NoError(t, err)
+		res := client.EvalFeature(ctx, "feature")
+		require.Equal(t, ForceResultSource, res.Source)
+		require.Equal(t, 1, res.Value)
+	})
+
+	t.Run("fallback ignored without sticky bucket service", func(t *testing.T) {
+		client, err := NewClient(ctx,
+			WithAttributes(attrs),
+			WithFeatures(newFeatures(false)),
+		)
+		require.NoError(t, err)
+		res := client.EvalFeature(ctx, "feature")
+		require.Equal(t, DefaultValueResultSource, res.Source)
+	})
+
+	t.Run("fallback ignored when rule disables sticky bucketing", func(t *testing.T) {
+		client, err := NewClient(ctx,
+			WithAttributes(attrs),
+			WithFeatures(newFeatures(true)),
+			WithStickyBucketService(NewInMemoryStickyBucketService()),
+		)
+		require.NoError(t, err)
+		res := client.EvalFeature(ctx, "feature")
+		require.Equal(t, DefaultValueResultSource, res.Source)
+	})
+}
