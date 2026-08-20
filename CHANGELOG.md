@@ -4,12 +4,12 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
-- Direct (no-operator) condition comparison is now strict, matching the JS SDK's
-  `JSON.stringify` equality: a condition like `{"userId": false}` no longer
-  matches a missing attribute, and values of different types (e.g. `5` vs `"5"`)
-  no longer match. **Compatibility note:** no API changes, but this can change
-  feature targeting results for conditions that relied on the previous coercive
-  equality behavior.
+- Direct (no-operator) boolean condition comparison now matches the JS SDK
+  exactly: a condition like `{"userId": false}` no longer matches a missing or
+  null attribute (JS: `value !== null && !!value === condition`). String and
+  number conditions keep JS's coercive comparison (`value + ""`, `value * 1`).
+  **Compatibility note:** no API changes, but boolean conditions evaluated
+  against missing/null attributes now return false instead of matching `false`.
 - Synced `cases.json` with the JS SDK conformance corpus (0.8.0 bodies; spec
   label 0.7.1 — the four contextual-bandit cases are skiplisted as CB rules are
   not implemented).

@@ -3,7 +3,8 @@ package condition
 import "github.com/growthbook/growthbook-golang/internal/value"
 
 // ValueCond used when field compared with another value directly, without any operator.
-// Matches JS SDK semantics: strict equality, with a null condition matching null or missing.
+// Matches JS SDK semantics: primitive conditions coerce the attribute to the
+// condition's type, except that boolean conditions never match null/missing.
 type ValueCond struct {
 	expected value.Value
 }

@@ -6,15 +6,25 @@ import (
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
-// valueCompare mirrors the JS SDK's direct comparison
-// (JSON.stringify(actual) === JSON.stringify(expected)): a null condition
-// matches null or missing attributes, everything else requires strict
-// type-and-value equality.
+// valueCompare mirrors the JS SDK's direct comparison (mongrule.ts
+// evalConditionValue): string/number conditions coerce the attribute to the
+// condition's type (`value + ""`, `value * 1`), boolean conditions use
+// truthiness but never match null/missing, a null condition matches only
+// null/missing, and arrays/objects compare by deep equality.
 func valueCompare(actual, expected value.Value) bool {
-	if expected.Type() == value.NullType {
+	switch expected.Type() {
+	case value.StrType, value.NumType:
+		return value.Equal(expected, actual.Cast(expected.Type()))
+	case value.BoolType:
+		if value.IsNull(actual) {
+			return false
+		}
+		return value.Equal(expected, actual.Cast(value.BoolType))
+	case value.NullType:
 		return value.IsNull(actual)
+	default:
+		return value.Equal(actual, expected)
 	}
-	return value.Equal(actual, expected)
 }
 
 func isIn(fieldVal value.Value, expected value.ArrValue) bool {
