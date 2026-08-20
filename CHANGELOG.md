@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Direct (no-operator) condition comparison is now strict, matching the JS SDK's
+  `JSON.stringify` equality: a condition like `{"userId": false}` no longer
+  matches a missing attribute, and values of different types (e.g. `5` vs `"5"`)
+  no longer match. **Compatibility note:** no API changes, but this can change
+  feature targeting results for conditions that relied on the previous coercive
+  equality behavior.
+- Synced `cases.json` with the JS SDK conformance corpus (0.8.0 bodies; spec
+  label 0.7.1 — the four contextual-bandit cases are skiplisted as CB rules are
+  not implemented).
+- Added a corpus-freshness CI check against the JS SDK cases corpus to catch
+  missing or drifted cases (`tests/scripts/check_corpus_freshness.py`).
+
 ## [v0.2.1](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.2.1) - 2025-01-25
 
 - fix WithAttributeOverrides panic when applied to nil attributes
