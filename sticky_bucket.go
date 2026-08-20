@@ -15,6 +15,56 @@ type StickyBucketAssignmentDoc struct {
 // StickyBucketAssignments is a map of keys to assignment documents
 type StickyBucketAssignments map[string]*StickyBucketAssignmentDoc
 
+// stickyBucketCache abstracts the assignments cache so the client can guard
+// its shared cache with a mutex while the exported helpers keep accepting a
+// plain StickyBucketAssignments map.
+type stickyBucketCache interface {
+	get(key string) (*StickyBucketAssignmentDoc, bool)
+	set(key string, doc *StickyBucketAssignmentDoc)
+}
+
+func (a StickyBucketAssignments) get(key string) (*StickyBucketAssignmentDoc, bool) {
+	doc, ok := a[key]
+	return doc, ok
+}
+
+func (a StickyBucketAssignments) set(key string, doc *StickyBucketAssignmentDoc) {
+	a[key] = doc
+}
+
+// asStickyBucketCache converts a possibly-nil assignments map to a cache,
+// keeping a nil map as a nil interface so cache presence checks work.
+func asStickyBucketCache(assignments StickyBucketAssignments) stickyBucketCache {
+	if assignments == nil {
+		return nil
+	}
+	return assignments
+}
+
+// lockedStickyBucketCache is the client's assignments cache. It is shared by
+// reference between a client and its clones, so access is mutex-guarded.
+type lockedStickyBucketCache struct {
+	mu   sync.RWMutex
+	docs StickyBucketAssignments
+}
+
+func newStickyBucketCache() *lockedStickyBucketCache {
+	return &lockedStickyBucketCache{docs: make(StickyBucketAssignments)}
+}
+
+func (c *lockedStickyBucketCache) get(key string) (*StickyBucketAssignmentDoc, bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	doc, ok := c.docs[key]
+	return doc, ok
+}
+
+func (c *lockedStickyBucketCache) set(key string, doc *StickyBucketAssignmentDoc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.docs[key] = doc
+}
+
 // StickyBucketService defines operations for storing and retrieving sticky bucket assignments
 type StickyBucketService interface {
 	GetAssignments(attributeName string, attributeValue string) (*StickyBucketAssignmentDoc, error)
@@ -132,6 +182,22 @@ func GetStickyBucketVariation(
 	attributes map[string]string,
 	cachedAssignments StickyBucketAssignments,
 ) (*StickyBucketResult, error) {
+	return getStickyBucketVariation(experimentKey, bucketVersion, minBucketVersion,
+		meta, service, hashAttribute, fallbackAttribute, attributes,
+		asStickyBucketCache(cachedAssignments))
+}
+
+func getStickyBucketVariation(
+	experimentKey string,
+	bucketVersion int,
+	minBucketVersion int,
+	meta []VariationMeta,
+	service StickyBucketService,
+	hashAttribute string,
+	fallbackAttribute string,
+	attributes map[string]string,
+	cache stickyBucketCache,
+) (*StickyBucketResult, error) {
 	result := &StickyBucketResult{
 		Variation:        -1,
 		VersionIsBlocked: false,
@@ -149,7 +215,7 @@ func GetStickyBucketVariation(
 	experimentVersionKey := getStickyBucketExperimentKey(experimentKey, bucketVersion)
 
 	// Get assignments from both primary and fallback attributes
-	assignments, err := getStickyBucketAssignments(service, hashAttribute, fallbackAttribute, attributes, cachedAssignments)
+	assignments, err := getStickyBucketAssignments(service, hashAttribute, fallbackAttribute, attributes, cache)
 	if err != nil {
 		return result, err
 	}
@@ -184,7 +250,7 @@ func getStickyBucketAssignments(
 	hashAttribute string,
 	fallbackAttribute string,
 	attributes map[string]string,
-	cachedAssignments StickyBucketAssignments,
+	cache stickyBucketCache,
 ) (map[string]string, error) {
 	merged := make(map[string]string)
 
@@ -200,8 +266,8 @@ func getStickyBucketAssignments(
 	if hasHash {
 		// Check if we have this in the cache first
 		hashKey := getKey(hashAttribute, hashValue)
-		if cachedAssignments != nil {
-			if doc, ok := cachedAssignments[hashKey]; ok && doc != nil {
+		if cache != nil {
+			if doc, ok := cache.get(hashKey); ok && doc != nil {
 				// Use cached assignments
 				for k, v := range doc.Assignments {
 					merged[k] = v
@@ -222,8 +288,8 @@ func getStickyBucketAssignments(
 		if hasFallback {
 			// Check if we have this in the cache first
 			fallbackKey := getKey(fallbackAttribute, fallbackValue)
-			if cachedAssignments != nil {
-				if doc, ok := cachedAssignments[fallbackKey]; ok && doc != nil {
+			if cache != nil {
+				if doc, ok := cache.get(fallbackKey); ok && doc != nil {
 					// Use cached assignments, but don't overwrite existing ones
 					for k, v := range doc.Assignments {
 						if _, exists := merged[k]; !exists {
@@ -265,9 +331,9 @@ func getStickyBucketAssignments(
 				}
 
 				// Update the cache if provided
-				if cachedAssignments != nil {
+				if cache != nil {
 					key := getKey(attrName, attrValue)
-					cachedAssignments[key] = doc
+					cache.set(key, doc)
 				}
 			}
 		}
@@ -286,6 +352,21 @@ func SaveStickyBucketAssignment(
 	attributeName string,
 	attributeValue string,
 	cachedAssignments StickyBucketAssignments,
+) error {
+	return saveStickyBucketAssignment(experimentKey, bucketVersion, variationID,
+		variationKey, service, attributeName, attributeValue,
+		asStickyBucketCache(cachedAssignments))
+}
+
+func saveStickyBucketAssignment(
+	experimentKey string,
+	bucketVersion int,
+	variationID int,
+	variationKey string,
+	service StickyBucketService,
+	attributeName string,
+	attributeValue string,
+	cache stickyBucketCache,
 ) error {
 	if service == nil || attributeName == "" || attributeValue == "" {
 		return nil
@@ -307,8 +388,8 @@ func SaveStickyBucketAssignment(
 	// Only save if a change was detected
 	if data.Doc != nil && data.Changed {
 		// Update cache if provided
-		if cachedAssignments != nil {
-			cachedAssignments[data.Key] = data.Doc
+		if cache != nil {
+			cache.set(data.Key, data.Doc)
 		}
 		return service.SaveAssignments(data.Doc)
 	}
@@ -364,20 +445,23 @@ func GenerateStickyBucketAssignmentDoc(
 		}
 	}
 
-	// If changes detected, create merged assignments
+	// If changes detected, build a new doc with merged assignments instead of
+	// mutating the existing one: docs held by the service or the client cache
+	// may be read concurrently by other evaluations.
 	if result.Changed {
-		// Create a copy of existing assignments
-		mergedAssignments := make(map[string]string)
+		mergedAssignments := make(map[string]string, len(doc.Assignments)+len(assignments))
 		for k, v := range doc.Assignments {
 			mergedAssignments[k] = v
 		}
-
-		// Add or update with new assignments
 		for k, v := range assignments {
 			mergedAssignments[k] = v
 		}
 
-		doc.Assignments = mergedAssignments
+		doc = &StickyBucketAssignmentDoc{
+			AttributeName:  attributeName,
+			AttributeValue: attributeValue,
+			Assignments:    mergedAssignments,
+		}
 	}
 
 	result.Doc = doc

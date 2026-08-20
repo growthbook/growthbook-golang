@@ -2,8 +2,10 @@ package growthbook
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -349,8 +351,62 @@ func TestStickyBucketCaching(t *testing.T) {
 
 	// Verify cache contains both experiments
 	cacheKey := getKey("id", "123")
-	cache := client.stickyBucketAssignments[cacheKey]
+	cache, ok := client.stickyBucketAssignments.get(cacheKey)
+	require.True(t, ok)
 	require.Len(t, cache.Assignments, 2, "Cache should contain both experiments")
+}
+
+// The assignments cache is shared between a client and all clients cloned
+// from it, so concurrent EvalFeature calls must not race on it. Run with
+// -race to catch regressions.
+func TestStickyBucketConcurrentEvaluation(t *testing.T) {
+	featuresJSON := `{
+		"feat-a": {
+			"defaultValue": "off",
+			"rules": [{
+				"key": "exp-a",
+				"variations": ["control", "treatment"],
+				"meta": [{"key": "0"}, {"key": "1"}],
+				"hashAttribute": "id"
+			}]
+		},
+		"feat-b": {
+			"defaultValue": "off",
+			"rules": [{
+				"key": "exp-b",
+				"variations": ["control", "treatment"],
+				"meta": [{"key": "0"}, {"key": "1"}],
+				"hashAttribute": "id"
+			}]
+		}
+	}`
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithJsonFeatures(featuresJSON),
+		WithStickyBucketService(NewInMemoryStickyBucketService()),
+	)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			// A small pool of user ids so goroutines both write fresh cache
+			// entries and hit the same entries concurrently.
+			child, err := client.WithAttributes(Attributes{"id": fmt.Sprintf("user-%d", i%4)})
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			for j := 0; j < 20; j++ {
+				child.EvalFeature(ctx, "feat-a")
+				child.EvalFeature(ctx, "feat-b")
+			}
+		}(i)
+	}
+	wg.Wait()
 }
 
 // mockStickyBucketService is a wrapper around InMemoryStickyBucketService that allows tracking calls
