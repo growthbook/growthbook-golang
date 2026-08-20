@@ -6766,6 +6766,91 @@
         "source": "defaultValue",
         "ruleId": ""
       }
+    ],
+    [
+      "experiment rules - hashAttribute value of 0 is falsy, experiment skipped",
+      {
+        "attributes": {
+          "id": 0
+        },
+        "features": {
+          "feature": {
+            "defaultValue": "def",
+            "rules": [
+              {
+                "variations": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "feature",
+      {
+        "value": "def",
+        "on": true,
+        "off": false,
+        "source": "defaultValue",
+        "ruleId": ""
+      }
+    ],
+    [
+      "experiment rules - hashAttribute value of false is falsy, experiment skipped",
+      {
+        "attributes": {
+          "id": false
+        },
+        "features": {
+          "feature": {
+            "defaultValue": "def",
+            "rules": [
+              {
+                "variations": [
+                  "a",
+                  "b"
+                ]
+              }
+            ]
+          }
+        }
+      },
+      "feature",
+      {
+        "value": "def",
+        "on": true,
+        "off": false,
+        "source": "defaultValue",
+        "ruleId": ""
+      }
+    ],
+    [
+      "force rules - coverage rollout skipped when hashAttribute value is 0 (falsy)",
+      {
+        "attributes": {
+          "id": 0
+        },
+        "features": {
+          "feature": {
+            "defaultValue": 0,
+            "rules": [
+              {
+                "force": 1,
+                "coverage": 0.99
+              }
+            ]
+          }
+        }
+      },
+      "feature",
+      {
+        "value": 0,
+        "on": false,
+        "off": true,
+        "source": "defaultValue",
+        "ruleId": ""
+      }
     ]
   ],
   "run": [
@@ -9957,6 +10042,55 @@
           "assignments": {
             "feature-exp__0": "1"
           }
+        }
+      }
+    ],
+    [
+      "falsy hashAttribute value (0) falls through to fallbackAttribute",
+      {
+        "attributes": {
+          "id": 0,
+          "anonymousId": "123"
+        },
+        "features": {
+          "feature": {
+            "defaultValue": 0,
+            "rules": [
+              {
+                "variations": [
+                  0,
+                  1,
+                  2,
+                  3
+                ],
+                "hashAttribute": "id",
+                "fallbackAttribute": "anonymousId"
+              }
+            ]
+          }
+        }
+      },
+      [],
+      "feature",
+      {
+        "bucket": 0.863,
+        "featureId": "feature",
+        "hashAttribute": "anonymousId",
+        "hashUsed": true,
+        "hashValue": "123",
+        "inExperiment": true,
+        "key": "3",
+        "stickyBucketUsed": false,
+        "value": 3,
+        "variationId": 3
+      },
+      {
+        "anonymousId||123": {
+          "assignments": {
+            "feature__0": "3"
+          },
+          "attributeName": "anonymousId",
+          "attributeValue": "123"
         }
       }
     ]

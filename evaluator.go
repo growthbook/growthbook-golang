@@ -454,19 +454,22 @@ func hasMatchingGroup(expGroups []string, userGroups map[string]bool) bool {
 	return false
 }
 
+// getHashAttribute mirrors the JS SDK's getHashAttribute (sdk-js core.ts):
+// attribute values are checked for JS truthiness, so 0, false, "" and null
+// count as missing and trigger the fallback attribute (or skip the rule).
 func (e *evaluator) getHashAttribute(key string, fallback string) (string, string) {
 	if key == "" {
 		key = "id"
 	}
 
-	hashValue, ok := e.client.attributes[key]
-	if ok && !value.IsNull(hashValue) {
+	if hashValue, ok := e.client.attributes[key]; ok && value.Truthy(hashValue) {
 		return key, hashValue.String()
 	}
 
-	hashValue, ok = e.client.attributes[fallback]
-	if ok && !value.IsNull(hashValue) {
-		return fallback, hashValue.String()
+	if fallback != "" {
+		if hashValue, ok := e.client.attributes[fallback]; ok && value.Truthy(hashValue) {
+			return fallback, hashValue.String()
+		}
 	}
 
 	return key, ""
