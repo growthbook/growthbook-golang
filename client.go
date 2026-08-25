@@ -111,7 +111,7 @@ func defaultClient() *Client {
 		qaMode:                  false,
 		logger:                  slog.Default(),
 		attributes:              value.ObjValue{},
-		stickyBucketAssignments: newStickyBucketCache(),
+		stickyBucketAssignments: newStickyBucketCache(defaultStickyBucketCacheSize),
 	}
 }
 

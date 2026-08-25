@@ -352,7 +352,7 @@ func (c stickyBucketTestCase) test(t *testing.T) {
 		client, err := c.Env.client()
 		require.NoError(t, err)
 		client.stickyBucketService = service
-		client.stickyBucketAssignments = newStickyBucketCache()
+		client.stickyBucketAssignments = newStickyBucketCache(defaultStickyBucketCacheSize)
 
 		// Evaluate feature
 		result := client.EvalFeature(context.TODO(), c.FeatureName)

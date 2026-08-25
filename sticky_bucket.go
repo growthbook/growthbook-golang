@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"container/list"
 	"fmt"
 	"sync"
 )
@@ -56,39 +57,76 @@ func asStickyBucketCache(assignments StickyBucketAssignments) stickyBucketCache 
 	return assignments
 }
 
-// lockedStickyBucketCache is the client's assignments cache. It is shared by
-// reference between a client and its clones, so access is mutex-guarded.
+// defaultStickyBucketCacheSize bounds the client's assignments cache. The
+// cache holds one entry per attribute value evaluated, so a long-lived
+// multi-user client would otherwise grow it forever. Evicting an entry only
+// costs a re-fetch from the StickyBucketService.
+const defaultStickyBucketCacheSize = 10_000
+
+// lockedStickyBucketCache is the client's assignments cache: an LRU shared
+// by reference between a client and its clones, so access is mutex-guarded.
 type lockedStickyBucketCache struct {
-	mu   sync.RWMutex
-	docs StickyBucketAssignments
+	mu      sync.Mutex
+	maxSize int // <= 0 disables eviction
+	docs    map[string]*list.Element
+	order   *list.List // front = most recently used
 	// docLocks serializes save cycles per document key so concurrent saves
 	// for the same user merge instead of overwriting each other. Key-scoped
 	// so a save's backend I/O never blocks work on other documents.
 	docLocks keyedMutex
 }
 
-func newStickyBucketCache() *lockedStickyBucketCache {
-	return &lockedStickyBucketCache{docs: make(StickyBucketAssignments)}
+type stickyBucketCacheEntry struct {
+	key string
+	doc *StickyBucketAssignmentDoc
+}
+
+func newStickyBucketCache(maxSize int) *lockedStickyBucketCache {
+	return &lockedStickyBucketCache{
+		maxSize: maxSize,
+		docs:    make(map[string]*list.Element),
+		order:   list.New(),
+	}
 }
 
 func (c *lockedStickyBucketCache) get(key string) (*StickyBucketAssignmentDoc, bool) {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	doc, ok := c.docs[key]
-	return doc, ok
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	elem, ok := c.docs[key]
+	if !ok {
+		return nil, false
+	}
+	c.order.MoveToFront(elem)
+	return elem.Value.(*stickyBucketCacheEntry).doc, true
 }
 
 func (c *lockedStickyBucketCache) set(key string, doc *StickyBucketAssignmentDoc) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.docs[key] = doc
+	c.insert(key, doc)
 }
 
 func (c *lockedStickyBucketCache) setIfAbsent(key string, doc *StickyBucketAssignmentDoc) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if _, ok := c.docs[key]; !ok {
-		c.docs[key] = doc
+		c.insert(key, doc)
+	}
+}
+
+// insert adds or updates an entry and evicts the least recently used one
+// when over capacity. Callers must hold c.mu.
+func (c *lockedStickyBucketCache) insert(key string, doc *StickyBucketAssignmentDoc) {
+	if elem, ok := c.docs[key]; ok {
+		elem.Value.(*stickyBucketCacheEntry).doc = doc
+		c.order.MoveToFront(elem)
+		return
+	}
+	c.docs[key] = c.order.PushFront(&stickyBucketCacheEntry{key: key, doc: doc})
+	if c.maxSize > 0 && c.order.Len() > c.maxSize {
+		oldest := c.order.Back()
+		c.order.Remove(oldest)
+		delete(c.docs, oldest.Value.(*stickyBucketCacheEntry).key)
 	}
 }
 

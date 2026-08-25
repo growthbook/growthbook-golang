@@ -170,6 +170,19 @@ func WithStickyBucketService(service StickyBucketService) ClientOption {
 	}
 }
 
+// WithStickyBucketCacheSize bounds the client's in-memory sticky bucket
+// assignments cache to size entries with LRU eviction. The cache holds one
+// entry per attribute value evaluated, so a long-lived multi-user client
+// grows it with every new user; evicting an entry only costs a re-fetch
+// from the StickyBucketService. size <= 0 removes the bound. The default
+// is 10000 entries.
+func WithStickyBucketCacheSize(size int) ClientOption {
+	return func(c *Client) error {
+		c.stickyBucketAssignments = newStickyBucketCache(size)
+		return nil
+	}
+}
+
 // WithStickyBucketAttributes sets sticky bucket attributes for the client
 func WithStickyBucketAttributes(attributes StickyBucketAttributes) ClientOption {
 	return func(c *Client) error {

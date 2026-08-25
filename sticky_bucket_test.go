@@ -410,6 +410,96 @@ func TestStickyBucketConcurrentEvaluation(t *testing.T) {
 	wg.Wait()
 }
 
+func TestStickyBucketCacheLRUEviction(t *testing.T) {
+	doc := func(val string) *StickyBucketAssignmentDoc {
+		return &StickyBucketAssignmentDoc{AttributeName: "id", AttributeValue: val}
+	}
+
+	cache := newStickyBucketCache(2)
+	cache.set("a", doc("a"))
+	cache.set("b", doc("b"))
+
+	// Touch "a" so "b" becomes the least recently used entry.
+	_, ok := cache.get("a")
+	require.True(t, ok)
+
+	cache.set("c", doc("c"))
+	_, ok = cache.get("b")
+	require.False(t, ok, "least recently used entry should be evicted")
+	_, ok = cache.get("a")
+	require.True(t, ok)
+	_, ok = cache.get("c")
+	require.True(t, ok)
+
+	// Updating an existing key must not evict anything.
+	cache.set("a", doc("a2"))
+	got, ok := cache.get("c")
+	require.True(t, ok)
+	require.Equal(t, "c", got.AttributeValue)
+	got, ok = cache.get("a")
+	require.True(t, ok)
+	require.Equal(t, "a2", got.AttributeValue)
+
+	// setIfAbsent keeps the existing doc.
+	cache.setIfAbsent("a", doc("a3"))
+	got, _ = cache.get("a")
+	require.Equal(t, "a2", got.AttributeValue)
+
+	// size <= 0 means unbounded.
+	unbounded := newStickyBucketCache(0)
+	for i := 0; i < 100; i++ {
+		unbounded.setIfAbsent(fmt.Sprintf("k%d", i), doc("v"))
+	}
+	for i := 0; i < 100; i++ {
+		_, ok := unbounded.get(fmt.Sprintf("k%d", i))
+		require.True(t, ok)
+	}
+}
+
+// Eviction must be transparent: an evicted user's next evaluation re-fetches
+// the assignment doc from the service and keeps the sticky variation.
+func TestStickyBucketCacheEvictionRefetches(t *testing.T) {
+	featuresJSON := `{
+		"feat": {
+			"defaultValue": "off",
+			"rules": [{
+				"key": "exp",
+				"variations": ["control", "treatment"],
+				"meta": [{"key": "0"}, {"key": "1"}],
+				"hashAttribute": "id"
+			}]
+		}
+	}`
+
+	service := NewInMemoryStickyBucketService()
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithJsonFeatures(featuresJSON),
+		WithStickyBucketService(service),
+		WithStickyBucketCacheSize(1),
+	)
+	require.NoError(t, err)
+
+	c1, err := client.WithAttributes(Attributes{"id": "u1"})
+	require.NoError(t, err)
+	res1 := c1.EvalFeature(ctx, "feat")
+	require.True(t, res1.ExperimentResult.InExperiment)
+
+	// Evaluating a second user evicts u1 from the size-1 cache.
+	c2, err := client.WithAttributes(Attributes{"id": "u2"})
+	require.NoError(t, err)
+	c2.EvalFeature(ctx, "feat")
+	_, cached := client.stickyBucketAssignments.get(getKey("id", "u1"))
+	require.False(t, cached, "u1 should be evicted from the size-1 cache")
+
+	// u1's next evaluation re-fetches from the service: same variation,
+	// via the stored sticky bucket rather than a fresh hash.
+	res2 := c1.EvalFeature(ctx, "feat")
+	require.True(t, res2.ExperimentResult.InExperiment)
+	require.Equal(t, res1.ExperimentResult.VariationId, res2.ExperimentResult.VariationId)
+	require.True(t, res2.ExperimentResult.StickyBucketUsed)
+}
+
 // Concurrent saves for the same user must merge rather than overwrite each
 // other: saving is a read-modify-write cycle against the service, and without
 // per-document serialization the last write drops the other's assignment.
@@ -446,7 +536,7 @@ func TestStickyBucketOverlappingSavesMerge(t *testing.T) {
 		close(release)
 	}()
 
-	cache := newStickyBucketCache()
+	cache := newStickyBucketCache(defaultStickyBucketCacheSize)
 	var wg sync.WaitGroup
 	for _, save := range []struct{ expKey, variation string }{
 		{"exp-a", "control"},
