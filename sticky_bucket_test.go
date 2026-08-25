@@ -7,6 +7,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -407,6 +408,71 @@ func TestStickyBucketConcurrentEvaluation(t *testing.T) {
 		}(i)
 	}
 	wg.Wait()
+}
+
+// Concurrent saves for the same user must merge rather than overwrite each
+// other: saving is a read-modify-write cycle against the service, and without
+// per-document serialization the last write drops the other's assignment.
+//
+// The gate in GetAssignments holds save-path reads open, so when saves are
+// NOT serialized both deterministically read the same document version and
+// the lost update reproduces. Once saves ARE serialized the second save
+// cannot reach the read, so the timeout releases the gate and the saves run
+// back to back — which is exactly the fixed behavior being asserted.
+func TestStickyBucketOverlappingSavesMerge(t *testing.T) {
+	inner := NewInMemoryStickyBucketService()
+	readerArrived := make(chan struct{}, 2)
+	release := make(chan struct{})
+	svc := &mockStickyBucketService{
+		InMemoryStickyBucketService: inner,
+		onGetAssignments: func(_, _ string) {
+			select {
+			case readerArrived <- struct{}{}:
+			default:
+			}
+			<-release
+		},
+	}
+	go func() {
+		timeout := time.After(200 * time.Millisecond)
+		for i := 0; i < 2; i++ {
+			select {
+			case <-readerArrived:
+			case <-timeout:
+				close(release)
+				return
+			}
+		}
+		close(release)
+	}()
+
+	cache := newStickyBucketCache()
+	var wg sync.WaitGroup
+	for _, save := range []struct{ expKey, variation string }{
+		{"exp-a", "control"},
+		{"exp-b", "treatment"},
+	} {
+		wg.Add(1)
+		go func(expKey, variation string) {
+			defer wg.Done()
+			if err := saveStickyBucketAssignment(expKey, 0, 0, variation, svc, "id", "u1", cache); err != nil {
+				t.Error(err)
+			}
+		}(save.expKey, save.variation)
+	}
+	wg.Wait()
+
+	doc, err := inner.GetAssignments("id", "u1")
+	require.NoError(t, err)
+	require.NotNil(t, doc)
+	require.Equal(t, "control", doc.Assignments["exp-a__0"], "assignment for exp-a was lost")
+	require.Equal(t, "treatment", doc.Assignments["exp-b__0"], "assignment for exp-b was lost")
+
+	// The shared cache must hold the merged document too.
+	cached, ok := cache.get(getKey("id", "u1"))
+	require.True(t, ok)
+	require.Equal(t, "control", cached.Assignments["exp-a__0"])
+	require.Equal(t, "treatment", cached.Assignments["exp-b__0"])
 }
 
 // mockStickyBucketService is a wrapper around InMemoryStickyBucketService that allows tracking calls

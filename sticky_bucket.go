@@ -21,6 +21,9 @@ type StickyBucketAssignments map[string]*StickyBucketAssignmentDoc
 type stickyBucketCache interface {
 	get(key string) (*StickyBucketAssignmentDoc, bool)
 	set(key string, doc *StickyBucketAssignmentDoc)
+	setIfAbsent(key string, doc *StickyBucketAssignmentDoc)
+	// lockDoc serializes read-modify-write save cycles for one document key.
+	lockDoc(key string) (unlock func())
 }
 
 func (a StickyBucketAssignments) get(key string) (*StickyBucketAssignmentDoc, bool) {
@@ -30,6 +33,18 @@ func (a StickyBucketAssignments) get(key string) (*StickyBucketAssignmentDoc, bo
 
 func (a StickyBucketAssignments) set(key string, doc *StickyBucketAssignmentDoc) {
 	a[key] = doc
+}
+
+func (a StickyBucketAssignments) setIfAbsent(key string, doc *StickyBucketAssignmentDoc) {
+	if _, ok := a[key]; !ok {
+		a[key] = doc
+	}
+}
+
+// lockDoc is a no-op: the exported helpers taking a plain map remain
+// unsynchronized, as they always were.
+func (a StickyBucketAssignments) lockDoc(string) func() {
+	return func() {}
 }
 
 // asStickyBucketCache converts a possibly-nil assignments map to a cache,
@@ -46,6 +61,10 @@ func asStickyBucketCache(assignments StickyBucketAssignments) stickyBucketCache 
 type lockedStickyBucketCache struct {
 	mu   sync.RWMutex
 	docs StickyBucketAssignments
+	// docLocks serializes save cycles per document key so concurrent saves
+	// for the same user merge instead of overwriting each other. Key-scoped
+	// so a save's backend I/O never blocks work on other documents.
+	docLocks keyedMutex
 }
 
 func newStickyBucketCache() *lockedStickyBucketCache {
@@ -63,6 +82,56 @@ func (c *lockedStickyBucketCache) set(key string, doc *StickyBucketAssignmentDoc
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.docs[key] = doc
+}
+
+func (c *lockedStickyBucketCache) setIfAbsent(key string, doc *StickyBucketAssignmentDoc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, ok := c.docs[key]; !ok {
+		c.docs[key] = doc
+	}
+}
+
+func (c *lockedStickyBucketCache) lockDoc(key string) func() {
+	return c.docLocks.lock(key)
+}
+
+// keyedMutex provides a mutex per string key. A key's entry is removed once
+// no goroutine holds or waits for it, so memory does not grow with the
+// number of keys ever locked.
+type keyedMutex struct {
+	mu    sync.Mutex
+	locks map[string]*keyedLock
+}
+
+type keyedLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (k *keyedMutex) lock(key string) (unlock func()) {
+	k.mu.Lock()
+	if k.locks == nil {
+		k.locks = make(map[string]*keyedLock)
+	}
+	l := k.locks[key]
+	if l == nil {
+		l = &keyedLock{}
+		k.locks[key] = l
+	}
+	l.refs++
+	k.mu.Unlock()
+
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		k.mu.Lock()
+		l.refs--
+		if l.refs == 0 {
+			delete(k.locks, key)
+		}
+		k.mu.Unlock()
+	}
 }
 
 // StickyBucketService defines operations for storing and retrieving sticky bucket assignments
@@ -330,10 +399,12 @@ func getStickyBucketAssignments(
 					}
 				}
 
-				// Update the cache if provided
+				// Update the cache if provided. setIfAbsent: a concurrent
+				// save may have already cached a doc merged from fresher
+				// service state; don't clobber it with this earlier read.
 				if cache != nil {
 					key := getKey(attrName, attrValue)
-					cache.set(key, doc)
+					cache.setIfAbsent(key, doc)
 				}
 			}
 		}
@@ -370,6 +441,14 @@ func saveStickyBucketAssignment(
 ) error {
 	if service == nil || attributeName == "" || attributeValue == "" {
 		return nil
+	}
+
+	// Saving is a read-modify-write cycle: serialize it per document so
+	// concurrent saves for the same user merge instead of the last write
+	// dropping the other's assignment.
+	if cache != nil {
+		unlock := cache.lockDoc(getKey(attributeName, attributeValue))
+		defer unlock()
 	}
 
 	// Create assignment map with the experiment key and variation key
@@ -412,7 +491,7 @@ func GenerateStickyBucketAssignmentDoc(
 	service StickyBucketService,
 ) *StickyBucketAssignmentData {
 	result := &StickyBucketAssignmentData{
-		Key:     attributeName + "||" + attributeValue,
+		Key:     getKey(attributeName, attributeValue),
 		Changed: false,
 	}
 
