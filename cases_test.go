@@ -67,7 +67,32 @@ type featureCase struct {
 	Name        string
 	Env         env
 	FeatureName string
-	Expected    *FeatureResult
+	Expected    *expectedFeatureResult
+}
+
+// expectedFeatureResult decodes a corpus expected-result blob, stringifying
+// numeric hashValue fields (see stringifyHashValues). Scoped to expected
+// results only so corpus inputs are never modified before evaluation.
+type expectedFeatureResult struct{ FeatureResult }
+
+func (e *expectedFeatureResult) UnmarshalJSON(data []byte) error {
+	data, err := stringifyHashValues(data)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, &e.FeatureResult)
+}
+
+// expectedExperimentResult is the ExperimentResult counterpart of
+// expectedFeatureResult.
+type expectedExperimentResult struct{ ExperimentResult }
+
+func (e *expectedExperimentResult) UnmarshalJSON(data []byte) error {
+	data, err := stringifyHashValues(data)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, &e.ExperimentResult)
 }
 
 type getBucketRangeCase struct {
@@ -112,7 +137,7 @@ type stickyBucketTestCase struct {
 	Env                 env
 	ExistingAssignments []StickyBucketAssignmentDoc
 	FeatureName         string
-	Expected            *ExperimentResult
+	Expected            *expectedExperimentResult
 	ExpectedAssignments map[string]*StickyBucketAssignmentDoc
 }
 
@@ -164,11 +189,6 @@ func TestCasesJson(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, err = stringifyHashValues(data)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	var cases cases
 	if err := json.Unmarshal(data, &cases); err != nil {
 		t.Fatal(err)
@@ -187,9 +207,11 @@ func TestCasesJson(t *testing.T) {
 	cases.StickyBucket.run("stickyBucket", t)
 }
 
-// stringifyHashValues converts numeric hashValue fields in the corpus to
-// strings. The JS corpus stores hashValue with the raw attribute type, while
-// ExperimentResult.HashValue is a string.
+// stringifyHashValues converts numeric hashValue fields in an expected-result
+// blob to strings. The JS corpus stores hashValue with the raw attribute type,
+// while ExperimentResult.HashValue is a string. Only applied to expected
+// results (via expectedFeatureResult/expectedExperimentResult) — never to
+// corpus inputs.
 func stringifyHashValues(data []byte) ([]byte, error) {
 	var doc any
 	if err := json.Unmarshal(data, &doc); err != nil {
@@ -253,7 +275,11 @@ func (c featureCase) test(t *testing.T) {
 		require.Nil(t, err)
 
 		res := client.EvalFeature(context.TODO(), c.FeatureName)
-		require.Equal(t, c.Expected, res)
+		var expected *FeatureResult
+		if c.Expected != nil {
+			expected = &c.Expected.FeatureResult
+		}
+		require.Equal(t, expected, res)
 	})
 }
 
@@ -336,7 +362,7 @@ func (c stickyBucketTestCase) test(t *testing.T) {
 
 		require.NotNil(t, result.ExperimentResult)
 		exp := result.ExperimentResult
-		expected := c.Expected
+		expected := &c.Expected.ExperimentResult
 
 		// Use a table of assertions
 		assertions := []struct {
