@@ -48,12 +48,16 @@ type FeatureRule struct {
 	Name string `json:"name"`
 	// The phase id of the experiment
 	Phase string `json:"phase"`
-	// URL patterns to restrict where the rule's experiment runs. Empty means no URL restriction.
+	// Deprecated: ignored during evaluation. Feature rules never carried URL
+	// targeting in the JS SDK; use Experiment.URLPatterns with RunExperiment.
 	URLPatterns []URLTarget `json:"urlPatterns"`
-	// Legacy URL regex to restrict where the rule's experiment runs. Empty means no URL restriction.
+	// Deprecated: ignored during evaluation. Feature rules never carried URL
+	// targeting in the JS SDK; use Experiment.URL with RunExperiment.
 	URL string `json:"url"`
-	// Legacy group names — user must belong to at least one matching group (Client.WithGroups).
+	// Deprecated: ignored during evaluation. Feature rules never carried group
+	// targeting in the JS SDK; use Experiment.Groups with RunExperiment.
 	Groups []string `json:"groups"`
-	// Status — see Experiment.Status.
+	// Deprecated: ignored during evaluation. Feature rules never carried a
+	// status in the JS SDK; use Experiment.Status with RunExperiment.
 	Status ExperimentStatus `json:"status"`
 }
