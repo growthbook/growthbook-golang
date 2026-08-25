@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Direct (no-operator) boolean condition comparison now matches the JS SDK
+  exactly: a condition like `{"userId": false}` no longer matches a missing or
+  null attribute (JS: `value !== null && !!value === condition`). String and
+  number conditions keep JS's coercive comparison (`value + ""`, `value * 1`).
+  **Compatibility note:** no API changes, but boolean conditions evaluated
+  against missing/null attributes now return false instead of matching `false`.
+- Synced `cases.json` with the JS SDK conformance corpus (0.8.0 bodies; spec
+  label 0.7.1 — the four contextual-bandit cases are skiplisted as CB rules are
+  not implemented).
+- Added a corpus-freshness CI check against the JS SDK cases corpus to catch
+  missing or drifted cases (`tests/scripts/check_corpus_freshness.py`).
+
 ## [v0.2.1](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.2.1) - 2025-01-25
 
 - fix WithAttributeOverrides panic when applied to nil attributes
