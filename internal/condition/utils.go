@@ -6,11 +6,20 @@ import (
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
+// valueCompare mirrors the JS SDK's direct comparison (mongrule.ts
+// evalConditionValue): string/number conditions coerce the attribute to the
+// condition's type (`value + ""`, `value * 1`), boolean conditions use
+// truthiness but never match null/missing, a null condition matches only
+// null/missing, and arrays/objects compare by deep equality.
 func valueCompare(actual, expected value.Value) bool {
 	switch expected.Type() {
-	case value.StrType, value.NumType, value.BoolType:
-		casted := actual.Cast(expected.Type())
-		return value.Equal(expected, casted)
+	case value.StrType, value.NumType:
+		return value.Equal(expected, actual.Cast(expected.Type()))
+	case value.BoolType:
+		if value.IsNull(actual) {
+			return false
+		}
+		return value.Equal(expected, actual.Cast(value.BoolType))
 	case value.NullType:
 		return value.IsNull(actual)
 	default:
