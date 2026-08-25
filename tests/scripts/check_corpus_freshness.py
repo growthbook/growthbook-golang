@@ -22,9 +22,12 @@ Defaults to the JS SDK's main-branch raw URL.
 Exit codes:
   0 — no actionable findings (or all on skiplist), OR the JS source could
       not be fetched (network blip) — that is a warning, not a failure, so a
-      transient outage doesn't break unrelated builds
+      transient outage doesn't break unrelated builds; pass --strict-fetch
+      to make a failed fetch exit 2 instead (for scheduled audit runs,
+      where a silently skipped check is a missed alert)
   1 — at least one missing or drifted case isn't on the skiplist
-  2 — local IO/parse error (missing cases.json or bad skiplist)
+  2 — local IO/parse error (missing cases.json or bad skiplist), or a
+      failed fetch under --strict-fetch
 
 Run locally:
   python3 tests/scripts/check_corpus_freshness.py
@@ -252,6 +255,11 @@ def main(argv: List[str] | None = None) -> int:
         help="URL or local path to JS cases.json (default: JS SDK main branch)",
     )
     parser.add_argument("--json", action="store_true", help="output machine-readable JSON instead of text")
+    parser.add_argument(
+        "--strict-fetch",
+        action="store_true",
+        help="treat a failed fetch of the JS source as an error (exit 2) instead of warn-and-pass",
+    )
     args = parser.parse_args(argv)
 
     # Local corpus / skiplist problems are real repo errors → hard fail.
@@ -263,11 +271,15 @@ def main(argv: List[str] | None = None) -> int:
         return 2
 
     # A failure to fetch the JS source (network blip, GitHub outage) must not
-    # break the build — the check is advisory drift detection, not a gate on
-    # the SDK itself. Warn and pass.
+    # break a PR build — the check is advisory drift detection, not a gate on
+    # the SDK itself. Warn and pass, unless --strict-fetch (scheduled audit
+    # runs, where a silently skipped check is a missed alert).
     try:
         js_cases = _fetch_js_cases(args.js_source)
     except RuntimeError as e:
+        if args.strict_fetch:
+            print(f"corpus check fetch error: {e}", file=sys.stderr)
+            return 2
         print(f"WARNING: corpus freshness check skipped — could not fetch JS cases: {e}", file=sys.stderr)
         return 0
 
