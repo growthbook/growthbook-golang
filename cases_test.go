@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -66,7 +67,43 @@ type featureCase struct {
 	Name        string
 	Env         env
 	FeatureName string
-	Expected    *FeatureResult
+	Expected    *expectedFeatureResult
+}
+
+// expectedFeatureResult decodes a corpus expected FeatureResult, stringifying
+// only the nested experimentResult's own hashValue field (see
+// stringifyTopLevelHashValue). Feature values that happen to contain a
+// hashValue key are left untouched.
+type expectedFeatureResult struct{ FeatureResult }
+
+func (e *expectedFeatureResult) UnmarshalJSON(data []byte) error {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return err
+	}
+	if raw, ok := obj["experimentResult"]; ok {
+		fixed, err := stringifyTopLevelHashValue(raw)
+		if err != nil {
+			return err
+		}
+		obj["experimentResult"] = fixed
+		if data, err = json.Marshal(obj); err != nil {
+			return err
+		}
+	}
+	return json.Unmarshal(data, &e.FeatureResult)
+}
+
+// expectedExperimentResult is the ExperimentResult counterpart of
+// expectedFeatureResult.
+type expectedExperimentResult struct{ ExperimentResult }
+
+func (e *expectedExperimentResult) UnmarshalJSON(data []byte) error {
+	data, err := stringifyTopLevelHashValue(data)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, &e.ExperimentResult)
 }
 
 type getBucketRangeCase struct {
@@ -111,7 +148,7 @@ type stickyBucketTestCase struct {
 	Env                 env
 	ExistingAssignments []StickyBucketAssignmentDoc
 	FeatureName         string
-	Expected            *ExperimentResult
+	Expected            *expectedExperimentResult
 	ExpectedAssignments map[string]*StickyBucketAssignmentDoc
 }
 
@@ -181,6 +218,28 @@ func TestCasesJson(t *testing.T) {
 	cases.StickyBucket.run("stickyBucket", t)
 }
 
+// stringifyTopLevelHashValue converts a numeric top-level "hashValue" in an
+// ExperimentResult JSON blob to a string. The JS corpus stores hashValue with
+// the raw attribute type, while ExperimentResult.HashValue is a string. Only
+// the blob's own hashValue key is touched — nested values that happen to
+// contain a hashValue key are left as-is.
+func stringifyTopLevelHashValue(data []byte) ([]byte, error) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil || obj == nil {
+		return data, err
+	}
+	var num float64
+	if err := json.Unmarshal(obj["hashValue"], &num); err != nil {
+		return data, nil
+	}
+	quoted, err := json.Marshal(strconv.FormatFloat(num, 'f', -1, 64))
+	if err != nil {
+		return nil, err
+	}
+	obj["hashValue"] = quoted
+	return json.Marshal(obj)
+}
+
 func (c evalConditionCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
 		attrs := value.Obj(c.Attrs)
@@ -219,7 +278,11 @@ func (c featureCase) test(t *testing.T) {
 		require.Nil(t, err)
 
 		res := client.EvalFeature(context.TODO(), c.FeatureName)
-		require.Equal(t, c.Expected, res)
+		var expected *FeatureResult
+		if c.Expected != nil {
+			expected = &c.Expected.FeatureResult
+		}
+		require.Equal(t, expected, res)
 	})
 }
 
@@ -302,7 +365,7 @@ func (c stickyBucketTestCase) test(t *testing.T) {
 
 		require.NotNil(t, result.ExperimentResult)
 		exp := result.ExperimentResult
-		expected := c.Expected
+		expected := &c.Expected.ExperimentResult
 
 		// Use a table of assertions
 		assertions := []struct {
