@@ -6741,6 +6741,31 @@
         "source": "force",
         "ruleId": ""
       }
+    ],
+    [
+      "object value with hashValue key is not coerced",
+      {
+        "attributes": {
+          "id": "1"
+        },
+        "features": {
+          "feature": {
+            "defaultValue": {
+              "hashValue": 123
+            }
+          }
+        }
+      },
+      "feature",
+      {
+        "value": {
+          "hashValue": 123
+        },
+        "on": true,
+        "off": false,
+        "source": "defaultValue",
+        "ruleId": ""
+      }
     ]
   ],
   "run": [

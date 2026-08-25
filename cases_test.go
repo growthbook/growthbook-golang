@@ -70,15 +70,26 @@ type featureCase struct {
 	Expected    *expectedFeatureResult
 }
 
-// expectedFeatureResult decodes a corpus expected-result blob, stringifying
-// numeric hashValue fields (see stringifyHashValues). Scoped to expected
-// results only so corpus inputs are never modified before evaluation.
+// expectedFeatureResult decodes a corpus expected FeatureResult, stringifying
+// only the nested experimentResult's own hashValue field (see
+// stringifyTopLevelHashValue). Feature values that happen to contain a
+// hashValue key are left untouched.
 type expectedFeatureResult struct{ FeatureResult }
 
 func (e *expectedFeatureResult) UnmarshalJSON(data []byte) error {
-	data, err := stringifyHashValues(data)
-	if err != nil {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil {
 		return err
+	}
+	if raw, ok := obj["experimentResult"]; ok {
+		fixed, err := stringifyTopLevelHashValue(raw)
+		if err != nil {
+			return err
+		}
+		obj["experimentResult"] = fixed
+		if data, err = json.Marshal(obj); err != nil {
+			return err
+		}
 	}
 	return json.Unmarshal(data, &e.FeatureResult)
 }
@@ -88,7 +99,7 @@ func (e *expectedFeatureResult) UnmarshalJSON(data []byte) error {
 type expectedExperimentResult struct{ ExperimentResult }
 
 func (e *expectedExperimentResult) UnmarshalJSON(data []byte) error {
-	data, err := stringifyHashValues(data)
+	data, err := stringifyTopLevelHashValue(data)
 	if err != nil {
 		return err
 	}
@@ -207,34 +218,26 @@ func TestCasesJson(t *testing.T) {
 	cases.StickyBucket.run("stickyBucket", t)
 }
 
-// stringifyHashValues converts numeric hashValue fields in an expected-result
-// blob to strings. The JS corpus stores hashValue with the raw attribute type,
-// while ExperimentResult.HashValue is a string. Only applied to expected
-// results (via expectedFeatureResult/expectedExperimentResult) — never to
-// corpus inputs.
-func stringifyHashValues(data []byte) ([]byte, error) {
-	var doc any
-	if err := json.Unmarshal(data, &doc); err != nil {
+// stringifyTopLevelHashValue converts a numeric top-level "hashValue" in an
+// ExperimentResult JSON blob to a string. The JS corpus stores hashValue with
+// the raw attribute type, while ExperimentResult.HashValue is a string. Only
+// the blob's own hashValue key is touched — nested values that happen to
+// contain a hashValue key are left as-is.
+func stringifyTopLevelHashValue(data []byte) ([]byte, error) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(data, &obj); err != nil || obj == nil {
+		return data, err
+	}
+	var num float64
+	if err := json.Unmarshal(obj["hashValue"], &num); err != nil {
+		return data, nil
+	}
+	quoted, err := json.Marshal(strconv.FormatFloat(num, 'f', -1, 64))
+	if err != nil {
 		return nil, err
 	}
-	var walk func(node any)
-	walk = func(node any) {
-		switch n := node.(type) {
-		case map[string]any:
-			if v, ok := n["hashValue"].(float64); ok {
-				n["hashValue"] = strconv.FormatFloat(v, 'f', -1, 64)
-			}
-			for _, v := range n {
-				walk(v)
-			}
-		case []any:
-			for _, v := range n {
-				walk(v)
-			}
-		}
-	}
-	walk(doc)
-	return json.Marshal(doc)
+	obj["hashValue"] = quoted
+	return json.Marshal(obj)
 }
 
 func (c evalConditionCase) test(t *testing.T) {
