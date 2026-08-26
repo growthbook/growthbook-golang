@@ -246,3 +246,21 @@ func TestTruthy(t *testing.T) {
 		require.Equal(t, tt.b, Truthy(tt.v), "Truthy(%v)", tt.v)
 	}
 }
+
+func TestToAny(t *testing.T) {
+	tests := []struct {
+		v Value
+		a any
+	}{
+		{Null(), nil},
+		{Bool(true), true},
+		{Num(1.5), 1.5},
+		{Num(2), 2.0},
+		{Str("x"), "x"},
+		{Arr(1, "y", true), []any{1.0, "y", true}},
+		{ObjValue{"n": Num(1), "o": ObjValue{"s": Str("z")}}, map[string]any{"n": 1.0, "o": map[string]any{"s": "z"}}},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.a, ToAny(tt.v), "ToAny(%v)", tt.v)
+	}
+}

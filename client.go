@@ -28,6 +28,7 @@ type Client struct {
 	qaMode               bool
 	experimentCallback   ExperimentCallback
 	featureUsageCallback FeatureUsageCallback
+	eventLogger          EventLogger
 	logger               *slog.Logger
 	extraData            any
 	// StickyBucketService for storing experiment assignments

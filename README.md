@@ -136,6 +136,33 @@ Events tracked automatically:
 
 If plugin initialization fails (e.g., missing client key), the plugin silently becomes a no-op — it never interferes with SDK evaluation.
 
+#### Custom Events
+
+`client.LogEvent` logs a custom event with arbitrary properties — the Go
+equivalent of `logEvent` in the JS SDK and `log_event` in the Python SDK.
+With the tracking plugin configured, custom events are batched and sent to
+the ingestor alongside the automatic events:
+
+```go
+client.LogEvent(ctx, "button_clicked", gb.EventProperties{"button": "buy"})
+```
+
+You can also handle custom events yourself with `WithEventLogger` (with or
+without the tracking plugin — like callbacks, both fire independently):
+
+```go
+client, err := gb.NewClient(
+    context.Background(),
+    gb.WithEventLogger(func(ctx context.Context, eventName string, properties gb.EventProperties, userCtx *gb.EventUserContext) {
+        // Send to your analytics provider; userCtx carries the calling
+        // client's attributes and URL.
+    }),
+)
+```
+
+Custom plugins can receive these events too by implementing the optional
+`EventLoggerPlugin` interface (`OnEvent`).
+
 #### Custom Tracking via Callbacks
 
 For custom analytics integrations, you can set up two callbacks:

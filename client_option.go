@@ -152,6 +152,15 @@ func WithExperimentCallback(cb ExperimentCallback) ClientOption {
 }
 
 // WithFeatureUsageCallback sets feature usage callback function.
+// WithEventLogger sets a callback invoked by [Client.LogEvent] for every
+// custom event.
+func WithEventLogger(cb EventLogger) ClientOption {
+	return func(c *Client) error {
+		c.eventLogger = cb
+		return nil
+	}
+}
+
 func WithFeatureUsageCallback(cb FeatureUsageCallback) ClientOption {
 	return func(c *Client) error {
 		c.featureUsageCallback = cb
@@ -267,6 +276,11 @@ func (c *Client) WithExperimentCallback(cb ExperimentCallback) (*Client, error) 
 // WithFeatureUsageCallback creates child client with udpated feature usage callback function.
 func (c *Client) WithFeatureUsageCallback(cb FeatureUsageCallback) (*Client, error) {
 	return c.cloneWith(WithFeatureUsageCallback(cb))
+}
+
+// WithEventLogger creates child client with updated event logger function.
+func (c *Client) WithEventLogger(cb EventLogger) (*Client, error) {
+	return c.cloneWith(WithEventLogger(cb))
 }
 
 func withValueAttributes(value value.ObjValue) ClientOption {

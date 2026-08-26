@@ -208,6 +208,94 @@ func (p *GrowthBookTrackingPlugin) OnFeatureEvaluated(ctx context.Context, featu
 	p.enqueue(event)
 }
 
+// OnEvent enqueues a custom event logged via [Client.LogEvent]. The
+// payload mirrors the EventPayload shape used by the JS and Python
+// tracking plugins (sdk-js plugins/growthbook-tracking.ts getEventPayload).
+// No-op if the plugin was not successfully initialized.
+func (p *GrowthBookTrackingPlugin) OnEvent(ctx context.Context, eventName string, properties EventProperties, userCtx *EventUserContext) {
+	if !p.initialized {
+		return
+	}
+	if properties == nil {
+		properties = EventProperties{}
+	}
+	event := trackingEvent{
+		"event_name":      eventName,
+		"properties_json": properties,
+		"sdk_language":    "go",
+		"sdk_version":     sdkVersion(),
+		"url":             userCtx.URL,
+	}
+	addEventAttributes(event, userCtx.Attributes)
+	p.enqueue(event)
+}
+
+// Attribute keys lifted to top-level EventPayload fields; everything else
+// goes into context_json. Mirrors parseAttributes in the JS tracking plugin.
+var (
+	eventIDAttrKeys = map[string]string{
+		"user_id":    "user_id",
+		"page_id":    "page_id",
+		"session_id": "session_id",
+	}
+	eventOptionalAttrKeys = map[string]string{
+		"utmCampaign": "utm_campaign",
+		"utmContent":  "utm_content",
+		"utmMedium":   "utm_medium",
+		"utmSource":   "utm_source",
+		"utmTerm":     "utm_term",
+		"pageTitle":   "page_title",
+	}
+	eventDeviceIDAttrKeys = []string{"device_id", "anonymous_id", "id"}
+)
+
+// addEventAttributes splits attributes into the top-level EventPayload
+// fields and the context_json object, like the JS plugin's parseAttributes:
+// id fields are always present (null when not a string), device_id falls
+// back to anonymous_id then id, and UTM/page_title fields are only set
+// when they hold a string.
+func addEventAttributes(event trackingEvent, attributes Attributes) {
+	nested := make(map[string]any, len(attributes))
+	for k, v := range attributes {
+		if _, ok := eventIDAttrKeys[k]; ok {
+			continue
+		}
+		if _, ok := eventOptionalAttrKeys[k]; ok {
+			continue
+		}
+		if k == "device_id" || k == "anonymous_id" || k == "id" {
+			continue
+		}
+		nested[k] = v
+	}
+	event["context_json"] = nested
+
+	for attrKey, field := range eventIDAttrKeys {
+		event[field] = stringOrNil(attributes[attrKey])
+	}
+	event["device_id"] = nil
+	for _, k := range eventDeviceIDAttrKeys {
+		if truthy(attributes[k]) {
+			event["device_id"] = stringOrNil(attributes[k])
+			break
+		}
+	}
+	for attrKey, field := range eventOptionalAttrKeys {
+		if s, ok := attributes[attrKey].(string); ok && s != "" {
+			event[field] = s
+		}
+	}
+}
+
+// stringOrNil returns the value if it is a string, otherwise nil —
+// like the JS plugin's parseString.
+func stringOrNil(v any) any {
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return nil
+}
+
 // Close flushes any remaining events and releases resources. Safe to
 // call multiple times.
 func (p *GrowthBookTrackingPlugin) Close() error {
