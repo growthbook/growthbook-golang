@@ -2,8 +2,37 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [v0.3.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.3.0) - 2026-08-26
 
+- **Behavior change (JS parity):** attribute values that are falsy in JS
+  (`0`, `false`, `""`, `null`) now count as missing when resolving hash
+  attributes — affected users fall out of experiments and coverage rollouts
+  (or fall through to the fallback attribute) instead of being bucketed.
+  Applies to experiment assignment, rollout inclusion, and sticky bucket
+  fallback lookups.
+- **Behavior change (JS parity):** `urlPatterns`, `url`, `groups`, and
+  `status` on feature rules are no longer applied during evaluation and are
+  now deprecated — the JS SDK has never supported them on feature rules, and
+  payloads served by the GrowthBook API never include them (support existed
+  only in v0.2.9, for hand-built or custom feature payloads). Rules relying
+  on `status: "draft"` as an off-switch will start serving. Experiment-level
+  targeting via `RunExperiment` is unchanged.
+- **Behavior change (JS parity):** `fallbackAttribute` (on rules and
+  experiments) is only consulted when a sticky bucket service is configured
+  and sticky bucketing isn't disabled, matching the JS SDK. Without a sticky
+  bucket service, users missing the primary hash attribute are now excluded
+  from those experiments instead of being bucketed by the fallback.
+- Coverage rollouts on force rules now pass the rule's `fallbackAttribute`
+  when sticky bucketing is active (previously never passed).
+- Added `Client.LogEvent` for logging custom events — the Go equivalent of
+  the JS SDK's `logEvent` — with the `WithEventLogger` option and an optional
+  `EventLoggerPlugin` plugin interface. `GrowthBookTrackingPlugin` implements
+  it, batching custom events to the ingestor alongside automatic events.
+- Tracking events are marshaled individually at enqueue time, so one
+  unserializable value drops only that event instead of a whole batch.
+- `WithSseMaxRetryInterval(0)` or negative values keep the safe default
+  backoff cap instead of reintroducing unbounded backoff, and
+  `WithSseDataSource(nil)` is ignored safely.
 - Fixed a data race on the sticky bucket assignments cache: it is shared by
   reference between a client and its clones and was mutated during evaluation
   without synchronization. The cache is now mutex-guarded, and assignment
