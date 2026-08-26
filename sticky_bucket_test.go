@@ -670,3 +670,92 @@ func (s *postReadGateService) GetAssignments(name, value string) (*StickyBucketA
 	}
 	return doc, err
 }
+
+func TestRolloutRuleFallbackAttribute(t *testing.T) {
+	// Mirrors JS evalFeature (sdk-js core.ts): rollout inclusion passes the
+	// rule's fallbackAttribute to getHashAttribute only when a sticky bucket
+	// service is configured and the rule doesn't disable sticky bucketing.
+	ctx := context.TODO()
+	coverage := 1.0
+	newFeatures := func(disableStickyBucketing bool) FeatureMap {
+		return FeatureMap{
+			"feature": {
+				DefaultValue: 0,
+				Rules: []FeatureRule{{
+					Force:                  1,
+					Coverage:               &coverage,
+					FallbackAttribute:      "deviceId",
+					DisableStickyBucketing: disableStickyBucketing,
+				}},
+			},
+		}
+	}
+	attrs := Attributes{"deviceId": "device123"} // no "id" attribute
+
+	t.Run("fallback used with sticky bucket service", func(t *testing.T) {
+		client, err := NewClient(ctx,
+			WithAttributes(attrs),
+			WithFeatures(newFeatures(false)),
+			WithStickyBucketService(NewInMemoryStickyBucketService()),
+		)
+		require.NoError(t, err)
+		res := client.EvalFeature(ctx, "feature")
+		require.Equal(t, ForceResultSource, res.Source)
+		require.Equal(t, 1, res.Value)
+	})
+
+	t.Run("fallback ignored without sticky bucket service", func(t *testing.T) {
+		client, err := NewClient(ctx,
+			WithAttributes(attrs),
+			WithFeatures(newFeatures(false)),
+		)
+		require.NoError(t, err)
+		res := client.EvalFeature(ctx, "feature")
+		require.Equal(t, DefaultValueResultSource, res.Source)
+	})
+
+	t.Run("fallback ignored when rule disables sticky bucketing", func(t *testing.T) {
+		client, err := NewClient(ctx,
+			WithAttributes(attrs),
+			WithFeatures(newFeatures(true)),
+			WithStickyBucketService(NewInMemoryStickyBucketService()),
+		)
+		require.NoError(t, err)
+		res := client.EvalFeature(ctx, "feature")
+		require.Equal(t, DefaultValueResultSource, res.Source)
+	})
+}
+
+func TestStickyBucketFalsyFallbackAttributeIgnored(t *testing.T) {
+	// JS parity: a falsy fallback attribute value (0, "", false) must not be
+	// used to look up sticky bucket assignment docs (sdk-js core.ts
+	// getStickyBucketAssignments skips falsy fallback values).
+	ctx := context.TODO()
+	service := NewInMemoryStickyBucketService()
+	require.NoError(t, service.SaveAssignments(&StickyBucketAssignmentDoc{
+		AttributeName:  "anonymousId",
+		AttributeValue: "0",
+		Assignments:    map[string]string{"feature__0": "1"},
+	}))
+
+	client, err := NewClient(ctx,
+		WithAttributes(Attributes{"id": "u1", "anonymousId": 0}),
+		WithFeatures(FeatureMap{
+			"feature": {
+				DefaultValue: 0,
+				Rules: []FeatureRule{{
+					Variations:        []FeatureValue{0, 1},
+					Meta:              []VariationMeta{{Key: "0"}, {Key: "1"}},
+					FallbackAttribute: "anonymousId",
+				}},
+			},
+		}),
+		WithStickyBucketService(service),
+	)
+	require.NoError(t, err)
+
+	res := client.EvalFeature(ctx, "feature")
+	require.NotNil(t, res.ExperimentResult)
+	require.False(t, res.ExperimentResult.StickyBucketUsed,
+		"sticky doc keyed by falsy fallback value must not be applied")
+}

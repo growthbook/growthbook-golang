@@ -81,6 +81,10 @@ func experimentFromFeatureRule(featureId string, rule *FeatureRule) *Experiment 
 		expKey = featureId
 	}
 
+	// Copy only the fields the JS SDK forwards when building the inline
+	// experiment (sdk-js core.ts evalFeature). ParentConditions are already
+	// evaluated by evalRule, so forwarding them would evaluate prerequisites
+	// twice; URLPatterns/URL/Groups/Status don't exist on JS feature rules.
 	exp := Experiment{
 		Key:                    expKey,
 		Variations:             rule.Variations,
@@ -97,14 +101,9 @@ func experimentFromFeatureRule(featureId string, rule *FeatureRule) *Experiment 
 		HashVersion:            rule.HashVersion,
 		Filters:                rule.Filters,
 		Condition:              rule.Condition,
-		ParentConditions:       rule.ParentConditions,
 		DisableStickyBucketing: rule.DisableStickyBucketing,
 		BucketVersion:          rule.BucketVersion,
 		MinBucketVersion:       rule.MinBucketVersion,
-		URLPatterns:            rule.URLPatterns,
-		URL:                    rule.URL,
-		Groups:                 rule.Groups,
-		Status:                 rule.Status,
 	}
 	return &exp
 }

@@ -94,7 +94,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	}
 
 	// 6. Get the user hash value and return if empty
-	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, exp.FallbackAttribute)
+	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, e.stickyFallbackAttribute(exp.FallbackAttribute, exp.DisableStickyBucketing))
 	if hashValue == "" {
 		e.client.logger.DebugContext(e.ctx, "Skip experiment because of missing hashAttribute", "id", exp.Key)
 		return e.experimentResult(exp, -1, false, featureId, nil, false)
@@ -110,9 +110,13 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		attributes := make(map[string]string)
 		attributes[hashAttribute] = hashValue
 
-		// Also add any fallback if different
+		// Also add any fallback if different. Like getHashAttribute, falsy
+		// values count as missing — JS resolves the fallback through
+		// getHashAttribute and skips falsy values (sdk-js core.ts
+		// getStickyBucketAssignments), so no sticky doc is looked up under
+		// degenerate keys like "anonymousId||0".
 		if exp.FallbackAttribute != "" && exp.FallbackAttribute != exp.HashAttribute {
-			if fallbackValue, ok := e.client.attributes[exp.FallbackAttribute]; ok {
+			if fallbackValue, ok := e.client.attributes[exp.FallbackAttribute]; ok && value.Truthy(fallbackValue) {
 				attributes[exp.FallbackAttribute] = fallbackValue.String()
 			}
 		}
@@ -304,7 +308,7 @@ func (e *evaluator) getExperimentResult(
 		inExperiment = false
 	}
 
-	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, exp.FallbackAttribute)
+	hashAttribute, hashValue := e.getHashAttribute(exp.HashAttribute, e.stickyFallbackAttribute(exp.FallbackAttribute, exp.DisableStickyBucketing))
 
 	var meta *VariationMeta
 	if variationId >= 0 && variationId < len(exp.Meta) {
@@ -402,7 +406,7 @@ func (e *evaluator) isIncludedInRollout(featureId string, rule *FeatureRule) boo
 		return false
 	}
 
-	_, hashValue := e.getHashAttribute(rule.HashAttribute, "")
+	_, hashValue := e.getHashAttribute(rule.HashAttribute, e.stickyFallbackAttribute(rule.FallbackAttribute, rule.DisableStickyBucketing))
 	if hashValue == "" {
 		return false
 	}
@@ -425,6 +429,17 @@ func (e *evaluator) isIncludedInRollout(featureId string, rule *FeatureRule) boo
 	}
 
 	return true
+}
+
+// stickyFallbackAttribute mirrors the JS SDK (sdk-js core.ts evalFeature /
+// runExperiment): a fallbackAttribute is only consulted when a sticky bucket
+// service is configured and sticky bucketing isn't disabled for the rule or
+// experiment.
+func (e *evaluator) stickyFallbackAttribute(fallback string, disableStickyBucketing bool) string {
+	if e.client.stickyBucketService != nil && !disableStickyBucketing {
+		return fallback
+	}
+	return ""
 }
 
 func (e *evaluator) isFilteredOut(filters []Filter) bool {
@@ -454,19 +469,22 @@ func hasMatchingGroup(expGroups []string, userGroups map[string]bool) bool {
 	return false
 }
 
+// getHashAttribute mirrors the JS SDK's getHashAttribute (sdk-js core.ts):
+// attribute values are checked for JS truthiness, so 0, false, "" and null
+// count as missing and trigger the fallback attribute (or skip the rule).
 func (e *evaluator) getHashAttribute(key string, fallback string) (string, string) {
 	if key == "" {
 		key = "id"
 	}
 
-	hashValue, ok := e.client.attributes[key]
-	if ok && !value.IsNull(hashValue) {
+	if hashValue, ok := e.client.attributes[key]; ok && value.Truthy(hashValue) {
 		return key, hashValue.String()
 	}
 
-	hashValue, ok = e.client.attributes[fallback]
-	if ok && !value.IsNull(hashValue) {
-		return fallback, hashValue.String()
+	if fallback != "" {
+		if hashValue, ok := e.client.attributes[fallback]; ok && value.Truthy(hashValue) {
+			return fallback, hashValue.String()
+		}
 	}
 
 	return key, ""

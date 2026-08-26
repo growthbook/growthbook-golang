@@ -1,8 +1,10 @@
 package value
 
 import (
-	"github.com/stretchr/testify/require"
+	"math"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestValueConstructor(t *testing.T) {
@@ -219,5 +221,28 @@ func TestValueString(t *testing.T) {
 	}
 	for _, tt := range tests {
 		require.Equal(t, tt.s, New(tt.v).String())
+	}
+}
+
+func TestTruthy(t *testing.T) {
+	tests := []struct {
+		v Value
+		b bool
+	}{
+		{Null(), false},
+		{Bool(false), false},
+		{Bool(true), true},
+		{Num(0), false},
+		{Num(math.NaN()), false},
+		{Num(1), true},
+		{Num(-1), true},
+		{Str(""), false},
+		{Str("0"), true},
+		{Str("false"), true},
+		{ArrValue{}, true},
+		{ObjValue{}, true},
+	}
+	for _, tt := range tests {
+		require.Equal(t, tt.b, Truthy(tt.v), "Truthy(%v)", tt.v)
 	}
 }
