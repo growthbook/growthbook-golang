@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"container/list"
 	"fmt"
 	"sync"
 )
@@ -14,6 +15,152 @@ type StickyBucketAssignmentDoc struct {
 
 // StickyBucketAssignments is a map of keys to assignment documents
 type StickyBucketAssignments map[string]*StickyBucketAssignmentDoc
+
+// stickyBucketCache abstracts the assignments cache so the client can guard
+// its shared cache with a mutex while the exported helpers keep accepting a
+// plain StickyBucketAssignments map.
+type stickyBucketCache interface {
+	get(key string) (*StickyBucketAssignmentDoc, bool)
+	set(key string, doc *StickyBucketAssignmentDoc)
+	// lockDoc serializes service read-modify-write cycles (saves and
+	// cache-miss reads) for one document key.
+	lockDoc(key string) (unlock func())
+}
+
+func (a StickyBucketAssignments) get(key string) (*StickyBucketAssignmentDoc, bool) {
+	doc, ok := a[key]
+	return doc, ok
+}
+
+func (a StickyBucketAssignments) set(key string, doc *StickyBucketAssignmentDoc) {
+	a[key] = doc
+}
+
+// lockDoc is a no-op: the exported helpers taking a plain map remain
+// unsynchronized, as they always were.
+func (a StickyBucketAssignments) lockDoc(string) func() {
+	return func() {}
+}
+
+// asStickyBucketCache converts a possibly-nil assignments map to a cache,
+// keeping a nil map as a nil interface so cache presence checks work.
+func asStickyBucketCache(assignments StickyBucketAssignments) stickyBucketCache {
+	if assignments == nil {
+		return nil
+	}
+	return assignments
+}
+
+// defaultStickyBucketCacheSize bounds the client's assignments cache. The
+// cache holds one entry per attribute value evaluated, so a long-lived
+// multi-user client would otherwise grow it forever. Evicting an entry only
+// costs a re-fetch from the StickyBucketService.
+const defaultStickyBucketCacheSize = 10_000
+
+// lockedStickyBucketCache is the client's assignments cache: an LRU shared
+// by reference between a client and its clones, so access is mutex-guarded.
+type lockedStickyBucketCache struct {
+	mu      sync.Mutex
+	maxSize int // <= 0 disables eviction
+	docs    map[string]*list.Element
+	order   *list.List // front = most recently used
+	// docLocks serializes service read-modify-write cycles per document key:
+	// concurrent saves for the same user merge instead of overwriting each
+	// other, and cache-miss reads can't re-install a stale doc over a save's
+	// fresher one after eviction. Key-scoped so backend I/O never blocks work
+	// on other documents. The guarantee is scoped to this cache, i.e. one
+	// client and its clones — independently constructed Clients (or separate
+	// processes) sharing a StickyBucketService still race at the service.
+	docLocks keyedMutex
+}
+
+type stickyBucketCacheEntry struct {
+	key string
+	doc *StickyBucketAssignmentDoc
+}
+
+func newStickyBucketCache(maxSize int) *lockedStickyBucketCache {
+	return &lockedStickyBucketCache{
+		maxSize: maxSize,
+		docs:    make(map[string]*list.Element),
+		order:   list.New(),
+	}
+}
+
+func (c *lockedStickyBucketCache) get(key string) (*StickyBucketAssignmentDoc, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	elem, ok := c.docs[key]
+	if !ok {
+		return nil, false
+	}
+	c.order.MoveToFront(elem)
+	return elem.Value.(*stickyBucketCacheEntry).doc, true
+}
+
+func (c *lockedStickyBucketCache) set(key string, doc *StickyBucketAssignmentDoc) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.insert(key, doc)
+}
+
+// insert adds or updates an entry and evicts the least recently used one
+// when over capacity. Callers must hold c.mu.
+func (c *lockedStickyBucketCache) insert(key string, doc *StickyBucketAssignmentDoc) {
+	if elem, ok := c.docs[key]; ok {
+		elem.Value.(*stickyBucketCacheEntry).doc = doc
+		c.order.MoveToFront(elem)
+		return
+	}
+	c.docs[key] = c.order.PushFront(&stickyBucketCacheEntry{key: key, doc: doc})
+	if c.maxSize > 0 && c.order.Len() > c.maxSize {
+		oldest := c.order.Back()
+		c.order.Remove(oldest)
+		delete(c.docs, oldest.Value.(*stickyBucketCacheEntry).key)
+	}
+}
+
+func (c *lockedStickyBucketCache) lockDoc(key string) func() {
+	return c.docLocks.lock(key)
+}
+
+// keyedMutex provides a mutex per string key. A key's entry is removed once
+// no goroutine holds or waits for it, so memory does not grow with the
+// number of keys ever locked.
+type keyedMutex struct {
+	mu    sync.Mutex
+	locks map[string]*keyedLock
+}
+
+type keyedLock struct {
+	mu   sync.Mutex
+	refs int
+}
+
+func (k *keyedMutex) lock(key string) (unlock func()) {
+	k.mu.Lock()
+	if k.locks == nil {
+		k.locks = make(map[string]*keyedLock)
+	}
+	l := k.locks[key]
+	if l == nil {
+		l = &keyedLock{}
+		k.locks[key] = l
+	}
+	l.refs++
+	k.mu.Unlock()
+
+	l.mu.Lock()
+	return func() {
+		l.mu.Unlock()
+		k.mu.Lock()
+		l.refs--
+		if l.refs == 0 {
+			delete(k.locks, key)
+		}
+		k.mu.Unlock()
+	}
+}
 
 // StickyBucketService defines operations for storing and retrieving sticky bucket assignments
 type StickyBucketService interface {
@@ -132,6 +279,22 @@ func GetStickyBucketVariation(
 	attributes map[string]string,
 	cachedAssignments StickyBucketAssignments,
 ) (*StickyBucketResult, error) {
+	return getStickyBucketVariation(experimentKey, bucketVersion, minBucketVersion,
+		meta, service, hashAttribute, fallbackAttribute, attributes,
+		asStickyBucketCache(cachedAssignments))
+}
+
+func getStickyBucketVariation(
+	experimentKey string,
+	bucketVersion int,
+	minBucketVersion int,
+	meta []VariationMeta,
+	service StickyBucketService,
+	hashAttribute string,
+	fallbackAttribute string,
+	attributes map[string]string,
+	cache stickyBucketCache,
+) (*StickyBucketResult, error) {
 	result := &StickyBucketResult{
 		Variation:        -1,
 		VersionIsBlocked: false,
@@ -149,7 +312,7 @@ func GetStickyBucketVariation(
 	experimentVersionKey := getStickyBucketExperimentKey(experimentKey, bucketVersion)
 
 	// Get assignments from both primary and fallback attributes
-	assignments, err := getStickyBucketAssignments(service, hashAttribute, fallbackAttribute, attributes, cachedAssignments)
+	assignments, err := getStickyBucketAssignments(service, hashAttribute, fallbackAttribute, attributes, cache)
 	if err != nil {
 		return result, err
 	}
@@ -184,7 +347,7 @@ func getStickyBucketAssignments(
 	hashAttribute string,
 	fallbackAttribute string,
 	attributes map[string]string,
-	cachedAssignments StickyBucketAssignments,
+	cache stickyBucketCache,
 ) (map[string]string, error) {
 	merged := make(map[string]string)
 
@@ -200,8 +363,8 @@ func getStickyBucketAssignments(
 	if hasHash {
 		// Check if we have this in the cache first
 		hashKey := getKey(hashAttribute, hashValue)
-		if cachedAssignments != nil {
-			if doc, ok := cachedAssignments[hashKey]; ok && doc != nil {
+		if cache != nil {
+			if doc, ok := cache.get(hashKey); ok && doc != nil {
 				// Use cached assignments
 				for k, v := range doc.Assignments {
 					merged[k] = v
@@ -222,8 +385,8 @@ func getStickyBucketAssignments(
 		if hasFallback {
 			// Check if we have this in the cache first
 			fallbackKey := getKey(fallbackAttribute, fallbackValue)
-			if cachedAssignments != nil {
-				if doc, ok := cachedAssignments[fallbackKey]; ok && doc != nil {
+			if cache != nil {
+				if doc, ok := cache.get(fallbackKey); ok && doc != nil {
 					// Use cached assignments, but don't overwrite existing ones
 					for k, v := range doc.Assignments {
 						if _, exists := merged[k]; !exists {
@@ -244,7 +407,7 @@ func getStickyBucketAssignments(
 	// If we need to fetch anything from the service
 	if len(attributesToFetch) > 0 {
 		for attrName, attrValue := range attributesToFetch {
-			doc, err := service.GetAssignments(attrName, attrValue)
+			doc, err := fetchAssignmentsDoc(service, cache, attrName, attrValue)
 			if err != nil {
 				return merged, err
 			}
@@ -263,17 +426,42 @@ func getStickyBucketAssignments(
 						merged[k] = v
 					}
 				}
-
-				// Update the cache if provided
-				if cachedAssignments != nil {
-					key := getKey(attrName, attrValue)
-					cachedAssignments[key] = doc
-				}
 			}
 		}
 	}
 
 	return merged, nil
+}
+
+// fetchAssignmentsDoc reads one assignment doc from the service and caches
+// it, under the same per-document lock that serializes saves. Without the
+// lock, a read that fetched the doc before a concurrent save could
+// re-install the stale version after LRU eviction removed the save's
+// fresher one — and cache hits never re-consult the service, so the stale
+// doc would stick until its own eviction.
+func fetchAssignmentsDoc(service StickyBucketService, cache stickyBucketCache, attrName, attrValue string) (*StickyBucketAssignmentDoc, error) {
+	if cache == nil {
+		return service.GetAssignments(attrName, attrValue)
+	}
+
+	key := getKey(attrName, attrValue)
+	unlock := cache.lockDoc(key)
+	defer unlock()
+
+	// Re-check under the lock: a save that finished while we waited may
+	// have cached a doc merged from fresher service state.
+	if doc, ok := cache.get(key); ok {
+		return doc, nil
+	}
+
+	doc, err := service.GetAssignments(attrName, attrValue)
+	if err != nil || doc == nil {
+		return doc, err
+	}
+	// Holding the doc lock means no save for this key is mid-flight, so a
+	// plain set cannot clobber anything fresher.
+	cache.set(key, doc)
+	return doc, nil
 }
 
 // SaveStickyBucketAssignment saves a sticky bucket assignment
@@ -287,8 +475,31 @@ func SaveStickyBucketAssignment(
 	attributeValue string,
 	cachedAssignments StickyBucketAssignments,
 ) error {
+	return saveStickyBucketAssignment(experimentKey, bucketVersion, variationID,
+		variationKey, service, attributeName, attributeValue,
+		asStickyBucketCache(cachedAssignments))
+}
+
+func saveStickyBucketAssignment(
+	experimentKey string,
+	bucketVersion int,
+	variationID int,
+	variationKey string,
+	service StickyBucketService,
+	attributeName string,
+	attributeValue string,
+	cache stickyBucketCache,
+) error {
 	if service == nil || attributeName == "" || attributeValue == "" {
 		return nil
+	}
+
+	// Saving is a read-modify-write cycle: serialize it per document so
+	// concurrent saves for the same user merge instead of the last write
+	// dropping the other's assignment.
+	if cache != nil {
+		unlock := cache.lockDoc(getKey(attributeName, attributeValue))
+		defer unlock()
 	}
 
 	// Create assignment map with the experiment key and variation key
@@ -307,8 +518,8 @@ func SaveStickyBucketAssignment(
 	// Only save if a change was detected
 	if data.Doc != nil && data.Changed {
 		// Update cache if provided
-		if cachedAssignments != nil {
-			cachedAssignments[data.Key] = data.Doc
+		if cache != nil {
+			cache.set(data.Key, data.Doc)
 		}
 		return service.SaveAssignments(data.Doc)
 	}
@@ -331,7 +542,7 @@ func GenerateStickyBucketAssignmentDoc(
 	service StickyBucketService,
 ) *StickyBucketAssignmentData {
 	result := &StickyBucketAssignmentData{
-		Key:     attributeName + "||" + attributeValue,
+		Key:     getKey(attributeName, attributeValue),
 		Changed: false,
 	}
 
@@ -364,20 +575,23 @@ func GenerateStickyBucketAssignmentDoc(
 		}
 	}
 
-	// If changes detected, create merged assignments
+	// If changes detected, build a new doc with merged assignments instead of
+	// mutating the existing one: docs held by the service or the client cache
+	// may be read concurrently by other evaluations.
 	if result.Changed {
-		// Create a copy of existing assignments
-		mergedAssignments := make(map[string]string)
+		mergedAssignments := make(map[string]string, len(doc.Assignments)+len(assignments))
 		for k, v := range doc.Assignments {
 			mergedAssignments[k] = v
 		}
-
-		// Add or update with new assignments
 		for k, v := range assignments {
 			mergedAssignments[k] = v
 		}
 
-		doc.Assignments = mergedAssignments
+		doc = &StickyBucketAssignmentDoc{
+			AttributeName:  attributeName,
+			AttributeValue: attributeValue,
+			Assignments:    mergedAssignments,
+		}
 	}
 
 	result.Doc = doc

@@ -4,6 +4,22 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Fixed a data race on the sticky bucket assignments cache: it is shared by
+  reference between a client and its clones and was mutated during evaluation
+  without synchronization. The cache is now mutex-guarded, and assignment
+  documents are no longer mutated in place once stored.
+- Concurrent sticky bucket saves for the same user now merge instead of
+  overwriting each other (saves are serialized per document key). The
+  guarantee is scoped to a client and its clones: independently constructed
+  clients or separate processes sharing one `StickyBucketService` can still
+  race at the service, whose `SaveAssignments` is last-write-wins.
+- Cache-miss reads of sticky bucket assignment docs run under the same
+  per-document lock as saves, so a read racing a save can no longer
+  re-install a stale doc after the save's fresher one was evicted from the
+  bounded cache.
+- The sticky bucket assignments cache is now bounded (LRU, 10000 entries by
+  default) instead of growing with every attribute value evaluated. New
+  `WithStickyBucketCacheSize` client option tunes or removes the bound.
 - Direct (no-operator) boolean condition comparison now matches the JS SDK
   exactly: a condition like `{"userId": false}` no longer matches a missing or
   null attribute (JS: `value !== null && !!value === condition`). String and

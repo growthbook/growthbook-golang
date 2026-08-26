@@ -2,9 +2,13 @@ package growthbook
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -349,8 +353,212 @@ func TestStickyBucketCaching(t *testing.T) {
 
 	// Verify cache contains both experiments
 	cacheKey := getKey("id", "123")
-	cache := client.stickyBucketAssignments[cacheKey]
+	cache, ok := client.stickyBucketAssignments.get(cacheKey)
+	require.True(t, ok)
 	require.Len(t, cache.Assignments, 2, "Cache should contain both experiments")
+}
+
+// The assignments cache is shared between a client and all clients cloned
+// from it, so concurrent EvalFeature calls must not race on it. Run with
+// -race to catch regressions.
+func TestStickyBucketConcurrentEvaluation(t *testing.T) {
+	featuresJSON := `{
+		"feat-a": {
+			"defaultValue": "off",
+			"rules": [{
+				"key": "exp-a",
+				"variations": ["control", "treatment"],
+				"meta": [{"key": "0"}, {"key": "1"}],
+				"hashAttribute": "id"
+			}]
+		},
+		"feat-b": {
+			"defaultValue": "off",
+			"rules": [{
+				"key": "exp-b",
+				"variations": ["control", "treatment"],
+				"meta": [{"key": "0"}, {"key": "1"}],
+				"hashAttribute": "id"
+			}]
+		}
+	}`
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithJsonFeatures(featuresJSON),
+		WithStickyBucketService(NewInMemoryStickyBucketService()),
+	)
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 32; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			// A small pool of user ids so goroutines both write fresh cache
+			// entries and hit the same entries concurrently.
+			child, err := client.WithAttributes(Attributes{"id": fmt.Sprintf("user-%d", i%4)})
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			for j := 0; j < 20; j++ {
+				child.EvalFeature(ctx, "feat-a")
+				child.EvalFeature(ctx, "feat-b")
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestStickyBucketCacheLRUEviction(t *testing.T) {
+	doc := func(val string) *StickyBucketAssignmentDoc {
+		return &StickyBucketAssignmentDoc{AttributeName: "id", AttributeValue: val}
+	}
+
+	cache := newStickyBucketCache(2)
+	cache.set("a", doc("a"))
+	cache.set("b", doc("b"))
+
+	// Touch "a" so "b" becomes the least recently used entry.
+	_, ok := cache.get("a")
+	require.True(t, ok)
+
+	cache.set("c", doc("c"))
+	_, ok = cache.get("b")
+	require.False(t, ok, "least recently used entry should be evicted")
+	_, ok = cache.get("a")
+	require.True(t, ok)
+	_, ok = cache.get("c")
+	require.True(t, ok)
+
+	// Updating an existing key must not evict anything.
+	cache.set("a", doc("a2"))
+	got, ok := cache.get("c")
+	require.True(t, ok)
+	require.Equal(t, "c", got.AttributeValue)
+	got, ok = cache.get("a")
+	require.True(t, ok)
+	require.Equal(t, "a2", got.AttributeValue)
+
+	// size <= 0 means unbounded.
+	unbounded := newStickyBucketCache(0)
+	for i := 0; i < 100; i++ {
+		unbounded.set(fmt.Sprintf("k%d", i), doc("v"))
+	}
+	for i := 0; i < 100; i++ {
+		_, ok := unbounded.get(fmt.Sprintf("k%d", i))
+		require.True(t, ok)
+	}
+}
+
+// Eviction must be transparent: an evicted user's next evaluation re-fetches
+// the assignment doc from the service and keeps the sticky variation.
+func TestStickyBucketCacheEvictionRefetches(t *testing.T) {
+	featuresJSON := `{
+		"feat": {
+			"defaultValue": "off",
+			"rules": [{
+				"key": "exp",
+				"variations": ["control", "treatment"],
+				"meta": [{"key": "0"}, {"key": "1"}],
+				"hashAttribute": "id"
+			}]
+		}
+	}`
+
+	service := NewInMemoryStickyBucketService()
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithJsonFeatures(featuresJSON),
+		WithStickyBucketService(service),
+		WithStickyBucketCacheSize(1),
+	)
+	require.NoError(t, err)
+
+	c1, err := client.WithAttributes(Attributes{"id": "u1"})
+	require.NoError(t, err)
+	res1 := c1.EvalFeature(ctx, "feat")
+	require.True(t, res1.ExperimentResult.InExperiment)
+
+	// Evaluating a second user evicts u1 from the size-1 cache.
+	c2, err := client.WithAttributes(Attributes{"id": "u2"})
+	require.NoError(t, err)
+	c2.EvalFeature(ctx, "feat")
+	_, cached := client.stickyBucketAssignments.get(getKey("id", "u1"))
+	require.False(t, cached, "u1 should be evicted from the size-1 cache")
+
+	// u1's next evaluation re-fetches from the service: same variation,
+	// via the stored sticky bucket rather than a fresh hash.
+	res2 := c1.EvalFeature(ctx, "feat")
+	require.True(t, res2.ExperimentResult.InExperiment)
+	require.Equal(t, res1.ExperimentResult.VariationId, res2.ExperimentResult.VariationId)
+	require.True(t, res2.ExperimentResult.StickyBucketUsed)
+}
+
+// Concurrent saves for the same user must merge rather than overwrite each
+// other: saving is a read-modify-write cycle against the service, and without
+// per-document serialization the last write drops the other's assignment.
+//
+// The gate in GetAssignments holds save-path reads open, so when saves are
+// NOT serialized both deterministically read the same document version and
+// the lost update reproduces. Once saves ARE serialized the second save
+// cannot reach the read, so the timeout releases the gate and the saves run
+// back to back — which is exactly the fixed behavior being asserted.
+func TestStickyBucketOverlappingSavesMerge(t *testing.T) {
+	inner := NewInMemoryStickyBucketService()
+	readerArrived := make(chan struct{}, 2)
+	release := make(chan struct{})
+	svc := &mockStickyBucketService{
+		InMemoryStickyBucketService: inner,
+		onGetAssignments: func(_, _ string) {
+			select {
+			case readerArrived <- struct{}{}:
+			default:
+			}
+			<-release
+		},
+	}
+	go func() {
+		timeout := time.After(200 * time.Millisecond)
+		for i := 0; i < 2; i++ {
+			select {
+			case <-readerArrived:
+			case <-timeout:
+				close(release)
+				return
+			}
+		}
+		close(release)
+	}()
+
+	cache := newStickyBucketCache(defaultStickyBucketCacheSize)
+	var wg sync.WaitGroup
+	for _, save := range []struct{ expKey, variation string }{
+		{"exp-a", "control"},
+		{"exp-b", "treatment"},
+	} {
+		wg.Add(1)
+		go func(expKey, variation string) {
+			defer wg.Done()
+			if err := saveStickyBucketAssignment(expKey, 0, 0, variation, svc, "id", "u1", cache); err != nil {
+				t.Error(err)
+			}
+		}(save.expKey, save.variation)
+	}
+	wg.Wait()
+
+	doc, err := inner.GetAssignments("id", "u1")
+	require.NoError(t, err)
+	require.NotNil(t, doc)
+	require.Equal(t, "control", doc.Assignments["exp-a__0"], "assignment for exp-a was lost")
+	require.Equal(t, "treatment", doc.Assignments["exp-b__0"], "assignment for exp-b was lost")
+
+	// The shared cache must hold the merged document too.
+	cached, ok := cache.get(getKey("id", "u1"))
+	require.True(t, ok)
+	require.Equal(t, "control", cached.Assignments["exp-a__0"])
+	require.Equal(t, "treatment", cached.Assignments["exp-b__0"])
 }
 
 // mockStickyBucketService is a wrapper around InMemoryStickyBucketService that allows tracking calls
@@ -372,4 +580,93 @@ func (m *mockStickyBucketService) SaveAssignments(doc *StickyBucketAssignmentDoc
 
 func (m *mockStickyBucketService) GetAllAssignments(attributes map[string]string) (StickyBucketAssignments, error) {
 	return m.InMemoryStickyBucketService.GetAllAssignments(attributes)
+}
+
+// A cache-miss read that raced with a save must not re-install its stale
+// service snapshot after the save's fresher doc was evicted from the LRU —
+// cache hits never re-consult the service, so a stale doc would stick and
+// the user would be re-hashed (and the flip persisted by the next save).
+func TestStickyBucketReadDoesNotReinstallStaleDoc(t *testing.T) {
+	inner := NewInMemoryStickyBucketService()
+	require.NoError(t, inner.SaveAssignments(&StickyBucketAssignmentDoc{
+		AttributeName:  "id",
+		AttributeValue: "u1",
+		Assignments:    map[string]string{"other__0": "0"},
+	}))
+
+	// Gate the reader AFTER its service fetch, so it holds a stale snapshot
+	// of the doc while a save merges and persists a fresher one. Only the
+	// first caller parks (CAS), so the save's own service read passes.
+	svc := &postReadGateService{
+		InMemoryStickyBucketService: inner,
+		entered:                     make(chan struct{}),
+		release:                     make(chan struct{}),
+	}
+	svc.gate.Store(true)
+	entered, release := svc.entered, svc.release
+
+	cache := newStickyBucketCache(1)
+
+	// Reader: cache miss -> service fetch, parked at the gate.
+	readErr := make(chan error, 1)
+	go func() {
+		_, err := getStickyBucketAssignments(svc, "id", "", map[string]string{"id": "u1"}, cache)
+		readErr <- err
+	}()
+	<-entered
+
+	// Concurrent save merges a new assignment for the same user. With the
+	// read-path doc lock it waits for the reader; without it, it completes
+	// now and its cached doc is about to be evicted.
+	saveErr := make(chan error, 1)
+	go func() {
+		saveErr <- saveStickyBucketAssignment("exp", 0, 1, "1", svc, "id", "u1", cache)
+	}()
+	savedEarly := false
+	select {
+	case err := <-saveErr:
+		require.NoError(t, err)
+		savedEarly = true
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Evict whatever the size-1 cache holds for u1.
+	cache.set(getKey("id", "other"), &StickyBucketAssignmentDoc{
+		AttributeName:  "id",
+		AttributeValue: "other",
+		Assignments:    map[string]string{},
+	})
+
+	close(release)
+	require.NoError(t, <-readErr)
+	if !savedEarly {
+		require.NoError(t, <-saveErr)
+	}
+
+	// However the read and save interleave, a cached doc for u1 must not
+	// hide the saved assignment: it either holds the merged doc or was
+	// evicted (forcing a service re-fetch on the next evaluation).
+	if cached, ok := cache.get(getKey("id", "u1")); ok {
+		require.Equal(t, "1", cached.Assignments["exp__0"],
+			"stale doc without the saved assignment was re-installed into the cache")
+	}
+}
+
+// postReadGateService parks the first GetAssignments call for id||u1 after
+// the read completes, simulating a reader stalled between its service fetch
+// and its cache install.
+type postReadGateService struct {
+	*InMemoryStickyBucketService
+	gate    atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *postReadGateService) GetAssignments(name, value string) (*StickyBucketAssignmentDoc, error) {
+	doc, err := s.InMemoryStickyBucketService.GetAssignments(name, value)
+	if name == "id" && value == "u1" && s.gate.CompareAndSwap(true, false) {
+		close(s.entered)
+		<-s.release
+	}
+	return doc, err
 }

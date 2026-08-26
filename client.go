@@ -36,8 +36,9 @@ type Client struct {
 	// StickyBucketAttributes for identifying users
 	stickyBucketAttributes StickyBucketAttributes
 
-	// StickyBucketAssignments caches assignments
-	stickyBucketAssignments StickyBucketAssignments
+	// stickyBucketAssignments caches assignments. Shared by reference with
+	// cloned clients and mutated during evaluation, hence mutex-guarded.
+	stickyBucketAssignments *lockedStickyBucketCache
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
@@ -110,7 +111,7 @@ func defaultClient() *Client {
 		qaMode:                  false,
 		logger:                  slog.Default(),
 		attributes:              value.ObjValue{},
-		stickyBucketAssignments: make(StickyBucketAssignments),
+		stickyBucketAssignments: newStickyBucketCache(defaultStickyBucketCacheSize),
 	}
 }
 

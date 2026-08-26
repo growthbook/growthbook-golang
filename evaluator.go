@@ -127,7 +127,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			}
 		}
 
-		stickyResult, err := GetStickyBucketVariation(
+		stickyResult, err := getStickyBucketVariation(
 			exp.Key,
 			exp.BucketVersion,
 			exp.MinBucketVersion,
@@ -259,7 +259,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	// 13.5 Save sticky bucket assignment if in experiment and sticky bucketing is enabled
 	if e.client.stickyBucketService != nil && !exp.DisableStickyBucketing && result.InExperiment {
 		// Create the sticky bucket assignment and save it
-		SaveStickyBucketAssignment(
+		saveStickyBucketAssignment(
 			exp.Key,
 			exp.BucketVersion,
 			result.VariationId,
