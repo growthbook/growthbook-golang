@@ -38,6 +38,33 @@ func New(a any) Value {
 	}
 }
 
+// ToAny converts a Value back to plain Go types: nil, bool, float64,
+// string, []any and map[string]any. Inverse of New.
+func ToAny(v Value) any {
+	switch t := v.(type) {
+	case BoolValue:
+		return bool(t)
+	case NumValue:
+		return float64(t)
+	case StrValue:
+		return string(t)
+	case ArrValue:
+		arr := make([]any, len(t))
+		for i, e := range t {
+			arr[i] = ToAny(e)
+		}
+		return arr
+	case ObjValue:
+		obj := make(map[string]any, len(t))
+		for k, e := range t {
+			obj[k] = ToAny(e)
+		}
+		return obj
+	default:
+		return nil
+	}
+}
+
 func Equal(v1, v2 Value) bool {
 	if v1.Type() != v2.Type() {
 		return false

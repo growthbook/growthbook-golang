@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -541,4 +542,110 @@ func (p *panickyPlugin) OnExperimentViewed(ctx context.Context, exp *Experiment,
 }
 func (p *panickyPlugin) OnFeatureEvaluated(ctx context.Context, key string, res *FeatureResult) {
 	panic("feature evaluated panic")
+}
+
+func TestTrackingPluginLogEvent(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithAttributes(Attributes{
+			"id":         "user-123",
+			"user_id":    "u-9",
+			"utmSource":  "newsletter",
+			"utmContent": 42,   // non-string — omitted
+			"pageTitle":  "",   // empty string — omitted
+			"country":    "US", // nested
+		}),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost: srv.URL,
+			BatchSize:    1, // flush on every event for test
+		}),
+	)
+	require.NoError(t, err)
+
+	client.LogEvent(ctx, "button_clicked", EventProperties{"button": "buy"})
+	require.NoError(t, client.Close())
+
+	captured := getRequests(reqs, mu)
+	require.Len(t, captured, 1)
+	require.Equal(t, "sdk-test-key", captured[0].ClientKey)
+	require.Len(t, captured[0].Events, 1)
+
+	event := captured[0].Events[0]
+	require.Equal(t, "button_clicked", event["event_name"])
+	require.Equal(t, map[string]any{"button": "buy"}, event["properties_json"])
+	require.Equal(t, "go", event["sdk_language"])
+	require.Equal(t, "", event["url"])
+
+	// Top-level id fields: user_id from attributes, device_id falls back
+	// to id, page_id/session_id null when absent.
+	require.Equal(t, "u-9", event["user_id"])
+	require.Equal(t, "user-123", event["device_id"])
+	require.Contains(t, event, "page_id")
+	require.Nil(t, event["page_id"])
+	require.Contains(t, event, "session_id")
+	require.Nil(t, event["session_id"])
+
+	// UTM fields: string values pass through, non-string and empty
+	// string values are omitted.
+	require.Equal(t, "newsletter", event["utm_source"])
+	require.NotContains(t, event, "utm_content")
+	require.NotContains(t, event, "page_title")
+
+	// Remaining attributes land in context_json; lifted keys don't.
+	require.Equal(t, map[string]any{"country": "US"}, event["context_json"])
+}
+
+func TestTrackingPluginLogEventNilProperties(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost: srv.URL,
+			BatchSize:    1,
+		}),
+	)
+	require.NoError(t, err)
+
+	client.LogEvent(ctx, "bare_event", nil)
+	require.NoError(t, client.Close())
+
+	captured := getRequests(reqs, mu)
+	require.Len(t, captured, 1)
+	event := captured[0].Events[0]
+	require.Equal(t, "bare_event", event["event_name"])
+	require.Equal(t, map[string]any{}, event["properties_json"])
+}
+
+func TestTrackingPluginBadPropertyDropsOnlyThatEvent(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost: srv.URL,
+			BatchSize:    10, // keep both events in one batch
+		}),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	// NaN is rejected by json.Marshal; the event must be dropped at
+	// enqueue time without poisoning the rest of the batch.
+	client.LogEvent(ctx, "bad_event", EventProperties{"score": math.NaN()})
+	client.LogEvent(ctx, "good_event", EventProperties{"ok": true})
+	require.NoError(t, client.Close())
+
+	captured := getRequests(reqs, mu)
+	require.Len(t, captured, 1)
+	require.Len(t, captured[0].Events, 1)
+	require.Equal(t, "good_event", captured[0].Events[0]["event_name"])
 }
