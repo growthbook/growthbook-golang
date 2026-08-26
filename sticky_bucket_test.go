@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -440,15 +441,10 @@ func TestStickyBucketCacheLRUEviction(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, "a2", got.AttributeValue)
 
-	// setIfAbsent keeps the existing doc.
-	cache.setIfAbsent("a", doc("a3"))
-	got, _ = cache.get("a")
-	require.Equal(t, "a2", got.AttributeValue)
-
 	// size <= 0 means unbounded.
 	unbounded := newStickyBucketCache(0)
 	for i := 0; i < 100; i++ {
-		unbounded.setIfAbsent(fmt.Sprintf("k%d", i), doc("v"))
+		unbounded.set(fmt.Sprintf("k%d", i), doc("v"))
 	}
 	for i := 0; i < 100; i++ {
 		_, ok := unbounded.get(fmt.Sprintf("k%d", i))
@@ -584,4 +580,93 @@ func (m *mockStickyBucketService) SaveAssignments(doc *StickyBucketAssignmentDoc
 
 func (m *mockStickyBucketService) GetAllAssignments(attributes map[string]string) (StickyBucketAssignments, error) {
 	return m.InMemoryStickyBucketService.GetAllAssignments(attributes)
+}
+
+// A cache-miss read that raced with a save must not re-install its stale
+// service snapshot after the save's fresher doc was evicted from the LRU —
+// cache hits never re-consult the service, so a stale doc would stick and
+// the user would be re-hashed (and the flip persisted by the next save).
+func TestStickyBucketReadDoesNotReinstallStaleDoc(t *testing.T) {
+	inner := NewInMemoryStickyBucketService()
+	require.NoError(t, inner.SaveAssignments(&StickyBucketAssignmentDoc{
+		AttributeName:  "id",
+		AttributeValue: "u1",
+		Assignments:    map[string]string{"other__0": "0"},
+	}))
+
+	// Gate the reader AFTER its service fetch, so it holds a stale snapshot
+	// of the doc while a save merges and persists a fresher one. Only the
+	// first caller parks (CAS), so the save's own service read passes.
+	svc := &postReadGateService{
+		InMemoryStickyBucketService: inner,
+		entered:                     make(chan struct{}),
+		release:                     make(chan struct{}),
+	}
+	svc.gate.Store(true)
+	entered, release := svc.entered, svc.release
+
+	cache := newStickyBucketCache(1)
+
+	// Reader: cache miss -> service fetch, parked at the gate.
+	readErr := make(chan error, 1)
+	go func() {
+		_, err := getStickyBucketAssignments(svc, "id", "", map[string]string{"id": "u1"}, cache)
+		readErr <- err
+	}()
+	<-entered
+
+	// Concurrent save merges a new assignment for the same user. With the
+	// read-path doc lock it waits for the reader; without it, it completes
+	// now and its cached doc is about to be evicted.
+	saveErr := make(chan error, 1)
+	go func() {
+		saveErr <- saveStickyBucketAssignment("exp", 0, 1, "1", svc, "id", "u1", cache)
+	}()
+	savedEarly := false
+	select {
+	case err := <-saveErr:
+		require.NoError(t, err)
+		savedEarly = true
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	// Evict whatever the size-1 cache holds for u1.
+	cache.set(getKey("id", "other"), &StickyBucketAssignmentDoc{
+		AttributeName:  "id",
+		AttributeValue: "other",
+		Assignments:    map[string]string{},
+	})
+
+	close(release)
+	require.NoError(t, <-readErr)
+	if !savedEarly {
+		require.NoError(t, <-saveErr)
+	}
+
+	// However the read and save interleave, a cached doc for u1 must not
+	// hide the saved assignment: it either holds the merged doc or was
+	// evicted (forcing a service re-fetch on the next evaluation).
+	if cached, ok := cache.get(getKey("id", "u1")); ok {
+		require.Equal(t, "1", cached.Assignments["exp__0"],
+			"stale doc without the saved assignment was re-installed into the cache")
+	}
+}
+
+// postReadGateService parks the first GetAssignments call for id||u1 after
+// the read completes, simulating a reader stalled between its service fetch
+// and its cache install.
+type postReadGateService struct {
+	*InMemoryStickyBucketService
+	gate    atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *postReadGateService) GetAssignments(name, value string) (*StickyBucketAssignmentDoc, error) {
+	doc, err := s.InMemoryStickyBucketService.GetAssignments(name, value)
+	if name == "id" && value == "u1" && s.gate.CompareAndSwap(true, false) {
+		close(s.entered)
+		<-s.release
+	}
+	return doc, err
 }

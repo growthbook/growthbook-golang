@@ -22,8 +22,8 @@ type StickyBucketAssignments map[string]*StickyBucketAssignmentDoc
 type stickyBucketCache interface {
 	get(key string) (*StickyBucketAssignmentDoc, bool)
 	set(key string, doc *StickyBucketAssignmentDoc)
-	setIfAbsent(key string, doc *StickyBucketAssignmentDoc)
-	// lockDoc serializes read-modify-write save cycles for one document key.
+	// lockDoc serializes service read-modify-write cycles (saves and
+	// cache-miss reads) for one document key.
 	lockDoc(key string) (unlock func())
 }
 
@@ -34,12 +34,6 @@ func (a StickyBucketAssignments) get(key string) (*StickyBucketAssignmentDoc, bo
 
 func (a StickyBucketAssignments) set(key string, doc *StickyBucketAssignmentDoc) {
 	a[key] = doc
-}
-
-func (a StickyBucketAssignments) setIfAbsent(key string, doc *StickyBucketAssignmentDoc) {
-	if _, ok := a[key]; !ok {
-		a[key] = doc
-	}
 }
 
 // lockDoc is a no-op: the exported helpers taking a plain map remain
@@ -70,9 +64,13 @@ type lockedStickyBucketCache struct {
 	maxSize int // <= 0 disables eviction
 	docs    map[string]*list.Element
 	order   *list.List // front = most recently used
-	// docLocks serializes save cycles per document key so concurrent saves
-	// for the same user merge instead of overwriting each other. Key-scoped
-	// so a save's backend I/O never blocks work on other documents.
+	// docLocks serializes service read-modify-write cycles per document key:
+	// concurrent saves for the same user merge instead of overwriting each
+	// other, and cache-miss reads can't re-install a stale doc over a save's
+	// fresher one after eviction. Key-scoped so backend I/O never blocks work
+	// on other documents. The guarantee is scoped to this cache, i.e. one
+	// client and its clones — independently constructed Clients (or separate
+	// processes) sharing a StickyBucketService still race at the service.
 	docLocks keyedMutex
 }
 
@@ -104,14 +102,6 @@ func (c *lockedStickyBucketCache) set(key string, doc *StickyBucketAssignmentDoc
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.insert(key, doc)
-}
-
-func (c *lockedStickyBucketCache) setIfAbsent(key string, doc *StickyBucketAssignmentDoc) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, ok := c.docs[key]; !ok {
-		c.insert(key, doc)
-	}
 }
 
 // insert adds or updates an entry and evicts the least recently used one
@@ -417,7 +407,7 @@ func getStickyBucketAssignments(
 	// If we need to fetch anything from the service
 	if len(attributesToFetch) > 0 {
 		for attrName, attrValue := range attributesToFetch {
-			doc, err := service.GetAssignments(attrName, attrValue)
+			doc, err := fetchAssignmentsDoc(service, cache, attrName, attrValue)
 			if err != nil {
 				return merged, err
 			}
@@ -436,19 +426,42 @@ func getStickyBucketAssignments(
 						merged[k] = v
 					}
 				}
-
-				// Update the cache if provided. setIfAbsent: a concurrent
-				// save may have already cached a doc merged from fresher
-				// service state; don't clobber it with this earlier read.
-				if cache != nil {
-					key := getKey(attrName, attrValue)
-					cache.setIfAbsent(key, doc)
-				}
 			}
 		}
 	}
 
 	return merged, nil
+}
+
+// fetchAssignmentsDoc reads one assignment doc from the service and caches
+// it, under the same per-document lock that serializes saves. Without the
+// lock, a read that fetched the doc before a concurrent save could
+// re-install the stale version after LRU eviction removed the save's
+// fresher one — and cache hits never re-consult the service, so the stale
+// doc would stick until its own eviction.
+func fetchAssignmentsDoc(service StickyBucketService, cache stickyBucketCache, attrName, attrValue string) (*StickyBucketAssignmentDoc, error) {
+	if cache == nil {
+		return service.GetAssignments(attrName, attrValue)
+	}
+
+	key := getKey(attrName, attrValue)
+	unlock := cache.lockDoc(key)
+	defer unlock()
+
+	// Re-check under the lock: a save that finished while we waited may
+	// have cached a doc merged from fresher service state.
+	if doc, ok := cache.get(key); ok {
+		return doc, nil
+	}
+
+	doc, err := service.GetAssignments(attrName, attrValue)
+	if err != nil || doc == nil {
+		return doc, err
+	}
+	// Holding the doc lock means no save for this key is mid-flight, so a
+	// plain set cannot clobber anything fresher.
+	cache.set(key, doc)
+	return doc, nil
 }
 
 // SaveStickyBucketAssignment saves a sticky bucket assignment

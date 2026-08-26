@@ -226,9 +226,21 @@ Implement the `StickyBucketService` interface for custom storage:
 
 #### Concurrency & Caching
 
-- The in-memory implementation is thread-safe using `sync.RWMutex`
-- Assignments are cached in memory to reduce storage calls
-- Cache is shared across all clients using the same service instance
+- The in-memory service implementation is thread-safe using `sync.RWMutex`
+- Assignments are cached per client to reduce storage calls; the cache is
+  shared between a client and its child clients (created via `With*` methods)
+  and is bounded (LRU, 10,000 docs by default — tune or remove the bound with
+  `WithStickyBucketCacheSize`)
+- Within a client and its children, concurrent reads and saves of the same
+  user's assignment doc are serialized, so parallel evaluations merge
+  assignments instead of overwriting each other
+- **Scope of the guarantee:** independently constructed clients — or separate
+  processes — sharing one `StickyBucketService` are not serialized against
+  each other. `SaveAssignments` writes whole documents last-write-wins, so
+  truly concurrent saves for the same user from different clients can drop
+  an assignment. If that matters for your deployment, make your service's
+  `SaveAssignments` merge atomically in the backend (e.g. a Redis hash or a
+  transactional upsert)
 
 For more details, see the [official documentation](https://docs.growthbook.io/app/sticky-bucketing).
 
