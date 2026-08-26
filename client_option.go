@@ -152,18 +152,18 @@ func WithExperimentCallback(cb ExperimentCallback) ClientOption {
 }
 
 // WithFeatureUsageCallback sets feature usage callback function.
+func WithFeatureUsageCallback(cb FeatureUsageCallback) ClientOption {
+	return func(c *Client) error {
+		c.featureUsageCallback = cb
+		return nil
+	}
+}
+
 // WithEventLogger sets a callback invoked by [Client.LogEvent] for every
 // custom event.
 func WithEventLogger(cb EventLogger) ClientOption {
 	return func(c *Client) error {
 		c.eventLogger = cb
-		return nil
-	}
-}
-
-func WithFeatureUsageCallback(cb FeatureUsageCallback) ClientOption {
-	return func(c *Client) error {
-		c.featureUsageCallback = cb
 		return nil
 	}
 }
