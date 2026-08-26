@@ -110,9 +110,13 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		attributes := make(map[string]string)
 		attributes[hashAttribute] = hashValue
 
-		// Also add any fallback if different
+		// Also add any fallback if different. Like getHashAttribute, falsy
+		// values count as missing — JS resolves the fallback through
+		// getHashAttribute and skips falsy values (sdk-js core.ts
+		// getStickyBucketAssignments), so no sticky doc is looked up under
+		// degenerate keys like "anonymousId||0".
 		if exp.FallbackAttribute != "" && exp.FallbackAttribute != exp.HashAttribute {
-			if fallbackValue, ok := e.client.attributes[exp.FallbackAttribute]; ok {
+			if fallbackValue, ok := e.client.attributes[exp.FallbackAttribute]; ok && value.Truthy(fallbackValue) {
 				attributes[exp.FallbackAttribute] = fallbackValue.String()
 			}
 		}
