@@ -170,6 +170,42 @@ func TestSseDataSource(t *testing.T) {
 	})
 }
 
+func TestSseDataSourceRetryInterval(t *testing.T) {
+	ctx := context.TODO()
+
+	t.Run("default max retry interval", func(t *testing.T) {
+		client, err := NewClient(ctx, WithSseDataSource())
+		require.Nil(t, err)
+		ds, ok := client.data.dataSource.(*SseDataSource)
+		require.True(t, ok)
+		require.Equal(t, defaultMaxRetryInterval, ds.maxRetryInterval)
+	})
+
+	t.Run("custom max retry interval", func(t *testing.T) {
+		client, err := NewClient(ctx, WithSseDataSource(WithSseMaxRetryInterval(time.Minute)))
+		require.Nil(t, err)
+		ds, ok := client.data.dataSource.(*SseDataSource)
+		require.True(t, ok)
+		require.Equal(t, time.Minute, ds.maxRetryInterval)
+	})
+
+	t.Run("non-positive max retry interval keeps default", func(t *testing.T) {
+		client, err := NewClient(ctx, WithSseDataSource(WithSseMaxRetryInterval(0)))
+		require.Nil(t, err)
+		ds, ok := client.data.dataSource.(*SseDataSource)
+		require.True(t, ok)
+		require.Equal(t, defaultMaxRetryInterval, ds.maxRetryInterval)
+	})
+
+	t.Run("nil option is ignored", func(t *testing.T) {
+		client, err := NewClient(ctx, WithSseDataSource(nil))
+		require.Nil(t, err)
+		ds, ok := client.data.dataSource.(*SseDataSource)
+		require.True(t, ok)
+		require.Equal(t, defaultMaxRetryInterval, ds.maxRetryInterval)
+	})
+}
+
 type sseTestServer struct {
 	http     *httptest.Server
 	ssecount atomic.Int32

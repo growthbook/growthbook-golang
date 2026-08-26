@@ -12,28 +12,51 @@ import (
 )
 
 type SseDataSource struct {
-	client *Client
-	cancel context.CancelFunc
-	ready  bool
-	// retry  time.Duration
-	logger *slog.Logger
-	mu     sync.RWMutex
+	client           *Client
+	cancel           context.CancelFunc
+	ready            bool
+	maxRetryInterval time.Duration
+	logger           *slog.Logger
+	mu               sync.RWMutex
+}
+
+// SseOption configures an SseDataSource.
+type SseOption func(*SseDataSource)
+
+// WithSseMaxRetryInterval sets the maximum backoff interval between reconnection
+// attempts. Non-positive values keep the default cap.
+func WithSseMaxRetryInterval(d time.Duration) SseOption {
+	return func(ds *SseDataSource) {
+		if d > 0 {
+			ds.maxRetryInterval = d
+		}
+	}
 }
 
 const minbufsize = 64 * 1024
 const maxbufsize = 10 * 1024 * 1024
 
-func WithSseDataSource() ClientOption {
+// defaultMaxRetryInterval is the default cap for backoff delay between SSE reconnects.
+const defaultMaxRetryInterval = 30 * time.Second
+
+func WithSseDataSource(opts ...SseOption) ClientOption {
 	return func(c *Client) error {
-		c.data.dataSource = newSseDataSource(c)
+		ds := newSseDataSource(c)
+		for _, opt := range opts {
+			if opt != nil {
+				opt(ds)
+			}
+		}
+		c.data.dataSource = ds
 		return nil
 	}
 }
 
 func newSseDataSource(client *Client) *SseDataSource {
 	return &SseDataSource{
-		client: client,
-		logger: client.logger.With("source", "Growthbook SSE datasource"),
+		client:           client,
+		maxRetryInterval: defaultMaxRetryInterval,
+		logger:           client.logger.With("source", "Growthbook SSE datasource"),
 	}
 }
 
@@ -82,6 +105,9 @@ func (ds *SseDataSource) connect(ctx context.Context) error {
 	sseClient := &sse.Client{
 		HTTPClient: ds.client.data.httpClient,
 		OnRetry:    ds.onRetry(ctx),
+		Backoff: sse.Backoff{
+			MaxInterval: ds.maxRetryInterval,
+		},
 	}
 	sseConn := sseClient.NewConnection(req)
 	buf := make([]byte, minbufsize)
