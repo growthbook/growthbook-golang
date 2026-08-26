@@ -84,10 +84,11 @@ type TrackingPluginConfig struct {
 // trackingEvent is the JSON payload for a single tracking event.
 type trackingEvent map[string]any
 
-// trackingRequest is the JSON body sent to the ingestor.
+// trackingRequest is the JSON body sent to the ingestor. Events are
+// pre-marshaled individually in enqueue.
 type trackingRequest struct {
-	Events    []trackingEvent `json:"events"`
-	ClientKey string          `json:"client_key"`
+	Events    []json.RawMessage `json:"events"`
+	ClientKey string            `json:"client_key"`
 }
 
 // GrowthBookTrackingPlugin sends experiment and feature evaluation
@@ -101,7 +102,7 @@ type GrowthBookTrackingPlugin struct {
 	initialized bool
 
 	mu     sync.Mutex
-	events []trackingEvent
+	events []json.RawMessage
 	timer  *time.Timer
 	closed bool
 	wg     sync.WaitGroup // tracks in-flight background sends
@@ -328,14 +329,23 @@ func (p *GrowthBookTrackingPlugin) Close() error {
 // enqueue adds an event to the batch. If the batch is full, it
 // triggers an immediate background flush. If this is the first event
 // in a new batch, it starts the timeout timer.
+// Events are marshaled here, one by one, so a single unmarshalable
+// value (e.g. NaN in LogEvent properties) drops only that event
+// instead of failing the whole batch at send time.
 func (p *GrowthBookTrackingPlugin) enqueue(event trackingEvent) {
+	data, err := json.Marshal(event)
+	if err != nil {
+		p.logger.Error("Failed to marshal tracking event, dropping it", "error", err)
+		return
+	}
+
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
 		return
 	}
 
-	p.events = append(p.events, event)
+	p.events = append(p.events, data)
 
 	if len(p.events) >= p.config.BatchSize {
 		// Batch full — flush immediately.
@@ -391,7 +401,7 @@ func (p *GrowthBookTrackingPlugin) timerFlush() {
 // Delivery is best-effort: transient errors are logged and the batch
 // is dropped. No retry is attempted to keep the implementation simple
 // and avoid unbounded memory growth or complex retry state.
-func (p *GrowthBookTrackingPlugin) sendBatch(ctx context.Context, events []trackingEvent) {
+func (p *GrowthBookTrackingPlugin) sendBatch(ctx context.Context, events []json.RawMessage) {
 	body, err := json.Marshal(trackingRequest{
 		Events:    events,
 		ClientKey: p.clientKey,

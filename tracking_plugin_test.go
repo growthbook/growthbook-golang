@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -620,4 +621,31 @@ func TestTrackingPluginLogEventNilProperties(t *testing.T) {
 	event := captured[0].Events[0]
 	require.Equal(t, "bare_event", event["event_name"])
 	require.Equal(t, map[string]any{}, event["properties_json"])
+}
+
+func TestTrackingPluginBadPropertyDropsOnlyThatEvent(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost: srv.URL,
+			BatchSize:    10, // keep both events in one batch
+		}),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	// NaN is rejected by json.Marshal; the event must be dropped at
+	// enqueue time without poisoning the rest of the batch.
+	client.LogEvent(ctx, "bad_event", EventProperties{"score": math.NaN()})
+	client.LogEvent(ctx, "good_event", EventProperties{"ok": true})
+	require.NoError(t, client.Close())
+
+	captured := getRequests(reqs, mu)
+	require.Len(t, captured, 1)
+	require.Len(t, captured[0].Events, 1)
+	require.Equal(t, "good_event", captured[0].Events[0]["event_name"])
 }
