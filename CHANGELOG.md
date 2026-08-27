@@ -2,6 +2,11 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Add `WithForcedFeatures` to force feature values locally (source `override`),
+  available on the root client and merged over the parent on child clients.
+
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
 - **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`

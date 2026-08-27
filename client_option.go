@@ -278,9 +278,19 @@ func (c *Client) WithForcedVariations(forcedVariations ForcedVariationsMap) (*Cl
 	return c.cloneWith(WithForcedVariations(forcedVariations))
 }
 
-// WithForcedFeatures creates child client with updated forced feature values.
+// WithForcedFeatures creates a child client whose forced feature values are
+// merged over the parent's (child keys take precedence). The supplied map must
+// not be mutated concurrently.
 func (c *Client) WithForcedFeatures(forcedFeatures ForcedFeaturesMap) (*Client, error) {
-	return c.cloneWith(WithForcedFeatures(forcedFeatures))
+	// Merge into the parent's forced features (child entries take precedence),
+	// mirroring how the JS SDK combines global and user-scoped maps. The parent
+	// is left untouched.
+	merged := maps.Clone(c.forcedFeatures)
+	if merged == nil {
+		merged = make(ForcedFeaturesMap, len(forcedFeatures))
+	}
+	maps.Copy(merged, forcedFeatures)
+	return c.cloneWith(WithForcedFeatures(merged))
 }
 
 // WithGroups creates child client with updated legacy group membership.

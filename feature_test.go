@@ -587,3 +587,28 @@ func TestChildClientWithForcedFeatures(t *testing.T) {
 	require.Equal(t, float64(1), parentResult.Value)
 	require.Equal(t, ForceResultSource, parentResult.Source)
 }
+
+func TestChildForcedFeaturesMergeWithParent(t *testing.T) {
+	featuresJson := `{
+    "a": {"defaultValue": "da"},
+    "b": {"defaultValue": "db"},
+    "c": {"defaultValue": "dc"}
+    }`
+
+	parent, _ := NewClient(ctx,
+		WithJsonFeatures(featuresJson),
+		WithForcedFeatures(ForcedFeaturesMap{"a": "A", "b": "B"}),
+	)
+	child, err := parent.WithForcedFeatures(ForcedFeaturesMap{"b": "B2", "c": "C"})
+	require.Nil(t, err)
+
+	// Child merges over the parent: a kept, b overridden, c added.
+	require.Equal(t, "A", child.EvalFeature(ctx, "a").Value)
+	require.Equal(t, "B2", child.EvalFeature(ctx, "b").Value)
+	require.Equal(t, "C", child.EvalFeature(ctx, "c").Value)
+
+	// Parent is unaffected by the child merge.
+	require.Equal(t, "A", parent.EvalFeature(ctx, "a").Value)
+	require.Equal(t, "B", parent.EvalFeature(ctx, "b").Value)
+	require.Equal(t, "dc", parent.EvalFeature(ctx, "c").Value)
+}
