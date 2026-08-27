@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Added remote evaluation mode (`WithRemoteEval`): features are evaluated on
+  the GrowthBook endpoint (`POST {apiHost}/api/eval/{clientKey}`) for the
+  client's attributes instead of locally, matching the JS SDK's remote-eval
+  mode. Requires a client key and is incompatible with a decryption key or a
+  poll/SSE data source.
+- Remote-eval results are cached per distinct evaluation input (attributes,
+  forced variations, and URL) and reused within a TTL. `WithRemoteEvalTTL`
+  tunes the reuse window (0 disables expiry, default 60s), and
+  `WithCacheKeyAttributes` narrows the cache key to specific attributes so a
+  new request is made only when one of them changes.
+- The remote-eval cache is bounded (LRU, 1000 entries by default) via
+  `WithRemoteEvalCacheSize` so high-cardinality attributes cannot grow it
+  without limit, and concurrent fetches for the same key are coalesced into a
+  single request (single-flight).
+
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
 - **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`

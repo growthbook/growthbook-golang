@@ -121,7 +121,6 @@ func (d *data) setRemoteEval(key string, features FeatureMap, maxSize int) {
 		evicted := back.Value.(*remoteEvalEntry)
 		d.remoteEvalOrder.Remove(back)
 		delete(d.remoteEvalCache, evicted.key)
-		d.remoteEvalFlight.delete(evicted.key)
 	}
 }
 

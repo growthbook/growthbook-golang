@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -23,33 +22,9 @@ const defaultRemoteEvalTTL = 60 * time.Second
 // high-cardinality attributes does not grow the cache without limit.
 const defaultRemoteEvalCacheSize = 1000
 
-// keyedMutex serializes work per key, coalescing concurrent remote fetches for
-// the same attributes so they issue a single request (single-flight).
-type keyedMutex struct {
-	mu sync.Mutex
-	m  map[string]*sync.Mutex
-}
-
-func (k *keyedMutex) lock(key string) func() {
-	k.mu.Lock()
-	if k.m == nil {
-		k.m = make(map[string]*sync.Mutex)
-	}
-	mu, ok := k.m[key]
-	if !ok {
-		mu = &sync.Mutex{}
-		k.m[key] = mu
-	}
-	k.mu.Unlock()
-	mu.Lock()
-	return mu.Unlock
-}
-
-func (k *keyedMutex) delete(key string) {
-	k.mu.Lock()
-	delete(k.m, key)
-	k.mu.Unlock()
-}
+// The remote-eval single-flight uses the shared keyedMutex defined in
+// sticky_bucket.go, which serializes work per key and auto-releases a key's
+// entry once no goroutine holds or waits for it.
 
 // WithRemoteEval enables remote evaluation: features are evaluated on a remote
 // endpoint (POST {apiHost}/api/eval/{clientKey}) for the client's attributes
