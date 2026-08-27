@@ -27,11 +27,13 @@ type data struct {
 }
 
 func newData() *data {
-	return &data{
+	d := &data{
 		dsStartWait: make(chan struct{}),
 		apiHost:     defaultApiHost,
 		httpClient:  http.DefaultClient,
 	}
+	d.tracked.max = defaultExperimentTrackingCacheSize
+	return d
 }
 
 func (d *data) getDateUpdated() time.Time {

@@ -102,9 +102,6 @@ func (client *Client) Close() error {
 		}
 	}
 
-	// Release the experiment tracking dedup set.
-	client.data.tracked.clear()
-
 	return errors.Join(errs...)
 }
 

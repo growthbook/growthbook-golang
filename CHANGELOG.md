@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Deduplicate `experiment_viewed` tracking: the experiment callback and plugin
+  fire once per unique (hashAttribute, hashValue, experiment key, variation)
+  instead of on every evaluation. `feature_evaluated` is unchanged. The dedup
+  set is bounded (LRU) and only populated when a tracking consumer is present.
+
 ## [v0.3.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.3.0) - 2026-08-26
 
 - **Behavior change (JS parity):** attribute values that are falsy in JS

@@ -90,3 +90,41 @@ func TestFeatureUsageNotDeduplicated(t *testing.T) {
 	client.EvalFeature(ctx, "feat")
 	require.Equal(t, 3, usage, "feature_evaluated must fire on every evaluation")
 }
+
+func TestExperimentTrackingRequiresConsumer(t *testing.T) {
+	exp := &Experiment{Key: "e"}
+	res := &ExperimentResult{HashAttribute: "id", HashValue: "1", VariationId: 0}
+
+	// With no callback or plugin, nothing consumes tracking, so the dedup set is
+	// never populated.
+	noConsumer, err := NewClient(ctx)
+	require.NoError(t, err)
+	require.False(t, noConsumer.shouldTrackExperiment(exp, res))
+
+	// With a consumer, the first exposure tracks and repeats are deduplicated.
+	withCb, err := NewClient(ctx, WithExperimentCallback(func(context.Context, *Experiment, *ExperimentResult, any) {}))
+	require.NoError(t, err)
+	require.True(t, withCb.shouldTrackExperiment(exp, res))
+	require.False(t, withCb.shouldTrackExperiment(exp, res))
+}
+
+func TestTrackedSetBoundedLRU(t *testing.T) {
+	s := &trackedSet{max: 2}
+	k := func(v int) trackKey { return trackKey{experimentKey: "e", variationID: v} }
+
+	require.True(t, s.markOnce(k(1)))
+	require.True(t, s.markOnce(k(2)))
+	require.True(t, s.markOnce(k(3))) // over capacity -> evicts the LRU entry k(1)
+
+	require.False(t, s.markOnce(k(3))) // still present
+	require.False(t, s.markOnce(k(2))) // still present
+	require.True(t, s.markOnce(k(1)))  // was evicted -> treated as new
+}
+
+func TestTrackKeyNoCollision(t *testing.T) {
+	s := &trackedSet{max: 100}
+	// A delimiter-joined key ("a::b") would conflate these two distinct
+	// assignments; a struct key keeps them separate.
+	require.True(t, s.markOnce(trackKey{hashValue: "a", experimentKey: "b"}))
+	require.True(t, s.markOnce(trackKey{hashValue: "a::b", experimentKey: ""}))
+}
