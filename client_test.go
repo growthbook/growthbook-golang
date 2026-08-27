@@ -169,9 +169,11 @@ func TestClientRefusesToWipeFeaturesWithEmptyPayload(t *testing.T) {
 	require.Nil(t, client.UpdateFromApiResponseJSON(apiJson))
 	require.Equal(t, &Feature{DefaultValue: "api"}, client.data.features["foo"])
 
-	require.Nil(t, client.UpdateFromApiResponseJSON(emptyJson))
+	// The empty payload is rejected with a sentinel error (callers can tell it
+	// apart from a successful refresh)...
+	require.ErrorIs(t, client.UpdateFromApiResponseJSON(emptyJson), ErrNoFeatures)
 
-	// Features are preserved and evaluation still works.
+	// ...and the previously loaded features are preserved.
 	require.Equal(t, &Feature{DefaultValue: "api"}, client.data.features["foo"])
 	require.Equal(t, "api", client.EvalFeature(ctx, "foo").Value)
 	require.Equal(t, DefaultValueResultSource, client.EvalFeature(ctx, "foo").Source)
