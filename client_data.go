@@ -24,6 +24,10 @@ type data struct {
 	plugins       []Plugin
 	subscribers   subscriberRegistry
 	featureCache  FeatureCache
+	// seededEtag is the etag of the cache entry that actually seeded this client
+	// on startup, or "" when nothing was seeded. The poll data source reuses it
+	// for a conditional first request.
+	seededEtag string
 }
 
 func newData() *data {
@@ -86,6 +90,12 @@ func (d *data) getFeatureCache() FeatureCache {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.featureCache
+}
+
+func (d *data) getSeededEtag() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.seededEtag
 }
 
 // cacheKey identifies this client's feature data in a FeatureCache. Keyed by

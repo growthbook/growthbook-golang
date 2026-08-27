@@ -29,11 +29,17 @@ type FeatureCacheEntry struct {
 // Implementations must be safe for concurrent use. Expiry (TTL) is the
 // backend's responsibility; the SDK's data source already governs how often
 // features are refreshed from the API.
+//
+// Both methods return a backend error so failures (e.g. a Redis outage) are
+// distinct from a cache miss. The SDK never fails evaluation on a cache error:
+// a failed Get on startup is logged and the client continues without a seed,
+// and a failed Set is logged.
 type FeatureCache interface {
-	// Get returns the cached entry for key. ok is false on a miss.
-	Get(ctx context.Context, key string) (entry *FeatureCacheEntry, ok bool)
-	// Set stores entry under key.
-	Set(ctx context.Context, key string, entry *FeatureCacheEntry)
+	// Get returns the cached entry for key. found is false on a miss; a non-nil
+	// error signals a backend failure (distinct from a miss).
+	Get(ctx context.Context, key string) (entry *FeatureCacheEntry, found bool, err error)
+	// Set stores entry under key, returning any backend error.
+	Set(ctx context.Context, key string, entry *FeatureCacheEntry) error
 }
 
 // InMemoryFeatureCache is a thread-safe, process-local FeatureCache. It is the
@@ -49,15 +55,16 @@ func NewInMemoryFeatureCache() *InMemoryFeatureCache {
 	return &InMemoryFeatureCache{store: make(map[string]*FeatureCacheEntry)}
 }
 
-func (c *InMemoryFeatureCache) Get(_ context.Context, key string) (*FeatureCacheEntry, bool) {
+func (c *InMemoryFeatureCache) Get(_ context.Context, key string) (*FeatureCacheEntry, bool, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	entry, ok := c.store[key]
-	return entry, ok
+	return entry, ok, nil
 }
 
-func (c *InMemoryFeatureCache) Set(_ context.Context, key string, entry *FeatureCacheEntry) {
+func (c *InMemoryFeatureCache) Set(_ context.Context, key string, entry *FeatureCacheEntry) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.store[key] = entry
+	return nil
 }

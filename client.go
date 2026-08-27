@@ -103,8 +103,12 @@ func (client *Client) seedFromCache(ctx context.Context) {
 	if cache == nil || client.data.getFeatures() != nil {
 		return
 	}
-	entry, ok := cache.Get(ctx, client.data.cacheKey())
-	if !ok || entry == nil || len(entry.Payload) == 0 {
+	entry, found, err := cache.Get(ctx, client.data.cacheKey())
+	if err != nil {
+		client.logger.WarnContext(ctx, "Feature cache read failed on startup, continuing without it", "error", err)
+		return
+	}
+	if !found || entry == nil || len(entry.Payload) == 0 {
 		return
 	}
 	var resp FeatureApiResponse
@@ -114,9 +118,18 @@ func (client *Client) seedFromCache(ctx context.Context) {
 	}
 	resp.raw = entry.Payload
 	resp.Etag = entry.Etag
-	if err := client.updateFromApiResponse(ctx, &resp); err != nil {
+	// Apply without writing back: a seed must not refresh a TTL backend's expiry.
+	if err := client.applyApiResponse(&resp); err != nil {
 		client.logger.WarnContext(ctx, "Failed to seed features from cache", "error", err)
+		return
 	}
+	// Record the etag we actually seeded with so the poll data source can issue a
+	// conditional first request. Only set when the cache was adopted, so inline
+	// features (WithFeatures) never reuse an unrelated cached etag.
+	client.data.withLock(func(d *data) error {
+		d.seededEtag = entry.Etag
+		return nil
+	})
 }
 
 // writeCache persists the raw feature payload to the configured FeatureCache. A
@@ -130,14 +143,13 @@ func (client *Client) writeCache(ctx context.Context, payload json.RawMessage, e
 	}
 	key := client.data.cacheKey()
 	if etag == "" {
-		if prev, ok := cache.Get(ctx, key); ok && prev != nil {
+		if prev, found, err := cache.Get(ctx, key); err == nil && found && prev != nil {
 			etag = prev.Etag
 		}
 	}
-	cache.Set(ctx, key, &FeatureCacheEntry{
-		Payload: payload,
-		Etag:    etag,
-	})
+	if err := cache.Set(ctx, key, &FeatureCacheEntry{Payload: payload, Etag: etag}); err != nil {
+		client.logger.WarnContext(ctx, "Failed to write features to cache", "error", err)
+	}
 }
 
 // Close client's background goroutines and plugins.
@@ -212,6 +224,17 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 // updateFromApiResponse applies an API response and writes through to the
 // feature cache, using ctx for the cache backend.
 func (client *Client) updateFromApiResponse(ctx context.Context, resp *FeatureApiResponse) error {
+	if err := client.applyApiResponse(resp); err != nil {
+		return err
+	}
+	client.writeCache(ctx, resp.raw, resp.Etag)
+	return nil
+}
+
+// applyApiResponse updates the client's shared data from an API response without
+// writing through to the feature cache. Seeding uses this so a cache read never
+// turns into a cache write (which would refresh a TTL backend's expiry).
+func (client *Client) applyApiResponse(resp *FeatureApiResponse) error {
 	dataUpdated := client.data.getDateUpdated()
 	apiUpdated := resp.DateUpdated
 	if apiUpdated.Before(dataUpdated) {
@@ -235,7 +258,6 @@ func (client *Client) updateFromApiResponse(ctx context.Context, resp *FeatureAp
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
-	client.writeCache(ctx, resp.raw, resp.Etag)
 	return nil
 }
 

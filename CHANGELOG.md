@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Add a pluggable `FeatureCache` (with `WithFeatureCache`) for persisting the
+  raw feature payload across restarts or sharing it between instances (e.g.
+  Redis). The client seeds from it on startup without writing back and writes
+  through after successful updates; `Get`/`Set` return backend errors, which are
+  logged and never fail evaluation.
+
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
 - **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`
