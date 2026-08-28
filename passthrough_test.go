@@ -26,7 +26,14 @@ const passthroughFeaturesJSON = `{
         "weights": [0.5, 0.5],
         "meta": [{"key": "0"}, {"key": "1", "passthrough": true}]
       },
-      {"force": "lower-rule"}
+      {"force": "lower-rule", "condition": {"country": "nz"}},
+      {
+        "key": "exp_2",
+        "coverage": 1,
+        "hashAttribute": "id",
+        "variations": ["a", "b"],
+        "weights": [1, 0]
+      }
     ]
   },
   "child": {
@@ -99,8 +106,10 @@ func TestPassthroughAssignmentIsTracked(t *testing.T) {
 	ctx := context.Background()
 	treatmentID, controlID := idsByArm(t)
 
-	t.Run("control arm falls through but is tracked", func(t *testing.T) {
+	t.Run("control arm falls through to a force rule and is tracked", func(t *testing.T) {
 		client, fromCallback, plugin := passthroughClient(t, controlID)
+		client, err := client.WithAttributeOverrides(Attributes{"country": "nz"})
+		require.NoError(t, err)
 		res := client.EvalFeature(ctx, "flag")
 
 		require.Equal(t, "lower-rule", res.Value)
@@ -108,6 +117,22 @@ func TestPassthroughAssignmentIsTracked(t *testing.T) {
 		require.False(t, res.InExperiment())
 
 		want := []viewed{{key: "ramp_1", variationID: 1, passthrough: true, featureID: "flag"}}
+		require.Equal(t, want, *fromCallback)
+		require.Equal(t, want, plugin.viewed)
+	})
+
+	t.Run("control arm falls through to an experiment rule: tracked first, then the served experiment", func(t *testing.T) {
+		client, fromCallback, plugin := passthroughClient(t, controlID)
+		res := client.EvalFeature(ctx, "flag")
+
+		require.Equal(t, "a", res.Value)
+		require.True(t, res.InExperiment())
+		require.Equal(t, "exp_2", res.Experiment.Key)
+
+		want := []viewed{
+			{key: "ramp_1", variationID: 1, passthrough: true, featureID: "flag"},
+			{key: "exp_2", variationID: 0, passthrough: false, featureID: "flag"},
+		}
 		require.Equal(t, want, *fromCallback)
 		require.Equal(t, want, plugin.viewed)
 	})
@@ -138,6 +163,6 @@ func TestPassthroughAssignmentIsTracked(t *testing.T) {
 		client.EvalFeature(ctx, "flag")
 		client.EvalFeature(ctx, "child")
 		client.EvalFeature(ctx, "flag")
-		require.Len(t, *fromCallback, 2)
+		require.Len(t, *fromCallback, 4) // (ramp_1 + exp_2) twice, nothing from child
 	})
 }

@@ -401,9 +401,10 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 		return nil
 	}
 	if res.Passthrough {
-		// Only the top-level feature's own rules; assignments made while
-		// evaluating prerequisite features are not reported, consistent
-		// with how EvalFeature reports the served experiment.
+		// Record only assignments made by the feature EvalFeature was
+		// asked for (depth 1), not ones made while evaluating its
+		// prerequisites — consistent with how EvalFeature reports the
+		// served experiment.
 		if len(e.evaluated.stack) == 1 {
 			e.passthroughAssignments = append(e.passthroughAssignments, experimentAssignment{exp, res})
 		}
