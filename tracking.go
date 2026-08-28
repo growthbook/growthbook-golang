@@ -74,28 +74,31 @@ func (client *Client) DeferredTrackingCalls() []TrackingData {
 	b.mu.Lock()
 	shared := append([]TrackingData(nil), b.data...)
 	b.mu.Unlock()
-
-	detached, err := detachTrackingData(shared)
-	if err != nil {
-		client.logger.Warn("Returning aliased tracking data, deep copy failed", "error", err)
-		return shared
-	}
-	return detached
+	return client.detachTrackingData(shared)
 }
 
-func detachTrackingData(data []TrackingData) ([]TrackingData, error) {
+// detachTrackingData deep-copies entries via a JSON round-trip, dropping
+// (and logging) any entry that cannot be serialized — such an exposure
+// could not be forwarded anyway, and returning it aliased would break the
+// detached-copy guarantee.
+func (client *Client) detachTrackingData(data []TrackingData) []TrackingData {
 	if len(data) == 0 {
-		return data, nil
+		return nil
 	}
-	raw, err := json.Marshal(data)
-	if err != nil {
-		return nil, err
+	out := make([]TrackingData, 0, len(data))
+	for _, d := range data {
+		raw, err := json.Marshal(d)
+		if err == nil {
+			var detached TrackingData
+			if err = json.Unmarshal(raw, &detached); err == nil {
+				out = append(out, detached)
+				continue
+			}
+		}
+		client.logger.Warn("Dropping unserializable exposure from deferred tracking",
+			"experiment", d.Experiment.Key, "error", err)
 	}
-	var out []TrackingData
-	if err := json.Unmarshal(raw, &out); err != nil {
-		return nil, err
-	}
-	return out, nil
+	return out
 }
 
 // ClearDeferredTrackingCalls empties the deferred tracking buffer.

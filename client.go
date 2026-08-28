@@ -244,12 +244,7 @@ func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
 	if client.deferredTracks != nil {
 		// Detach before buffering: this runs on the evaluating goroutine, so
 		// nothing the caller later mutates can reach the buffer.
-		data, err := detachTrackingData(e.experiments)
-		if err != nil {
-			client.logger.Warn("Buffering aliased tracking data, deep copy failed", "error", err)
-			data = e.experiments
-		}
-		client.deferredTracks.add(data)
+		client.deferredTracks.add(client.detachTrackingData(e.experiments))
 	}
 	plugins := client.data.getPlugins()
 	for _, u := range e.featureUsage {

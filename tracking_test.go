@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"sync"
 	"testing"
 
@@ -281,6 +282,25 @@ func TestDeferredTracking(t *testing.T) {
 		require.Equal(t, 0, again[0].Result.VariationId)
 	})
 
+	t.Run("unserializable exposures are dropped, not returned aliased", func(t *testing.T) {
+		client, callbacks, _ := newTrackingTestClient(t)
+		one := 1.0
+		exp := Experiment{
+			Key:        "nan-exp",
+			Variations: []FeatureValue{math.NaN(), "b"},
+			Weights:    []float64{1, 0},
+			Coverage:   &one,
+		}
+
+		res := client.RunExperiment(ctx, &exp)
+		require.True(t, res.InExperiment)
+		require.Len(t, callbacks.exposures, 1, "callbacks still fire for unserializable exposures")
+		require.Empty(t, client.DeferredTrackingCalls())
+
+		client.EvalFeature(ctx, "ramped-treatment")
+		require.Len(t, client.DeferredTrackingCalls(), 1, "a bad exposure must not poison later ones")
+	})
+
 	t.Run("nil without WithDeferredTracking", func(t *testing.T) {
 		client, err := NewClient(ctx,
 			WithJsonFeatures(trackingFeaturesJSON),
@@ -546,8 +566,7 @@ func TestTrackingDataShape(t *testing.T) {
 		require.Equal(t, []BucketRange{{Min: 0, Max: 1}, {Min: 0, Max: 0}}, got.Ranges)
 		require.Equal(t, exp.Filters, got.Filters)
 
-		_, err := detachTrackingData(calls)
-		require.NoError(t, err)
+		require.Len(t, client.detachTrackingData(calls), 1)
 
 		b, err := json.Marshal(calls[0])
 		require.NoError(t, err)
