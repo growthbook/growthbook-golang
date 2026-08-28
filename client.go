@@ -219,11 +219,24 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 	if client.featureUsageCallback != nil {
 		client.featureUsageCallback(ctx, key, res, client.extraData)
 	}
+	plugins := client.data.getPlugins()
+	// Passthrough assignments (e.g. the control arm of a monitored ramp
+	// step) did not decide the served value, but they are exposures all the
+	// same: track them before the served experiment, in evaluation order,
+	// as the JS and Python SDKs do.
+	for _, a := range e.passthroughAssignments {
+		if client.experimentCallback != nil {
+			client.experimentCallback(ctx, a.experiment, a.result, client.extraData)
+		}
+		for _, p := range plugins {
+			client.safePluginExperimentViewed(ctx, p, a.experiment, a.result)
+		}
+	}
 	if client.experimentCallback != nil && res.InExperiment() {
 		client.experimentCallback(ctx, res.Experiment, res.ExperimentResult, client.extraData)
 	}
 	// Notify plugins. Panics are recovered so plugins never interrupt evaluation.
-	for _, p := range client.data.getPlugins() {
+	for _, p := range plugins {
 		client.safePluginFeatureEvaluated(ctx, p, key, res)
 		if res.InExperiment() {
 			client.safePluginExperimentViewed(ctx, p, res.Experiment, res.ExperimentResult)
