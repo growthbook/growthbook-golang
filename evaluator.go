@@ -14,6 +14,17 @@ type evaluator struct {
 	evaluated   stack[string]
 	client      *Client
 	ctx         context.Context
+
+	// passthroughAssignments records experiment rules of the feature being
+	// evaluated that bucketed the user into a passthrough variation.
+	// Evaluation falls through to the next rule, but the assignment is still
+	// an exposure the caller must be able to track (see Client.EvalFeature).
+	passthroughAssignments []experimentAssignment
+}
+
+type experimentAssignment struct {
+	experiment *Experiment
+	result     *ExperimentResult
 }
 
 func (e *evaluator) evalFeature(key string) *FeatureResult {
@@ -386,7 +397,16 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 
 	exp := experimentFromFeatureRule(featureId, rule)
 	res := e.runExperiment(exp, featureId)
-	if !res.InExperiment || res.Passthrough {
+	if !res.InExperiment {
+		return nil
+	}
+	if res.Passthrough {
+		// Only the top-level feature's own rules; assignments made while
+		// evaluating prerequisite features are not reported, consistent
+		// with how EvalFeature reports the served experiment.
+		if len(e.evaluated.stack) == 1 {
+			e.passthroughAssignments = append(e.passthroughAssignments, experimentAssignment{exp, res})
+		}
 		return nil
 	}
 
