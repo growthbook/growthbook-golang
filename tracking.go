@@ -7,11 +7,20 @@ import (
 	"sync"
 )
 
+// TrackingUserContext is the user context an evaluation ran with — the
+// evaluating client's attributes and URL. It is passed to ExperimentCallback
+// and carried on TrackingData, mirroring the JS SDK type of the same name.
+type TrackingUserContext struct {
+	Attributes Attributes `json:"attributes"`
+	URL        string     `json:"url,omitempty"`
+}
+
 // TrackingData is a single experiment exposure, in the JSON shape client
 // SDKs accept as deferred tracking calls.
 type TrackingData struct {
-	Experiment *Experiment       `json:"experiment"`
-	Result     *ExperimentResult `json:"result"`
+	Experiment *Experiment          `json:"experiment"`
+	Result     *ExperimentResult    `json:"result"`
+	User       *TrackingUserContext `json:"user,omitempty"`
 }
 
 // DedupeKey identifies an exposure by hash attribute, hash value, experiment
@@ -77,11 +86,25 @@ func (client *Client) ClearDeferredTrackingCalls() {
 	b.data = nil
 }
 
+func (client *Client) trackingUserContext() *TrackingUserContext {
+	clientURL := ""
+	if client.url != nil {
+		clientURL = client.url.String()
+	}
+	return &TrackingUserContext{
+		Attributes: attributesFromValue(client.attributes),
+		URL:        clientURL,
+	}
+}
+
 func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
 	if !e.recording {
 		return
 	}
-	data := TrackingData{Experiment: exp, Result: res}
+	if e.userCtx == nil {
+		e.userCtx = e.client.trackingUserContext()
+	}
+	data := TrackingData{Experiment: exp, Result: res, User: e.userCtx}
 	key := data.DedupeKey()
 	if e.trackedExperiments[key] {
 		return

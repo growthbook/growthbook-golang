@@ -167,7 +167,9 @@ Custom plugins can receive these events too by implementing the optional
 
 For custom analytics integrations, you can set up two callbacks:
 
-1. **`ExperimentCallback`**: Triggered when a user is included in an experiment.
+1. **`ExperimentCallback`**: Triggered when a user is included in an
+   experiment, with the user context (attributes and URL) the evaluation ran
+   with — the equivalent of the JS SDK's `trackingCallback`.
 2. **`FeatureUsageCallback`**: Triggered on each feature evaluation.
 
 You can also attach extra data that will be sent with each callback. These callbacks can be set globally via the `NewClient` function using the `WithExperimentCallback` and `WithFeatureUsageCallback` options. Alternatively, you can set them locally when creating child clients using similar methods like `client.WithExperimentCallback`. Extra data is set via the `WithExtraData` option.
@@ -176,7 +178,7 @@ You can also attach extra data that will be sent with each callback. These callb
 client, err := gb.NewClient(
     context.Background(),
     gb.WithClientKey("sdk-XXXX"),
-    gb.WithExperimentCallback(func(ctx context.Context, exp *gb.Experiment, result *gb.ExperimentResult, extraData any) {
+    gb.WithExperimentCallback(func(ctx context.Context, exp *gb.Experiment, result *gb.ExperimentResult, userCtx *gb.TrackingUserContext, extraData any) {
         // Send to your analytics provider
     }),
     gb.WithFeatureUsageCallback(func(ctx context.Context, key string, result *gb.FeatureResult, extraData any) {
@@ -218,7 +220,8 @@ Good to know:
   and variation), in the order they were first seen.
   `ClearDeferredTrackingCalls` empties it.
 - `TrackingData` marshals to the same JSON shape as the JS SDK's tracking
-  data, so a forwarded list can be passed directly to a JS client's
+  data — including the `user` context the evaluation ran with — so a
+  forwarded list can be passed directly to a JS client's
   `setDeferredTrackingCalls`.
 - Child clients cloned from an armed client share its buffer. Calling
   `WithDeferredTracking` again gives the new client a fresh, separate buffer.

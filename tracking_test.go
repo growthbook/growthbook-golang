@@ -126,7 +126,7 @@ func newTrackingTestClient(t *testing.T, extra ...ClientOption) (*Client, *track
 		WithJsonFeatures(trackingFeaturesJSON),
 		WithAttributes(Attributes{"id": "user-1"}),
 		WithDeferredTracking(),
-		WithExperimentCallback(func(ctx context.Context, exp *Experiment, res *ExperimentResult, _ any) {
+		WithExperimentCallback(func(ctx context.Context, exp *Experiment, res *ExperimentResult, _ *TrackingUserContext, _ any) {
 			callbacks.OnExperimentViewed(ctx, exp, res)
 		}),
 		WithFeatureUsageCallback(func(ctx context.Context, key string, res *FeatureResult, _ any) {
@@ -328,7 +328,29 @@ func TestDeferredTracking(t *testing.T) {
 		calls := shared.DeferredTrackingCalls()
 		require.Len(t, calls, 2)
 		require.NotEqual(t, calls[0].Result.HashValue, calls[1].Result.HashValue)
+		require.Equal(t, "user-1", calls[0].User.Attributes["id"])
+		require.Equal(t, "user-2", calls[1].User.Attributes["id"])
 	})
+}
+
+func TestExperimentCallbackUserContext(t *testing.T) {
+	ctx := context.Background()
+	var got *TrackingUserContext
+	client, err := NewClient(ctx,
+		WithJsonFeatures(trackingFeaturesJSON),
+		WithAttributes(Attributes{"id": "user-1"}),
+		WithUrl("http://example.com/checkout"),
+		WithExperimentCallback(func(_ context.Context, _ *Experiment, _ *ExperimentResult, userCtx *TrackingUserContext, _ any) {
+			got = userCtx
+		}),
+	)
+	require.NoError(t, err)
+
+	res := client.EvalFeature(ctx, "ramped-treatment")
+	require.True(t, res.InExperiment())
+	require.NotNil(t, got)
+	require.Equal(t, "user-1", got.Attributes["id"])
+	require.Equal(t, "http://example.com/checkout", got.URL)
 }
 
 func TestRunExperimentTracking(t *testing.T) {
@@ -471,6 +493,8 @@ func TestTrackingDataShape(t *testing.T) {
 		for _, field := range []string{"inExperiment", "variationId", "value", "hashAttribute", "hashValue", "key", "passthrough"} {
 			require.Contains(t, m["result"], field)
 		}
+		require.Contains(t, m["user"], "attributes")
+		require.NotContains(t, m["user"], "url")
 	})
 }
 

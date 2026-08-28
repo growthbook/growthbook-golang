@@ -227,7 +227,7 @@ func TestClientExperimentTracking(t *testing.T) {
 	ctx := context.TODO()
 	count := 0
 	var extraData any
-	cb := func(ctx context.Context, exp *Experiment, result *ExperimentResult, ed any) {
+	cb := func(ctx context.Context, exp *Experiment, result *ExperimentResult, userCtx *TrackingUserContext, ed any) {
 		count++
 		extraData = ed
 	}

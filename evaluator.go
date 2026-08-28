@@ -16,6 +16,7 @@ type evaluator struct {
 	ctx         context.Context
 
 	recording          bool // false when no callbacks, plugins, or buffer consume tracking
+	userCtx            *TrackingUserContext
 	experiments        []TrackingData
 	featureUsage       []featureUsage
 	trackedExperiments map[string]bool

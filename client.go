@@ -49,8 +49,9 @@ type Client struct {
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
 type ForcedVariationsMap map[string]int
 
-// ExperimentCallback function that is executed every time a user is included in an Experiment.
-type ExperimentCallback func(context.Context, *Experiment, *ExperimentResult, any)
+// ExperimentCallback function that is executed every time a user is included
+// in an Experiment, with the user context the evaluation ran with.
+type ExperimentCallback func(context.Context, *Experiment, *ExperimentResult, *TrackingUserContext, any)
 
 // FeatureUsageCallback funcion is executed every time feature is evaluated
 type FeatureUsageCallback func(context.Context, string, *FeatureResult, any)
@@ -254,7 +255,7 @@ func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
 	}
 	for _, d := range e.experiments {
 		if client.experimentCallback != nil {
-			client.experimentCallback(ctx, d.Experiment, d.Result, client.extraData)
+			client.experimentCallback(ctx, d.Experiment, d.Result, d.User, client.extraData)
 		}
 		for _, p := range plugins {
 			client.safePluginExperimentViewed(ctx, p, d.Experiment, d.Result)

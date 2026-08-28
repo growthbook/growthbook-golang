@@ -143,7 +143,7 @@ func WithExtraData(extraData any) ClientOption {
 	}
 }
 
-// WithExperiementCallbaback sets experiment callback function.
+// WithExperimentCallback sets experiment callback function.
 func WithExperimentCallback(cb ExperimentCallback) ClientOption {
 	return func(c *Client) error {
 		c.experimentCallback = cb
