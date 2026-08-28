@@ -16,7 +16,8 @@ type TrackingUserContext struct {
 }
 
 // TrackingData is a single experiment exposure, in the JSON shape client
-// SDKs accept as deferred tracking calls.
+// SDKs accept as deferred tracking calls. It holds its own copies of the
+// experiment and result, snapshotted at evaluation time.
 type TrackingData struct {
 	Experiment *Experiment          `json:"experiment"`
 	Result     *ExperimentResult    `json:"result"`
@@ -104,7 +105,8 @@ func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
 	if e.userCtx == nil {
 		e.userCtx = e.client.trackingUserContext()
 	}
-	data := TrackingData{Experiment: exp, Result: res, User: e.userCtx}
+	expCopy, resCopy := *exp, *res
+	data := TrackingData{Experiment: &expCopy, Result: &resCopy, User: e.userCtx}
 	key := data.DedupeKey()
 	if e.trackedExperiments[key] {
 		return

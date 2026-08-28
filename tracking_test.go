@@ -423,6 +423,28 @@ func TestRunExperimentTracking(t *testing.T) {
 		require.Empty(t, client.DeferredTrackingCalls())
 	})
 
+	t.Run("recorded exposures snapshot the experiment and result", func(t *testing.T) {
+		client, callbacks, _ := newTrackingTestClient(t)
+		var exp Experiment
+		require.NoError(t, json.Unmarshal([]byte(`{
+			"key": "direct",
+			"variations": ["x", "y"],
+			"weights": [1, 0],
+			"coverage": 1
+		}`), &exp))
+
+		res := client.RunExperiment(ctx, &exp)
+		require.True(t, res.InExperiment)
+		exp.Key = "mutated"
+		res.VariationId = 99
+
+		calls := client.DeferredTrackingCalls()
+		require.Len(t, calls, 1)
+		require.Equal(t, "direct", calls[0].Experiment.Key)
+		require.Equal(t, 0, calls[0].Result.VariationId)
+		require.Equal(t, []trackedExposure{{"direct", 0, false, ""}}, callbacks.exposures)
+	})
+
 	t.Run("sticky bucket assignments are tracked", func(t *testing.T) {
 		client, callbacks, _ := newTrackingTestClient(t, WithStickyBucketService(NewInMemoryStickyBucketService()))
 
