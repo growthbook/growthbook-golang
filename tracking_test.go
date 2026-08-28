@@ -371,6 +371,73 @@ func TestRunExperimentTracking(t *testing.T) {
 		require.Empty(t, plugin.exposures)
 		require.Empty(t, client.DeferredTrackingCalls())
 	})
+
+	t.Run("client-forced variations are served but not tracked (JS parity)", func(t *testing.T) {
+		var seen []string
+		client, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithDeferredTracking(),
+			WithForcedVariations(ForcedVariationsMap{"map-forced": 1}),
+			WithExperimentCallback(func(_ context.Context, exp *Experiment, _ *ExperimentResult, _ any) {
+				seen = append(seen, exp.Key)
+			}),
+		)
+		require.NoError(t, err)
+
+		exp := Experiment{Key: "map-forced", Variations: []FeatureValue{"x", "y"}}
+		res := client.RunExperiment(ctx, &exp)
+		require.True(t, res.InExperiment)
+		require.Equal(t, "y", res.Value)
+
+		require.Empty(t, seen)
+		require.Empty(t, client.DeferredTrackingCalls())
+	})
+
+	t.Run("querystring overrides are served but not tracked (JS parity)", func(t *testing.T) {
+		var seen []string
+		client, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithDeferredTracking(),
+			WithUrl("http://example.com/?qs-exp=1"),
+			WithExperimentCallback(func(_ context.Context, exp *Experiment, _ *ExperimentResult, _ any) {
+				seen = append(seen, exp.Key)
+			}),
+		)
+		require.NoError(t, err)
+
+		exp := Experiment{Key: "qs-exp", Variations: []FeatureValue{"x", "y"}}
+		res := client.RunExperiment(ctx, &exp)
+		require.True(t, res.InExperiment)
+		require.Equal(t, "y", res.Value)
+
+		require.Empty(t, seen)
+		require.Empty(t, client.DeferredTrackingCalls())
+	})
+
+	t.Run("sticky bucket assignments are tracked", func(t *testing.T) {
+		var seen []trackedExposure
+		client, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithDeferredTracking(),
+			WithStickyBucketService(NewInMemoryStickyBucketService()),
+			WithExperimentCallback(func(_ context.Context, exp *Experiment, res *ExperimentResult, _ any) {
+				seen = append(seen, trackedExposure{exp.Key, res.VariationId, res.Passthrough, res.FeatureId})
+			}),
+		)
+		require.NoError(t, err)
+
+		first := client.EvalFeature(ctx, "ramped-treatment")
+		require.False(t, first.ExperimentResult.StickyBucketUsed)
+		second := client.EvalFeature(ctx, "ramped-treatment")
+		require.True(t, second.ExperimentResult.StickyBucketUsed)
+
+		want := trackedExposure{"ramp-t", 0, false, "ramped-treatment"}
+		require.Equal(t, []trackedExposure{want, want}, seen)
+		require.Len(t, client.DeferredTrackingCalls(), 1)
+	})
 }
 
 func TestFeatureUsageEdgeCases(t *testing.T) {

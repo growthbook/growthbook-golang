@@ -188,6 +188,50 @@ client, err := gb.NewClient(
 
 Callbacks and the tracking plugin can be used together — they operate independently.
 
+#### Deferred Tracking
+
+Sometimes the process evaluating features isn't the right place to send
+analytics from. A common example is a remote-evaluation server: it evaluates
+features on behalf of client SDKs, and each client should report its own
+exposures. Deferred tracking buffers every experiment exposure an evaluation
+produces — including passthrough assignments and experiments inside
+prerequisite features — so you can read the buffer and forward it, instead of
+intercepting callbacks.
+
+Enable it with `WithDeferredTracking`. The usual pattern is one child client
+per user request; the child acts as the user context, so every request gets
+its own buffer:
+
+```go
+child, _ := client.WithAttributes(gb.Attributes{"id": userID})
+child, _ = child.WithDeferredTracking()
+
+child.EvalFeature(ctx, "feature-a")
+child.EvalFeature(ctx, "feature-b")
+
+exposures := child.DeferredTrackingCalls() // []gb.TrackingData
+```
+
+Good to know:
+
+- The buffer keeps one entry per unique assignment (same user, experiment,
+  and variation), in the order they were first seen.
+  `ClearDeferredTrackingCalls` empties it.
+- `TrackingData` marshals to the same JSON shape as the JS SDK's tracking
+  data, so a forwarded list can be passed directly to a JS client's
+  `setDeferredTrackingCalls`.
+- Child clients cloned from an armed client share its buffer. Calling
+  `WithDeferredTracking` again gives the new client a fresh, separate buffer.
+- Arming a shared client also works — the buffer is safe for concurrent use
+  and entries carry their user identity — but you lose the per-request
+  boundary, so prefer arming per-request children.
+- Callbacks and plugins are unaffected and keep firing. If you both forward
+  the buffer and track via callbacks, you'll report exposures twice — pick
+  one channel.
+- Feature usage is not buffered, only experiment exposures. Usage events
+  describe where evaluation happened, and remote-evaluation clients report
+  their own; on the server they still reach callbacks and plugins.
+
 #### Custom Plugins
 
 You can implement the `Plugin` interface to create custom tracking or other plugins:
