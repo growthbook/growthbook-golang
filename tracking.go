@@ -102,12 +102,7 @@ func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
 	if !e.recording {
 		return
 	}
-	if e.userCtx == nil {
-		e.userCtx = e.client.trackingUserContext()
-	}
-	expCopy, resCopy := *exp, *res
-	data := TrackingData{Experiment: &expCopy, Result: &resCopy, User: e.userCtx}
-	key := data.DedupeKey()
+	key := TrackingData{Experiment: exp, Result: res}.DedupeKey()
 	if e.trackedExperiments[key] {
 		return
 	}
@@ -115,7 +110,11 @@ func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
 		e.trackedExperiments = make(map[string]bool)
 	}
 	e.trackedExperiments[key] = true
-	e.experiments = append(e.experiments, data)
+	if e.userCtx == nil {
+		e.userCtx = e.client.trackingUserContext()
+	}
+	expCopy, resCopy := *exp, *res
+	e.experiments = append(e.experiments, TrackingData{Experiment: &expCopy, Result: &resCopy, User: e.userCtx})
 }
 
 // recordFeatureUsage reports a feature once per evaluation unless its value
