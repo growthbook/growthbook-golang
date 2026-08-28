@@ -38,8 +38,9 @@ All notable changes to this project will be documented in this file.
   `WithDeferredTracking` option — typically on a per-request child client,
   which acts as the user context — and every experiment exposure produced by
   the standard evaluation methods is buffered: read it with
-  `Client.DeferredTrackingCalls` and empty it with
-  `Client.ClearDeferredTrackingCalls`. The buffer deduplicates by
+  `Client.DeferredTrackingCalls` (which returns detached copies, safe to
+  retain or mutate) and empty it with `Client.ClearDeferredTrackingCalls`.
+  The buffer deduplicates by
   `TrackingData.DedupeKey` (the same fields as the JS SDK's dedupe key) over
   its lifetime and keeps first-seen order; `TrackingData` serializes to the
   JS SDK's `TrackingData` shape, compatible with `setDeferredTrackingCalls`.

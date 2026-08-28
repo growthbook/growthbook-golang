@@ -217,8 +217,9 @@ exposures := child.DeferredTrackingCalls() // []gb.TrackingData
 Good to know:
 
 - The buffer keeps one entry per unique assignment (same user, experiment,
-  and variation), in the order they were first seen.
-  `ClearDeferredTrackingCalls` empties it.
+  and variation), in the order they were first seen. Reads return detached
+  copies, safe to retain or mutate; `ClearDeferredTrackingCalls` empties the
+  buffer.
 - `TrackingData` marshals to the same JSON shape as the JS SDK's tracking
   data — including the `user` context the evaluation ran with — so a
   forwarded list can be passed directly to a JS client's

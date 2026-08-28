@@ -267,6 +267,20 @@ func TestDeferredTracking(t *testing.T) {
 		require.Len(t, client.DeferredTrackingCalls(), 1)
 	})
 
+	t.Run("returned entries are detached from the buffer", func(t *testing.T) {
+		client, _, _ := newTrackingTestClient(t)
+		client.EvalFeature(ctx, "ramped-treatment")
+
+		calls := client.DeferredTrackingCalls()
+		require.Len(t, calls, 1)
+		calls[0].Experiment.Key = "mutated"
+		calls[0].Result.VariationId = 99
+
+		again := client.DeferredTrackingCalls()
+		require.Equal(t, "ramp-t", again[0].Experiment.Key)
+		require.Equal(t, 0, again[0].Result.VariationId)
+	})
+
 	t.Run("nil without WithDeferredTracking", func(t *testing.T) {
 		client, err := NewClient(ctx,
 			WithJsonFeatures(trackingFeaturesJSON),

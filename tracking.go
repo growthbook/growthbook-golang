@@ -63,16 +63,39 @@ func (b *trackingBuffer) add(data []TrackingData) {
 
 // DeferredTrackingCalls returns the experiment exposures buffered so far —
 // passthrough and prerequisite assignments included, deduped by DedupeKey,
-// in first-seen order. Returns nil unless deferred tracking is enabled (see
-// WithDeferredTracking).
+// in first-seen order — as detached copies in the SDK's JSON shape, safe to
+// retain or mutate without affecting the buffer. Returns nil unless deferred
+// tracking is enabled (see WithDeferredTracking).
 func (client *Client) DeferredTrackingCalls() []TrackingData {
 	if client.deferredTracks == nil {
 		return nil
 	}
 	b := client.deferredTracks
 	b.mu.Lock()
-	defer b.mu.Unlock()
-	return append([]TrackingData(nil), b.data...)
+	shared := append([]TrackingData(nil), b.data...)
+	b.mu.Unlock()
+
+	detached, err := detachTrackingData(shared)
+	if err != nil {
+		client.logger.Warn("Returning aliased tracking data, deep copy failed", "error", err)
+		return shared
+	}
+	return detached
+}
+
+func detachTrackingData(data []TrackingData) ([]TrackingData, error) {
+	if len(data) == 0 {
+		return data, nil
+	}
+	raw, err := json.Marshal(data)
+	if err != nil {
+		return nil, err
+	}
+	var out []TrackingData
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // ClearDeferredTrackingCalls empties the deferred tracking buffer.
