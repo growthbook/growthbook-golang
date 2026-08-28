@@ -291,6 +291,8 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 		savedGroups: client.data.savedGroups,
 		client:      client,
 		ctx:         ctx,
+		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
+			client.deferredTracks != nil || len(client.data.plugins) > 0,
 	}
 	client.data.mu.RUnlock()
 	return &e

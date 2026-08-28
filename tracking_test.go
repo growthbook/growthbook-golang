@@ -457,13 +457,20 @@ func TestTrackingDataShape(t *testing.T) {
 		require.NotEqual(t, td.DedupeKey(), other.DedupeKey())
 	})
 
-	t.Run("serializes with the JS TrackingData field names", func(t *testing.T) {
-		b, err := json.Marshal(td)
+	t.Run("a real exposure serializes with the deferred tracking field names", func(t *testing.T) {
+		client, _, _ := newTrackingTestClient(t)
+		client.EvalFeature(context.Background(), "ramped-treatment")
+		calls := client.DeferredTrackingCalls()
+		require.Len(t, calls, 1)
+
+		b, err := json.Marshal(calls[0])
 		require.NoError(t, err)
-		var m map[string]json.RawMessage
+		var m map[string]map[string]json.RawMessage
 		require.NoError(t, json.Unmarshal(b, &m))
-		require.Contains(t, m, "experiment")
-		require.Contains(t, m, "result")
+		require.Equal(t, `"ramp-t"`, string(m["experiment"]["key"]))
+		for _, field := range []string{"inExperiment", "variationId", "value", "hashAttribute", "hashValue", "key", "passthrough"} {
+			require.Contains(t, m["result"], field)
+		}
 	})
 }
 

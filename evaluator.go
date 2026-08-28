@@ -15,6 +15,7 @@ type evaluator struct {
 	client      *Client
 	ctx         context.Context
 
+	recording          bool // false when no callbacks, plugins, or buffer consume tracking
 	experiments        []TrackingData
 	featureUsage       []featureUsage
 	trackedExperiments map[string]bool
@@ -286,9 +287,9 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		)
 	}
 
-	// 14. Record the assignment for reporting — where the JS SDK fires its
-	// tracking callback. Earlier returns (forced variations, overrides) are
-	// deliberately not recorded; passthrough assignments are.
+	// 14. Record the assignment for reporting. Earlier returns (forced
+	// variations, overrides) are deliberately not recorded; passthrough
+	// assignments are.
 	if result.InExperiment {
 		e.recordExperiment(exp, result)
 	}

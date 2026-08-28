@@ -7,17 +7,16 @@ import (
 	"sync"
 )
 
-// TrackingData is a single experiment exposure. It serializes to the JS
-// SDK's TrackingData shape, compatible with setDeferredTrackingCalls.
+// TrackingData is a single experiment exposure, in the JSON shape client
+// SDKs accept as deferred tracking calls.
 type TrackingData struct {
 	Experiment *Experiment       `json:"experiment"`
 	Result     *ExperimentResult `json:"result"`
 }
 
-// DedupeKey identifies an exposure by the same fields as the JS SDK's
-// getExperimentDedupeKey, with separators so distinct exposures can't
-// collide on field boundaries. Exposures are deduplicated by this key within
-// a single evaluation and in the deferred tracking buffer.
+// DedupeKey identifies an exposure by hash attribute, hash value, experiment
+// key, and variation. Exposures are deduplicated by this key within a single
+// evaluation and in the deferred tracking buffer.
 func (t TrackingData) DedupeKey() string {
 	return t.Result.HashAttribute + "\x00" + t.Result.HashValue + "\x00" + t.Experiment.Key + "\x00" + strconv.Itoa(t.Result.VariationId)
 }
@@ -79,6 +78,9 @@ func (client *Client) ClearDeferredTrackingCalls() {
 }
 
 func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
+	if !e.recording {
+		return
+	}
 	data := TrackingData{Experiment: exp, Result: res}
 	key := data.DedupeKey()
 	if e.trackedExperiments[key] {
@@ -91,9 +93,12 @@ func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
 	e.experiments = append(e.experiments, data)
 }
 
-// recordFeatureUsage mirrors the JS SDK's onFeatureUsage: a feature is
-// reported once per evaluation unless its value changed.
+// recordFeatureUsage reports a feature once per evaluation unless its value
+// changed.
 func (e *evaluator) recordFeatureUsage(key string, res *FeatureResult) {
+	if !e.recording {
+		return
+	}
 	stringified := stringifyFeatureValue(res.Value)
 	if prev, ok := e.trackedFeatures[key]; ok && prev == stringified {
 		return

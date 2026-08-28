@@ -10,7 +10,11 @@ All notable changes to this project will be documented in this file.
   the control arm of a monitored ramp step) and assignments made while
   evaluating prerequisite features. Previously only the experiment that
   decided the served value was reported, so those exposures were silently
-  dropped. Feature-usage callbacks fire before experiment callbacks.
+  dropped. Feature-usage callbacks fire before experiment callbacks. Unlike
+  the JS SDK, callbacks are deduplicated per evaluation, not per client
+  lifetime — repeat evaluations fire them again (the deferred tracking
+  buffer dedupes for its lifetime, and analysis dedupes exposures at query
+  time).
 - **Behavior change (JS parity):** `FeatureUsageCallback` and plugin
   `OnFeatureEvaluated` now also fire for prerequisite features evaluated
   along the way, not just the requested feature. A feature is reported once
