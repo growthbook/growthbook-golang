@@ -523,6 +523,38 @@ func TestTrackingDataShape(t *testing.T) {
 		require.NotEqual(t, td.DedupeKey(), other.DedupeKey())
 	})
 
+	t.Run("exposures with namespaces, ranges, and filters detach losslessly", func(t *testing.T) {
+		ctx := context.Background()
+		client, _, _ := newTrackingTestClient(t)
+		var exp Experiment
+		require.NoError(t, json.Unmarshal([]byte(`{
+			"key": "kitchen-sink",
+			"variations": ["x", "y"],
+			"ranges": [[0, 1], [0, 0]],
+			"namespace": ["ns-1", 0, 1],
+			"filters": [{"seed": "s", "ranges": [[0, 1]], "attribute": "id", "hashVersion": 2}],
+			"meta": [{"key": "a"}, {"key": "b"}]
+		}`), &exp))
+
+		res := client.RunExperiment(ctx, &exp)
+		require.True(t, res.InExperiment)
+
+		calls := client.DeferredTrackingCalls()
+		require.Len(t, calls, 1)
+		got := calls[0].Experiment
+		require.Equal(t, &Namespace{Id: "ns-1", Start: 0, End: 1}, got.Namespace)
+		require.Equal(t, []BucketRange{{Min: 0, Max: 1}, {Min: 0, Max: 0}}, got.Ranges)
+		require.Equal(t, exp.Filters, got.Filters)
+
+		_, err := detachTrackingData(calls)
+		require.NoError(t, err)
+
+		b, err := json.Marshal(calls[0])
+		require.NoError(t, err)
+		require.Contains(t, string(b), `"namespace":["ns-1",0,1]`)
+		require.Contains(t, string(b), `"ranges":[[0,1],[0,0]]`)
+	})
+
 	t.Run("a real exposure serializes with the deferred tracking field names", func(t *testing.T) {
 		client, _, _ := newTrackingTestClient(t)
 		client.EvalFeature(context.Background(), "ramped-treatment")

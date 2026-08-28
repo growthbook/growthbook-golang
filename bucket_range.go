@@ -88,3 +88,7 @@ func (br *BucketRange) UnmarshalJSON(data []byte) error {
 	br.Max = float64(pair[1])
 	return nil
 }
+
+func (br BucketRange) MarshalJSON() ([]byte, error) {
+	return json.Marshal([2]float64{br.Min, br.Max})
+}

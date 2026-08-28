@@ -41,8 +41,11 @@ All notable changes to this project will be documented in this file.
   `Client.DeferredTrackingCalls` (which returns detached copies, safe to
   retain or mutate) and empty it with `Client.ClearDeferredTrackingCalls`.
   The buffer deduplicates by `TrackingData.DedupeKey` (the same fields as
-  the JS SDK's dedupe key) over its lifetime and keeps first-seen order;
-  `TrackingData` serializes to the
+  the JS SDK's dedupe key) over its lifetime and keeps first-seen order.
+  `Namespace` and `BucketRange` now marshal to their payload tuple forms
+  (`[id, start, end]` and `[min, max]`) so experiment JSON round-trips and
+  matches what other SDKs emit; previously they marshaled as structs that
+  could not be re-parsed. `TrackingData` serializes to the
   JS SDK's `TrackingData` shape, compatible with `setDeferredTrackingCalls`.
   Callbacks and plugins are unaffected and keep firing per evaluation.
 
