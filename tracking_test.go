@@ -351,6 +351,12 @@ func TestExperimentCallbackUserContext(t *testing.T) {
 	require.NotNil(t, got)
 	require.Equal(t, "user-1", got.Attributes["id"])
 	require.Equal(t, "http://example.com/checkout", got.URL)
+
+	child, err := client.WithAttributes(Attributes{"id": "user-2"})
+	require.NoError(t, err)
+	child.EvalFeature(ctx, "ramped-treatment")
+	require.Equal(t, "user-2", got.Attributes["id"])
+	require.Equal(t, "http://example.com/checkout", got.URL)
 }
 
 func TestRunExperimentTracking(t *testing.T) {
