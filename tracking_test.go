@@ -118,11 +118,11 @@ func exposures(t *testing.T, data []TrackingData) []trackedExposure {
 	return out
 }
 
-func newTrackingTestClient(t *testing.T) (*Client, *trackingRecorder, *trackingRecorder) {
+func newTrackingTestClient(t *testing.T, extra ...ClientOption) (*Client, *trackingRecorder, *trackingRecorder) {
 	t.Helper()
 	plugin := &trackingRecorder{}
 	callbacks := &trackingRecorder{}
-	client, err := NewClient(context.Background(),
+	opts := []ClientOption{
 		WithJsonFeatures(trackingFeaturesJSON),
 		WithAttributes(Attributes{"id": "user-1"}),
 		WithDeferredTracking(),
@@ -133,7 +133,8 @@ func newTrackingTestClient(t *testing.T) (*Client, *trackingRecorder, *trackingR
 			callbacks.OnFeatureEvaluated(ctx, key, res)
 		}),
 		WithPlugins(plugin),
-	)
+	}
+	client, err := NewClient(context.Background(), append(opts, extra...)...)
 	require.NoError(t, err)
 	return client, callbacks, plugin
 }
@@ -373,61 +374,31 @@ func TestRunExperimentTracking(t *testing.T) {
 	})
 
 	t.Run("client-forced variations are served but not tracked (JS parity)", func(t *testing.T) {
-		var seen []string
-		client, err := NewClient(ctx,
-			WithJsonFeatures(trackingFeaturesJSON),
-			WithAttributes(Attributes{"id": "user-1"}),
-			WithDeferredTracking(),
-			WithForcedVariations(ForcedVariationsMap{"map-forced": 1}),
-			WithExperimentCallback(func(_ context.Context, exp *Experiment, _ *ExperimentResult, _ any) {
-				seen = append(seen, exp.Key)
-			}),
-		)
-		require.NoError(t, err)
+		client, callbacks, _ := newTrackingTestClient(t, WithForcedVariations(ForcedVariationsMap{"map-forced": 1}))
 
 		exp := Experiment{Key: "map-forced", Variations: []FeatureValue{"x", "y"}}
 		res := client.RunExperiment(ctx, &exp)
 		require.True(t, res.InExperiment)
 		require.Equal(t, "y", res.Value)
 
-		require.Empty(t, seen)
+		require.Empty(t, callbacks.exposures)
 		require.Empty(t, client.DeferredTrackingCalls())
 	})
 
 	t.Run("querystring overrides are served but not tracked (JS parity)", func(t *testing.T) {
-		var seen []string
-		client, err := NewClient(ctx,
-			WithJsonFeatures(trackingFeaturesJSON),
-			WithAttributes(Attributes{"id": "user-1"}),
-			WithDeferredTracking(),
-			WithUrl("http://example.com/?qs-exp=1"),
-			WithExperimentCallback(func(_ context.Context, exp *Experiment, _ *ExperimentResult, _ any) {
-				seen = append(seen, exp.Key)
-			}),
-		)
-		require.NoError(t, err)
+		client, callbacks, _ := newTrackingTestClient(t, WithUrl("http://example.com/?qs-exp=1"))
 
 		exp := Experiment{Key: "qs-exp", Variations: []FeatureValue{"x", "y"}}
 		res := client.RunExperiment(ctx, &exp)
 		require.True(t, res.InExperiment)
 		require.Equal(t, "y", res.Value)
 
-		require.Empty(t, seen)
+		require.Empty(t, callbacks.exposures)
 		require.Empty(t, client.DeferredTrackingCalls())
 	})
 
 	t.Run("sticky bucket assignments are tracked", func(t *testing.T) {
-		var seen []trackedExposure
-		client, err := NewClient(ctx,
-			WithJsonFeatures(trackingFeaturesJSON),
-			WithAttributes(Attributes{"id": "user-1"}),
-			WithDeferredTracking(),
-			WithStickyBucketService(NewInMemoryStickyBucketService()),
-			WithExperimentCallback(func(_ context.Context, exp *Experiment, res *ExperimentResult, _ any) {
-				seen = append(seen, trackedExposure{exp.Key, res.VariationId, res.Passthrough, res.FeatureId})
-			}),
-		)
-		require.NoError(t, err)
+		client, callbacks, _ := newTrackingTestClient(t, WithStickyBucketService(NewInMemoryStickyBucketService()))
 
 		first := client.EvalFeature(ctx, "ramped-treatment")
 		require.False(t, first.ExperimentResult.StickyBucketUsed)
@@ -435,7 +406,7 @@ func TestRunExperimentTracking(t *testing.T) {
 		require.True(t, second.ExperimentResult.StickyBucketUsed)
 
 		want := trackedExposure{"ramp-t", 0, false, "ramped-treatment"}
-		require.Equal(t, []trackedExposure{want, want}, seen)
+		require.Equal(t, []trackedExposure{want, want}, callbacks.exposures)
 		require.Len(t, client.DeferredTrackingCalls(), 1)
 	})
 }
