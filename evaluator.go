@@ -15,8 +15,6 @@ type evaluator struct {
 	client      *Client
 	ctx         context.Context
 
-	// tracking collects what this evaluation must report through callbacks
-	// and plugins (see Client.fireTracking), deduped by the two maps below.
 	tracking           EvalTracking
 	trackedExperiments map[string]bool
 	trackedFeatures    map[string]string
@@ -287,10 +285,9 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		)
 	}
 
-	// 14. Record the assignment — the JS SDK fires its tracking callback at
-	// this point. This is the only place assignments are recorded, so forced
-	// variations and querystring overrides (which return earlier) are not
-	// reported, and passthrough assignments (discarded by evalRule) are.
+	// 14. Record the assignment for reporting — where the JS SDK fires its
+	// tracking callback. Earlier returns (forced variations, overrides) are
+	// deliberately not recorded; passthrough assignments are.
 	if result.InExperiment {
 		e.recordExperiment(exp, result)
 	}

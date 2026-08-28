@@ -9,13 +9,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// These tests pin what one evaluation reports through callbacks, plugins,
-// and the EvalTracking return value. Weights of [0,1] or [1,0] make every
-// assignment deterministic regardless of the hash attribute's value.
-//
-// "ramped" models a monitored ramp step: the treatment arm serves the rule's
-// value and the control arm is a passthrough variation, so control users
-// fall through to the rules below but their assignment is still an exposure.
+// Weights of [0,1] or [1,0] make every assignment deterministic. The
+// "ramped" features model a monitored ramp step, whose control arm is a
+// passthrough variation.
 const trackingFeaturesJSON = `{
   "ramped": {
     "defaultValue": "default",
@@ -97,8 +93,8 @@ type trackedUsage struct {
 	source FeatureResultSource
 }
 
-// trackingRecorder records what it is told; it doubles as a Plugin and as
-// the body of the two client callbacks.
+// trackingRecorder doubles as a Plugin and as the body of the two client
+// callbacks.
 type trackingRecorder struct {
 	exposures []trackedExposure
 	usage     []trackedUsage
@@ -234,8 +230,6 @@ func TestPrerequisiteTracking(t *testing.T) {
 	})
 
 	t.Run("no state leaks across evaluations, and no cross-call dedupe", func(t *testing.T) {
-		// Repeated exposures across calls are fine: the analysis layer
-		// dedupes exposures at the query level.
 		client, callbacks, _ := newTrackingTestClient(t)
 		client.EvalFeature(ctx, "child")
 		client.EvalFeature(ctx, "child")
@@ -245,9 +239,6 @@ func TestPrerequisiteTracking(t *testing.T) {
 }
 
 func TestEvalTrackingWithoutCallbacks(t *testing.T) {
-	// A remote-eval style server configures no callbacks or plugins and
-	// reads the tracking data from the return value instead. It must be
-	// complete when the call returns.
 	ctx := context.Background()
 	client, err := NewClient(ctx,
 		WithJsonFeatures(trackingFeaturesJSON),
@@ -351,8 +342,6 @@ func TestTrackingDataShape(t *testing.T) {
 }
 
 func TestConcurrentEvaluationsAreIsolated(t *testing.T) {
-	// Tracking state lives on the per-call evaluator, so concurrent
-	// evaluations on a shared client must each get their own complete data.
 	ctx := context.Background()
 	client, err := NewClient(ctx,
 		WithJsonFeatures(trackingFeaturesJSON),
