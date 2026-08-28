@@ -303,6 +303,31 @@ func TestDeferredTracking(t *testing.T) {
 		child.EvalFeature(ctx, "ramped")
 		require.Len(t, client.DeferredTrackingCalls(), 1)
 	})
+
+	t.Run("re-arming a clone detaches it from the parent's buffer", func(t *testing.T) {
+		parent, _, _ := newTrackingTestClient(t)
+		child, err := parent.WithDeferredTracking()
+		require.NoError(t, err)
+
+		child.EvalFeature(ctx, "ramped")
+		require.Len(t, child.DeferredTrackingCalls(), 1)
+		require.Empty(t, parent.DeferredTrackingCalls())
+	})
+
+	t.Run("a shared armed client accumulates all users without cross-user dedupe", func(t *testing.T) {
+		shared, _, _ := newTrackingTestClient(t)
+		user1, err := shared.WithAttributes(Attributes{"id": "user-1"})
+		require.NoError(t, err)
+		user2, err := shared.WithAttributes(Attributes{"id": "user-2"})
+		require.NoError(t, err)
+
+		user1.EvalFeature(ctx, "ramped-treatment")
+		user2.EvalFeature(ctx, "ramped-treatment")
+
+		calls := shared.DeferredTrackingCalls()
+		require.Len(t, calls, 2)
+		require.NotEqual(t, calls[0].Result.HashValue, calls[1].Result.HashValue)
+	})
 }
 
 func TestRunExperimentTracking(t *testing.T) {
