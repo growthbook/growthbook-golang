@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
+- **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`
+  parameter — the evaluating client's attributes and URL, the JS SDK
+  `trackingCallback`'s user argument — before the extra-data parameter:
+  `func(ctx, experiment, result, userCtx, extraData)`. Existing callbacks
+  need the one added parameter to compile. The same user context is stamped
+  on each buffered `TrackingData` as its `user` field, snapshotted at
+  evaluation time. `EventUserContext` is now an alias of the new
+  `TrackingUserContext` type; event logger code is unaffected.
 - **Behavior change (JS parity):** `EvalFeature` now fires `ExperimentCallback`
   and plugin `OnExperimentViewed` for every experiment assignment made during
   evaluation, in evaluation order — including passthrough assignments (e.g.
@@ -36,14 +44,6 @@ All notable changes to this project will be documented in this file.
   its lifetime and keeps first-seen order; `TrackingData` serializes to the
   JS SDK's `TrackingData` shape, compatible with `setDeferredTrackingCalls`.
   Callbacks and plugins are unaffected and keep firing per evaluation.
-- **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`
-  parameter — the evaluating client's attributes and URL, the JS SDK
-  `trackingCallback`'s user argument — before the extra-data parameter:
-  `func(ctx, experiment, result, userCtx, extraData)`. Existing callbacks
-  need the one added parameter to compile. The same user context is stamped
-  on each buffered `TrackingData` as its `user` field, snapshotted at
-  evaluation time. `EventUserContext` is now an alias of the new
-  `TrackingUserContext` type; event logger code is unaffected.
 
 ## [v0.3.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.3.0) - 2026-08-26
 
