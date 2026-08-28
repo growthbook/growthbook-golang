@@ -234,10 +234,15 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 	return res
 }
 
-// fireTracking reports one evaluation's tracking data to the configured
-// callbacks and plugins, and to the deferred tracking buffer when enabled.
-// Plugin panics are recovered so plugins never interrupt evaluation.
+// fireTracking reports one evaluation's tracking data to the deferred
+// tracking buffer when enabled, then to the configured callbacks and
+// plugins. The buffer is written first so a panicking callback cannot lose
+// exposures. Plugin panics are recovered so plugins never interrupt
+// evaluation.
 func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
+	if client.deferredTracks != nil {
+		client.deferredTracks.add(e.experiments)
+	}
 	plugins := client.data.getPlugins()
 	for _, u := range e.featureUsage {
 		if client.featureUsageCallback != nil {
@@ -254,9 +259,6 @@ func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
 		for _, p := range plugins {
 			client.safePluginExperimentViewed(ctx, p, d.Experiment, d.Result)
 		}
-	}
-	if client.deferredTracks != nil {
-		client.deferredTracks.add(e.experiments)
 	}
 }
 

@@ -14,11 +14,12 @@ type TrackingData struct {
 	Result     *ExperimentResult `json:"result"`
 }
 
-// DedupeKey identifies an exposure the way the JS SDK's
-// getExperimentDedupeKey does. Exposures are deduplicated by this key within
-// a single evaluation; use it to deduplicate across evaluations if needed.
+// DedupeKey identifies an exposure by the same fields as the JS SDK's
+// getExperimentDedupeKey, with separators so distinct exposures can't
+// collide on field boundaries. Exposures are deduplicated by this key within
+// a single evaluation and in the deferred tracking buffer.
 func (t TrackingData) DedupeKey() string {
-	return t.Result.HashAttribute + t.Result.HashValue + t.Experiment.Key + strconv.Itoa(t.Result.VariationId)
+	return t.Result.HashAttribute + "\x00" + t.Result.HashValue + "\x00" + t.Experiment.Key + "\x00" + strconv.Itoa(t.Result.VariationId)
 }
 
 type featureUsage struct {

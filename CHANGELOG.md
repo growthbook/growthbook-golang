@@ -10,15 +10,16 @@ All notable changes to this project will be documented in this file.
   the control arm of a monitored ramp step) and assignments made while
   evaluating prerequisite features. Previously only the experiment that
   decided the served value was reported, so those exposures were silently
-  dropped.
+  dropped. Feature-usage callbacks fire before experiment callbacks.
 - **Behavior change (JS parity):** `FeatureUsageCallback` and plugin
   `OnFeatureEvaluated` now also fire for prerequisite features evaluated
   along the way, not just the requested feature. A feature is reported once
   per evaluation unless its value changed.
-- **Behavior change (JS parity):** `RunExperiment` no longer fires tracking
-  callbacks for forced variations (`force`, forced variations set on the
-  client, querystring overrides) — these are not randomized exposures and the
-  JS SDK has never tracked them.
+- **Behavior change (JS parity):** forced variations (`force`, forced
+  variations set on the client, querystring overrides) no longer fire
+  tracking callbacks — from `RunExperiment` or from a feature's experiment
+  rules in `EvalFeature`. These are not randomized exposures and the JS SDK
+  has never tracked them.
 - Added deferred tracking, the Go equivalent of the JS SDK's deferred
   tracking queue, for servers that forward exposures to client SDKs (e.g.
   remote evaluation) instead of tracking via callbacks. Enable it with the

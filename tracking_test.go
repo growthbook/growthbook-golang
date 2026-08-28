@@ -374,12 +374,16 @@ func TestRunExperimentTracking(t *testing.T) {
 	})
 
 	t.Run("client-forced variations are served but not tracked (JS parity)", func(t *testing.T) {
-		client, callbacks, _ := newTrackingTestClient(t, WithForcedVariations(ForcedVariationsMap{"map-forced": 1}))
+		client, callbacks, _ := newTrackingTestClient(t,
+			WithForcedVariations(ForcedVariationsMap{"map-forced": 1, "parent-exp": 1}))
 
 		exp := Experiment{Key: "map-forced", Variations: []FeatureValue{"x", "y"}}
 		res := client.RunExperiment(ctx, &exp)
 		require.True(t, res.InExperiment)
 		require.Equal(t, "y", res.Value)
+
+		res2 := client.EvalFeature(ctx, "parent")
+		require.Equal(t, "off", res2.Value)
 
 		require.Empty(t, callbacks.exposures)
 		require.Empty(t, client.DeferredTrackingCalls())
@@ -441,8 +445,16 @@ func TestTrackingDataShape(t *testing.T) {
 		Result:     &ExperimentResult{HashAttribute: "id", HashValue: "u1", VariationId: 2},
 	}
 
-	t.Run("DedupeKey matches the JS SDK's getExperimentDedupeKey", func(t *testing.T) {
-		require.Equal(t, "idu1exp2", td.DedupeKey())
+	t.Run("DedupeKey dedupes by the JS SDK's getExperimentDedupeKey fields", func(t *testing.T) {
+		require.Equal(t, "id\x00u1\x00exp\x002", td.DedupeKey())
+	})
+
+	t.Run("DedupeKey does not collide on field boundaries", func(t *testing.T) {
+		other := TrackingData{
+			Experiment: &Experiment{Key: "1exp"},
+			Result:     &ExperimentResult{HashAttribute: "id", HashValue: "u", VariationId: 2},
+		}
+		require.NotEqual(t, td.DedupeKey(), other.DedupeKey())
 	})
 
 	t.Run("serializes with the JS TrackingData field names", func(t *testing.T) {
