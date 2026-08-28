@@ -42,12 +42,15 @@ All notable changes to this project will be documented in this file.
   retain or mutate) and empty it with `Client.ClearDeferredTrackingCalls`.
   The buffer deduplicates by `TrackingData.DedupeKey` (the same fields as
   the JS SDK's dedupe key) over its lifetime and keeps first-seen order.
-  `Namespace` and `BucketRange` now marshal to their payload tuple forms
-  (`[id, start, end]` and `[min, max]`) so experiment JSON round-trips and
-  matches what other SDKs emit; previously they marshaled as structs that
-  could not be re-parsed. `TrackingData` serializes to the
+  `TrackingData` serializes to the
   JS SDK's `TrackingData` shape, compatible with `setDeferredTrackingCalls`.
   Callbacks and plugins are unaffected and keep firing per evaluation.
+- **Behavior change:** `Namespace` and `BucketRange` now marshal to their
+  payload tuple forms (`[id, start, end]` and `[min, max]`), matching what
+  they unmarshal from and what other SDKs emit. Previously they marshaled as
+  structs that could not be re-parsed, which broke JSON round-trips of
+  experiments (including deferred-tracking deep copies) for any experiment
+  carrying a namespace, ranges, or filters.
 
 ## [v0.3.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.3.0) - 2026-08-26
 
