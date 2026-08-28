@@ -15,7 +15,8 @@ type evaluator struct {
 	client      *Client
 	ctx         context.Context
 
-	tracking           EvalTracking
+	experiments        []TrackingData
+	featureUsage       []featureUsage
 	trackedExperiments map[string]bool
 	trackedFeatures    map[string]string
 }

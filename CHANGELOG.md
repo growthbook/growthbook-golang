@@ -20,16 +20,15 @@ All notable changes to this project will be documented in this file.
   client, querystring overrides) — these are not randomized exposures and the
   JS SDK has never tracked them.
 - Added `EvalFeatureWithTracking` and `RunExperimentWithTracking`, which also
-  return an `EvalTracking`: every feature evaluated and every experiment
-  assignment made by that call, complete when the call returns. Intended for
-  servers that forward exposures to client SDKs (e.g. remote evaluation)
-  instead of tracking via callbacks. `TrackingData` serializes to the JS
-  SDK's `TrackingData` shape (compatible with `setDeferredTrackingCalls`),
-  and `TrackingData.DedupeKey` matches the JS SDK's dedupe key so callers
-  batching several evaluations for one user can deduplicate across calls.
-  Within a call, assignments are deduplicated automatically; there is
-  deliberately no cross-call deduplication (analysis dedupes exposures at
-  the query level).
+  return the experiment exposures the call produced as `[]TrackingData`,
+  complete when the call returns. Intended for servers that forward exposures
+  to client SDKs (e.g. remote evaluation) instead of tracking via callbacks.
+  `TrackingData` serializes to the JS SDK's `TrackingData` shape (compatible
+  with `setDeferredTrackingCalls`), and `TrackingData.DedupeKey` matches the
+  JS SDK's dedupe key so callers batching several evaluations for one user
+  can deduplicate across calls. Within a call, exposures are deduplicated
+  automatically; there is deliberately no cross-call deduplication (analysis
+  dedupes exposures at the query level).
 
 ## [v0.3.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.3.0) - 2026-08-26
 

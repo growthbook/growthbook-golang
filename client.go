@@ -218,15 +218,17 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 	return res
 }
 
-// EvalFeatureWithTracking evaluates a feature and also returns everything
-// the evaluation reported through callbacks and plugins, for callers that
-// forward exposures elsewhere (e.g. remote-evaluation servers). Callbacks
-// and plugins fire as usual, synchronously, before this returns.
-func (client *Client) EvalFeatureWithTracking(ctx context.Context, key string) (*FeatureResult, *EvalTracking) {
+// EvalFeatureWithTracking evaluates a feature and also returns every
+// experiment exposure the evaluation produced — passthrough and prerequisite
+// assignments included, in evaluation order — for callers that forward
+// exposures elsewhere (e.g. remote-evaluation servers). The list is complete
+// when the call returns, and callbacks and plugins fire as usual,
+// synchronously, before it does.
+func (client *Client) EvalFeatureWithTracking(ctx context.Context, key string) (*FeatureResult, []TrackingData) {
 	e := client.evaluator(ctx)
 	res := e.evalFeature(key)
-	client.fireTracking(ctx, &e.tracking)
-	return res, &e.tracking
+	client.fireTracking(ctx, e)
+	return res, e.experiments
 }
 
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
@@ -236,30 +238,30 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 
 // RunExperimentWithTracking is EvalFeatureWithTracking for a directly-run
 // experiment.
-func (client *Client) RunExperimentWithTracking(ctx context.Context, exp *Experiment) (*ExperimentResult, *EvalTracking) {
+func (client *Client) RunExperimentWithTracking(ctx context.Context, exp *Experiment) (*ExperimentResult, []TrackingData) {
 	e := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
-	client.fireTracking(ctx, &e.tracking)
+	client.fireTracking(ctx, e)
 	if client.data.subscribers.hasSubscribers() {
 		client.notifySubscribers(ctx, exp, res)
 	}
-	return res, &e.tracking
+	return res, e.experiments
 }
 
 // fireTracking reports one evaluation's tracking data to the configured
 // callbacks and plugins. Plugin panics are recovered so plugins never
 // interrupt evaluation.
-func (client *Client) fireTracking(ctx context.Context, t *EvalTracking) {
+func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
 	plugins := client.data.getPlugins()
-	for _, u := range t.FeatureUsage {
+	for _, u := range e.featureUsage {
 		if client.featureUsageCallback != nil {
-			client.featureUsageCallback(ctx, u.Key, u.Result, client.extraData)
+			client.featureUsageCallback(ctx, u.key, u.result, client.extraData)
 		}
 		for _, p := range plugins {
-			client.safePluginFeatureEvaluated(ctx, p, u.Key, u.Result)
+			client.safePluginFeatureEvaluated(ctx, p, u.key, u.result)
 		}
 	}
-	for _, d := range t.Experiments {
+	for _, d := range e.experiments {
 		if client.experimentCallback != nil {
 			client.experimentCallback(ctx, d.Experiment, d.Result, client.extraData)
 		}

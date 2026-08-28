@@ -20,19 +20,9 @@ func (t TrackingData) DedupeKey() string {
 	return t.Result.HashAttribute + t.Result.HashValue + t.Experiment.Key + strconv.Itoa(t.Result.VariationId)
 }
 
-// FeatureUsage is a single feature evaluation.
-type FeatureUsage struct {
-	Key    string         `json:"key"`
-	Result *FeatureResult `json:"result"`
-}
-
-// EvalTracking is everything one evaluation reports through callbacks and
-// plugins: every feature evaluated (prerequisites included) and every
-// experiment assignment made (passthrough included), in evaluation order.
-// It is scoped to a single call and complete when that call returns.
-type EvalTracking struct {
-	FeatureUsage []FeatureUsage `json:"featureUsage"`
-	Experiments  []TrackingData `json:"experiments"`
+type featureUsage struct {
+	key    string
+	result *FeatureResult
 }
 
 func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
@@ -45,7 +35,7 @@ func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
 		e.trackedExperiments = make(map[string]bool)
 	}
 	e.trackedExperiments[key] = true
-	e.tracking.Experiments = append(e.tracking.Experiments, data)
+	e.experiments = append(e.experiments, data)
 }
 
 // recordFeatureUsage mirrors the JS SDK's onFeatureUsage: a feature is
@@ -59,7 +49,7 @@ func (e *evaluator) recordFeatureUsage(key string, res *FeatureResult) {
 		e.trackedFeatures = make(map[string]string)
 	}
 	e.trackedFeatures[key] = stringified
-	e.tracking.FeatureUsage = append(e.tracking.FeatureUsage, FeatureUsage{Key: key, Result: res})
+	e.featureUsage = append(e.featureUsage, featureUsage{key: key, result: res})
 }
 
 func stringifyFeatureValue(v FeatureValue) string {

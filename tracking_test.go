@@ -118,15 +118,6 @@ func exposures(t *testing.T, data []TrackingData) []trackedExposure {
 	return out
 }
 
-func usages(t *testing.T, data []FeatureUsage) []trackedUsage {
-	t.Helper()
-	out := make([]trackedUsage, 0, len(data))
-	for _, d := range data {
-		out = append(out, trackedUsage{d.Key, d.Result.Source})
-	}
-	return out
-}
-
 func newTrackingTestClient(t *testing.T) (*Client, *trackingRecorder, *trackingRecorder) {
 	t.Helper()
 	plugin := &trackingRecorder{}
@@ -160,8 +151,8 @@ func TestPassthroughAssignmentTracked(t *testing.T) {
 		want := []trackedExposure{{"ramp", 1, true, "ramped"}}
 		require.Equal(t, want, callbacks.exposures)
 		require.Equal(t, want, plugin.exposures)
-		require.Equal(t, want, exposures(t, tracking.Experiments))
-		require.Equal(t, []trackedUsage{{"ramped", ForceResultSource}}, usages(t, tracking.FeatureUsage))
+		require.Equal(t, want, exposures(t, tracking))
+		require.Equal(t, []trackedUsage{{"ramped", ForceResultSource}}, callbacks.usage)
 	})
 
 	t.Run("control arm falls through to an experiment rule: both tracked, in evaluation order", func(t *testing.T) {
@@ -177,7 +168,7 @@ func TestPassthroughAssignmentTracked(t *testing.T) {
 		}
 		require.Equal(t, want, callbacks.exposures)
 		require.Equal(t, want, plugin.exposures)
-		require.Equal(t, want, exposures(t, tracking.Experiments))
+		require.Equal(t, want, exposures(t, tracking))
 	})
 
 	t.Run("treatment arm serves the rule value with a single exposure", func(t *testing.T) {
@@ -190,7 +181,7 @@ func TestPassthroughAssignmentTracked(t *testing.T) {
 		want := []trackedExposure{{"ramp-t", 0, false, "ramped-treatment"}}
 		require.Equal(t, want, callbacks.exposures)
 		require.Equal(t, want, plugin.exposures)
-		require.Equal(t, want, exposures(t, tracking.Experiments))
+		require.Equal(t, want, exposures(t, tracking))
 	})
 }
 
@@ -206,7 +197,7 @@ func TestPrerequisiteTracking(t *testing.T) {
 		wantExposures := []trackedExposure{{"parent-exp", 0, false, "parent"}}
 		require.Equal(t, wantExposures, callbacks.exposures)
 		require.Equal(t, wantExposures, plugin.exposures)
-		require.Equal(t, wantExposures, exposures(t, tracking.Experiments))
+		require.Equal(t, wantExposures, exposures(t, tracking))
 
 		wantUsage := []trackedUsage{
 			{"parent", ExperimentResultSource},
@@ -214,7 +205,6 @@ func TestPrerequisiteTracking(t *testing.T) {
 		}
 		require.Equal(t, wantUsage, callbacks.usage)
 		require.Equal(t, wantUsage, plugin.usage)
-		require.Equal(t, wantUsage, usages(t, tracking.FeatureUsage))
 	})
 
 	t.Run("a prerequisite consulted by several rules is reported once", func(t *testing.T) {
@@ -223,10 +213,11 @@ func TestPrerequisiteTracking(t *testing.T) {
 
 		require.Equal(t, "r2", res.Value)
 		require.Equal(t, []trackedExposure{{"parent-exp", 0, false, "parent"}}, callbacks.exposures)
+		require.Len(t, tracking, 1)
 		require.Equal(t, []trackedUsage{
 			{"parent", ExperimentResultSource},
 			{"child-twice", ForceResultSource},
-		}, usages(t, tracking.FeatureUsage))
+		}, callbacks.usage)
 	})
 
 	t.Run("no state leaks across evaluations, and no cross-call dedupe", func(t *testing.T) {
@@ -251,7 +242,7 @@ func TestEvalTrackingWithoutCallbacks(t *testing.T) {
 	require.Equal(t, []trackedExposure{
 		{"ramp2", 1, true, "ramped-into-experiment"},
 		{"exp2", 0, false, "ramped-into-experiment"},
-	}, exposures(t, tracking.Experiments))
+	}, exposures(t, tracking))
 }
 
 func TestRunExperimentTracking(t *testing.T) {
@@ -277,8 +268,8 @@ func TestRunExperimentTracking(t *testing.T) {
 			{"direct", 0, false, ""},
 		}
 		require.Equal(t, want, callbacks.exposures)
-		require.Equal(t, want, exposures(t, tracking.Experiments))
-		require.Equal(t, []trackedUsage{{"parent", ExperimentResultSource}}, usages(t, tracking.FeatureUsage))
+		require.Equal(t, want, exposures(t, tracking))
+		require.Equal(t, []trackedUsage{{"parent", ExperimentResultSource}}, callbacks.usage)
 	})
 
 	t.Run("forced variations are served but not tracked (JS parity)", func(t *testing.T) {
@@ -293,7 +284,7 @@ func TestRunExperimentTracking(t *testing.T) {
 
 		require.Empty(t, callbacks.exposures)
 		require.Empty(t, plugin.exposures)
-		require.Empty(t, tracking.Experiments)
+		require.Empty(t, tracking)
 	})
 }
 
@@ -306,7 +297,7 @@ func TestFeatureUsageEdgeCases(t *testing.T) {
 
 		require.Equal(t, UnknownFeatureResultSource, res.Source)
 		require.Equal(t, []trackedUsage{{"no-such-feature", UnknownFeatureResultSource}}, callbacks.usage)
-		require.Empty(t, tracking.Experiments)
+		require.Empty(t, tracking)
 	})
 
 	t.Run("cyclic prerequisites report each feature once", func(t *testing.T) {
@@ -355,8 +346,7 @@ func TestConcurrentEvaluationsAreIsolated(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			_, tracking := client.EvalFeatureWithTracking(ctx, "child")
-			require.Len(t, tracking.Experiments, 1)
-			require.Len(t, tracking.FeatureUsage, 2)
+			require.Len(t, tracking, 1)
 		}()
 	}
 	wg.Wait()
