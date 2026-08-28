@@ -219,6 +219,21 @@ func WithGrowthBookTracking(config TrackingPluginConfig) ClientOption {
 	}
 }
 
+// WithDeferredTracking enables deferred tracking: every experiment exposure
+// produced by this client's evaluations — passthrough and prerequisite
+// assignments included — is buffered for later retrieval with
+// Client.DeferredTrackingCalls, in addition to firing any configured
+// callbacks and plugins. Intended for servers that forward exposures to
+// client SDKs (e.g. remote evaluation): create a child client per user
+// request, evaluate, then read the buffer. Clients cloned from this one
+// share its buffer.
+func WithDeferredTracking() ClientOption {
+	return func(c *Client) error {
+		c.deferredTracks = newTrackingBuffer()
+		return nil
+	}
+}
+
 // Child client instance options
 
 // WithEnabled creates child client instance with updated enabled switch.
@@ -281,6 +296,12 @@ func (c *Client) WithFeatureUsageCallback(cb FeatureUsageCallback) (*Client, err
 // WithEventLogger creates child client with updated event logger function.
 func (c *Client) WithEventLogger(cb EventLogger) (*Client, error) {
 	return c.cloneWith(WithEventLogger(cb))
+}
+
+// WithDeferredTracking creates child client with deferred tracking enabled
+// and a fresh buffer.
+func (c *Client) WithDeferredTracking() (*Client, error) {
+	return c.cloneWith(WithDeferredTracking())
 }
 
 func withValueAttributes(value value.ObjValue) ClientOption {

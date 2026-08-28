@@ -125,6 +125,7 @@ func newTrackingTestClient(t *testing.T) (*Client, *trackingRecorder, *trackingR
 	client, err := NewClient(context.Background(),
 		WithJsonFeatures(trackingFeaturesJSON),
 		WithAttributes(Attributes{"id": "user-1"}),
+		WithDeferredTracking(),
 		WithExperimentCallback(func(ctx context.Context, exp *Experiment, res *ExperimentResult, _ any) {
 			callbacks.OnExperimentViewed(ctx, exp, res)
 		}),
@@ -142,7 +143,7 @@ func TestPassthroughAssignmentTracked(t *testing.T) {
 
 	t.Run("control arm falls through to a force rule and is tracked", func(t *testing.T) {
 		client, callbacks, plugin := newTrackingTestClient(t)
-		res, tracking := client.EvalFeatureWithTracking(ctx, "ramped")
+		res := client.EvalFeature(ctx, "ramped")
 
 		require.Equal(t, "fallthrough-value", res.Value)
 		require.Equal(t, ForceResultSource, res.Source)
@@ -151,13 +152,13 @@ func TestPassthroughAssignmentTracked(t *testing.T) {
 		want := []trackedExposure{{"ramp", 1, true, "ramped"}}
 		require.Equal(t, want, callbacks.exposures)
 		require.Equal(t, want, plugin.exposures)
-		require.Equal(t, want, exposures(t, tracking))
+		require.Equal(t, want, exposures(t, client.DeferredTrackingCalls()))
 		require.Equal(t, []trackedUsage{{"ramped", ForceResultSource}}, callbacks.usage)
 	})
 
 	t.Run("control arm falls through to an experiment rule: both tracked, in evaluation order", func(t *testing.T) {
 		client, callbacks, plugin := newTrackingTestClient(t)
-		res, tracking := client.EvalFeatureWithTracking(ctx, "ramped-into-experiment")
+		res := client.EvalFeature(ctx, "ramped-into-experiment")
 
 		require.Equal(t, "a", res.Value)
 		require.True(t, res.InExperiment())
@@ -168,12 +169,12 @@ func TestPassthroughAssignmentTracked(t *testing.T) {
 		}
 		require.Equal(t, want, callbacks.exposures)
 		require.Equal(t, want, plugin.exposures)
-		require.Equal(t, want, exposures(t, tracking))
+		require.Equal(t, want, exposures(t, client.DeferredTrackingCalls()))
 	})
 
 	t.Run("treatment arm serves the rule value with a single exposure", func(t *testing.T) {
 		client, callbacks, plugin := newTrackingTestClient(t)
-		res, tracking := client.EvalFeatureWithTracking(ctx, "ramped-treatment")
+		res := client.EvalFeature(ctx, "ramped-treatment")
 
 		require.Equal(t, "treatment", res.Value)
 		require.True(t, res.InExperiment())
@@ -181,7 +182,7 @@ func TestPassthroughAssignmentTracked(t *testing.T) {
 		want := []trackedExposure{{"ramp-t", 0, false, "ramped-treatment"}}
 		require.Equal(t, want, callbacks.exposures)
 		require.Equal(t, want, plugin.exposures)
-		require.Equal(t, want, exposures(t, tracking))
+		require.Equal(t, want, exposures(t, client.DeferredTrackingCalls()))
 	})
 }
 
@@ -190,14 +191,14 @@ func TestPrerequisiteTracking(t *testing.T) {
 
 	t.Run("a prerequisite's experiment assignment is tracked", func(t *testing.T) {
 		client, callbacks, plugin := newTrackingTestClient(t)
-		res, tracking := client.EvalFeatureWithTracking(ctx, "child")
+		res := client.EvalFeature(ctx, "child")
 
 		require.Equal(t, "child-on", res.Value)
 
 		wantExposures := []trackedExposure{{"parent-exp", 0, false, "parent"}}
 		require.Equal(t, wantExposures, callbacks.exposures)
 		require.Equal(t, wantExposures, plugin.exposures)
-		require.Equal(t, wantExposures, exposures(t, tracking))
+		require.Equal(t, wantExposures, exposures(t, client.DeferredTrackingCalls()))
 
 		wantUsage := []trackedUsage{
 			{"parent", ExperimentResultSource},
@@ -209,40 +210,99 @@ func TestPrerequisiteTracking(t *testing.T) {
 
 	t.Run("a prerequisite consulted by several rules is reported once", func(t *testing.T) {
 		client, callbacks, _ := newTrackingTestClient(t)
-		res, tracking := client.EvalFeatureWithTracking(ctx, "child-twice")
+		res := client.EvalFeature(ctx, "child-twice")
 
 		require.Equal(t, "r2", res.Value)
 		require.Equal(t, []trackedExposure{{"parent-exp", 0, false, "parent"}}, callbacks.exposures)
-		require.Len(t, tracking, 1)
 		require.Equal(t, []trackedUsage{
 			{"parent", ExperimentResultSource},
 			{"child-twice", ForceResultSource},
 		}, callbacks.usage)
 	})
 
-	t.Run("no state leaks across evaluations, and no cross-call dedupe", func(t *testing.T) {
+	t.Run("callbacks fire per call; the deferred buffer dedupes across calls", func(t *testing.T) {
 		client, callbacks, _ := newTrackingTestClient(t)
 		client.EvalFeature(ctx, "child")
 		client.EvalFeature(ctx, "child")
+
 		require.Len(t, callbacks.exposures, 2)
 		require.Len(t, callbacks.usage, 4)
+		require.Len(t, client.DeferredTrackingCalls(), 1)
 	})
 }
 
-func TestEvalTrackingWithoutCallbacks(t *testing.T) {
+func TestDeferredTracking(t *testing.T) {
 	ctx := context.Background()
-	client, err := NewClient(ctx,
-		WithJsonFeatures(trackingFeaturesJSON),
-		WithAttributes(Attributes{"id": "user-1"}),
-	)
-	require.NoError(t, err)
 
-	res, tracking := client.EvalFeatureWithTracking(ctx, "ramped-into-experiment")
-	require.Equal(t, "a", res.Value)
-	require.Equal(t, []trackedExposure{
-		{"ramp2", 1, true, "ramped-into-experiment"},
-		{"exp2", 0, false, "ramped-into-experiment"},
-	}, exposures(t, tracking))
+	t.Run("works without callbacks or plugins", func(t *testing.T) {
+		client, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithDeferredTracking(),
+		)
+		require.NoError(t, err)
+
+		client.EvalFeature(ctx, "ramped-into-experiment")
+		require.Equal(t, []trackedExposure{
+			{"ramp2", 1, true, "ramped-into-experiment"},
+			{"exp2", 0, false, "ramped-into-experiment"},
+		}, exposures(t, client.DeferredTrackingCalls()))
+	})
+
+	t.Run("accumulates across evaluations and clears", func(t *testing.T) {
+		client, _, _ := newTrackingTestClient(t)
+		client.EvalFeature(ctx, "ramped")
+		client.EvalFeature(ctx, "child")
+
+		require.Equal(t, []trackedExposure{
+			{"ramp", 1, true, "ramped"},
+			{"parent-exp", 0, false, "parent"},
+		}, exposures(t, client.DeferredTrackingCalls()))
+
+		client.ClearDeferredTrackingCalls()
+		require.Empty(t, client.DeferredTrackingCalls())
+
+		client.EvalFeature(ctx, "ramped")
+		require.Len(t, client.DeferredTrackingCalls(), 1)
+	})
+
+	t.Run("nil without WithDeferredTracking", func(t *testing.T) {
+		client, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+		)
+		require.NoError(t, err)
+		client.EvalFeature(ctx, "ramped")
+		require.Nil(t, client.DeferredTrackingCalls())
+		client.ClearDeferredTrackingCalls()
+	})
+
+	t.Run("children armed separately have isolated buffers", func(t *testing.T) {
+		base, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+		)
+		require.NoError(t, err)
+
+		child1, err := base.WithDeferredTracking()
+		require.NoError(t, err)
+		child2, err := base.WithDeferredTracking()
+		require.NoError(t, err)
+
+		child1.EvalFeature(ctx, "ramped")
+		require.Len(t, child1.DeferredTrackingCalls(), 1)
+		require.Empty(t, child2.DeferredTrackingCalls())
+		require.Nil(t, base.DeferredTrackingCalls())
+	})
+
+	t.Run("clones of an armed client share its buffer", func(t *testing.T) {
+		client, _, _ := newTrackingTestClient(t)
+		child, err := client.WithExtraData("request-scoped")
+		require.NoError(t, err)
+
+		child.EvalFeature(ctx, "ramped")
+		require.Len(t, client.DeferredTrackingCalls(), 1)
+	})
 }
 
 func TestRunExperimentTracking(t *testing.T) {
@@ -259,7 +319,7 @@ func TestRunExperimentTracking(t *testing.T) {
 			"parentConditions": [{"id": "parent", "condition": {"value": "on"}}]
 		}`), &exp))
 
-		res, tracking := client.RunExperimentWithTracking(ctx, &exp)
+		res := client.RunExperiment(ctx, &exp)
 		require.True(t, res.InExperiment)
 		require.Equal(t, "x", res.Value)
 
@@ -268,7 +328,7 @@ func TestRunExperimentTracking(t *testing.T) {
 			{"direct", 0, false, ""},
 		}
 		require.Equal(t, want, callbacks.exposures)
-		require.Equal(t, want, exposures(t, tracking))
+		require.Equal(t, want, exposures(t, client.DeferredTrackingCalls()))
 		require.Equal(t, []trackedUsage{{"parent", ExperimentResultSource}}, callbacks.usage)
 	})
 
@@ -277,14 +337,14 @@ func TestRunExperimentTracking(t *testing.T) {
 		force := 1
 		exp := Experiment{Key: "forced", Variations: []FeatureValue{"x", "y"}, Force: &force}
 
-		res, tracking := client.RunExperimentWithTracking(ctx, &exp)
+		res := client.RunExperiment(ctx, &exp)
 		require.True(t, res.InExperiment)
 		require.False(t, res.HashUsed)
 		require.Equal(t, "y", res.Value)
 
 		require.Empty(t, callbacks.exposures)
 		require.Empty(t, plugin.exposures)
-		require.Empty(t, tracking)
+		require.Empty(t, client.DeferredTrackingCalls())
 	})
 }
 
@@ -293,16 +353,16 @@ func TestFeatureUsageEdgeCases(t *testing.T) {
 
 	t.Run("unknown feature usage is reported", func(t *testing.T) {
 		client, callbacks, _ := newTrackingTestClient(t)
-		res, tracking := client.EvalFeatureWithTracking(ctx, "no-such-feature")
+		res := client.EvalFeature(ctx, "no-such-feature")
 
 		require.Equal(t, UnknownFeatureResultSource, res.Source)
 		require.Equal(t, []trackedUsage{{"no-such-feature", UnknownFeatureResultSource}}, callbacks.usage)
-		require.Empty(t, tracking)
+		require.Empty(t, client.DeferredTrackingCalls())
 	})
 
 	t.Run("cyclic prerequisites report each feature once", func(t *testing.T) {
 		client, callbacks, _ := newTrackingTestClient(t)
-		res, _ := client.EvalFeatureWithTracking(ctx, "cycle-a")
+		res := client.EvalFeature(ctx, "cycle-a")
 
 		require.Equal(t, CyclicPrerequisiteResultSource, res.Source)
 		require.Equal(t, []trackedUsage{
@@ -332,11 +392,12 @@ func TestTrackingDataShape(t *testing.T) {
 	})
 }
 
-func TestConcurrentEvaluationsAreIsolated(t *testing.T) {
+func TestConcurrentDeferredTracking(t *testing.T) {
 	ctx := context.Background()
 	client, err := NewClient(ctx,
 		WithJsonFeatures(trackingFeaturesJSON),
 		WithAttributes(Attributes{"id": "user-1"}),
+		WithDeferredTracking(),
 	)
 	require.NoError(t, err)
 
@@ -345,9 +406,14 @@ func TestConcurrentEvaluationsAreIsolated(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, tracking := client.EvalFeatureWithTracking(ctx, "child")
-			require.Len(t, tracking, 1)
+			client.EvalFeature(ctx, "child")
+			client.EvalFeature(ctx, "ramped")
 		}()
 	}
 	wg.Wait()
+
+	require.ElementsMatch(t, []trackedExposure{
+		{"parent-exp", 0, false, "parent"},
+		{"ramp", 1, true, "ramped"},
+	}, exposures(t, client.DeferredTrackingCalls()))
 }

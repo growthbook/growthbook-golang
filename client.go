@@ -40,6 +40,10 @@ type Client struct {
 	// stickyBucketAssignments caches assignments. Shared by reference with
 	// cloned clients and mutated during evaluation, hence mutex-guarded.
 	stickyBucketAssignments *lockedStickyBucketCache
+
+	// deferredTracks buffers experiment exposures when deferred tracking is
+	// enabled. Shared by reference with cloned clients, hence mutex-guarded.
+	deferredTracks *trackingBuffer
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
@@ -214,43 +218,25 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
-	res, _ := client.EvalFeatureWithTracking(ctx, key)
-	return res
-}
-
-// EvalFeatureWithTracking evaluates a feature and also returns every
-// experiment exposure the evaluation produced — passthrough and prerequisite
-// assignments included, in evaluation order — for callers that forward
-// exposures elsewhere (e.g. remote-evaluation servers). The list is complete
-// when the call returns, and callbacks and plugins fire as usual,
-// synchronously, before it does.
-func (client *Client) EvalFeatureWithTracking(ctx context.Context, key string) (*FeatureResult, []TrackingData) {
 	e := client.evaluator(ctx)
 	res := e.evalFeature(key)
 	client.fireTracking(ctx, e)
-	return res, e.experiments
-}
-
-func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
-	res, _ := client.RunExperimentWithTracking(ctx, exp)
 	return res
 }
 
-// RunExperimentWithTracking is EvalFeatureWithTracking for a directly-run
-// experiment.
-func (client *Client) RunExperimentWithTracking(ctx context.Context, exp *Experiment) (*ExperimentResult, []TrackingData) {
+func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
 	e := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
 	client.fireTracking(ctx, e)
 	if client.data.subscribers.hasSubscribers() {
 		client.notifySubscribers(ctx, exp, res)
 	}
-	return res, e.experiments
+	return res
 }
 
 // fireTracking reports one evaluation's tracking data to the configured
-// callbacks and plugins. Plugin panics are recovered so plugins never
-// interrupt evaluation.
+// callbacks and plugins, and to the deferred tracking buffer when enabled.
+// Plugin panics are recovered so plugins never interrupt evaluation.
 func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
 	plugins := client.data.getPlugins()
 	for _, u := range e.featureUsage {
@@ -268,6 +254,9 @@ func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
 		for _, p := range plugins {
 			client.safePluginExperimentViewed(ctx, p, d.Experiment, d.Result)
 		}
+	}
+	if client.deferredTracks != nil {
+		client.deferredTracks.add(e.experiments)
 	}
 }
 
