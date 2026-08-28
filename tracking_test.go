@@ -456,11 +456,13 @@ func TestRunExperimentTracking(t *testing.T) {
 		res := client.RunExperiment(ctx, &exp)
 		require.True(t, res.InExperiment)
 		exp.Key = "mutated"
+		exp.Variations[0] = "mutated-in-place"
 		res.VariationId = 99
 
 		calls := client.DeferredTrackingCalls()
 		require.Len(t, calls, 1)
 		require.Equal(t, "direct", calls[0].Experiment.Key)
+		require.Equal(t, FeatureValue("x"), calls[0].Experiment.Variations[0])
 		require.Equal(t, 0, calls[0].Result.VariationId)
 		require.Equal(t, []trackedExposure{{"direct", 0, false, ""}}, callbacks.exposures)
 	})
