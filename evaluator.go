@@ -14,9 +14,21 @@ type evaluator struct {
 	evaluated   stack[string]
 	client      *Client
 	ctx         context.Context
+
+	// tracking collects what this evaluation must report through callbacks
+	// and plugins (see Client.fireTracking), deduped by the two maps below.
+	tracking           EvalTracking
+	trackedExperiments map[string]bool
+	trackedFeatures    map[string]string
 }
 
 func (e *evaluator) evalFeature(key string) *FeatureResult {
+	res := e.doEvalFeature(key)
+	e.recordFeatureUsage(key, res)
+	return res
+}
+
+func (e *evaluator) doEvalFeature(key string) *FeatureResult {
 	if e.evaluated.has(key) {
 		return getFeatureResult(nil, CyclicPrerequisiteResultSource, "", nil, nil)
 	}
@@ -273,6 +285,14 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			hashValue,
 			e.client.stickyBucketAssignments,
 		)
+	}
+
+	// 14. Record the assignment — the JS SDK fires its tracking callback at
+	// this point. This is the only place assignments are recorded, so forced
+	// variations and querystring overrides (which return earlier) are not
+	// reported, and passthrough assignments (discarded by evalRule) are.
+	if result.InExperiment {
+		e.recordExperiment(exp, result)
 	}
 
 	return result

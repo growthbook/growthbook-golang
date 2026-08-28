@@ -214,40 +214,64 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
-	e := client.evaluator(ctx)
-	res := e.evalFeature(key)
-	if client.featureUsageCallback != nil {
-		client.featureUsageCallback(ctx, key, res, client.extraData)
-	}
-	if client.experimentCallback != nil && res.InExperiment() {
-		client.experimentCallback(ctx, res.Experiment, res.ExperimentResult, client.extraData)
-	}
-	// Notify plugins. Panics are recovered so plugins never interrupt evaluation.
-	for _, p := range client.data.getPlugins() {
-		client.safePluginFeatureEvaluated(ctx, p, key, res)
-		if res.InExperiment() {
-			client.safePluginExperimentViewed(ctx, p, res.Experiment, res.ExperimentResult)
-		}
-	}
+	res, _ := client.EvalFeatureWithTracking(ctx, key)
 	return res
 }
 
+// EvalFeatureWithTracking evaluates a feature and also returns everything
+// the evaluation reported through callbacks and plugins: every feature
+// evaluated (including prerequisites) and every experiment assignment made
+// along the way (including passthrough assignments). Callbacks and plugins
+// fire as usual, synchronously, before this returns; the returned data is
+// for callers that forward exposures elsewhere — e.g. remote-evaluation
+// servers — which typically configure no callbacks and serialize the data
+// into their response instead.
+func (client *Client) EvalFeatureWithTracking(ctx context.Context, key string) (*FeatureResult, *EvalTracking) {
+	e := client.evaluator(ctx)
+	res := e.evalFeature(key)
+	client.fireTracking(ctx, &e.tracking)
+	return res, &e.tracking
+}
+
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
+	res, _ := client.RunExperimentWithTracking(ctx, exp)
+	return res
+}
+
+// RunExperimentWithTracking is EvalFeatureWithTracking for a directly-run
+// experiment: the returned data includes the experiment's own assignment and
+// any made while evaluating its prerequisites.
+func (client *Client) RunExperimentWithTracking(ctx context.Context, exp *Experiment) (*ExperimentResult, *EvalTracking) {
 	e := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
-	if client.experimentCallback != nil && res.InExperiment {
-		client.experimentCallback(ctx, exp, res, client.extraData)
-	}
-	// Notify plugins.
-	for _, p := range client.data.getPlugins() {
-		if res.InExperiment {
-			client.safePluginExperimentViewed(ctx, p, exp, res)
-		}
-	}
+	client.fireTracking(ctx, &e.tracking)
 	if client.data.subscribers.hasSubscribers() {
 		client.notifySubscribers(ctx, exp, res)
 	}
-	return res
+	return res, &e.tracking
+}
+
+// fireTracking reports one evaluation's feature usage and experiment
+// assignments to the configured callbacks and plugins, in evaluation order.
+// Plugin panics are recovered so plugins never interrupt evaluation.
+func (client *Client) fireTracking(ctx context.Context, t *EvalTracking) {
+	plugins := client.data.getPlugins()
+	for _, u := range t.FeatureUsage {
+		if client.featureUsageCallback != nil {
+			client.featureUsageCallback(ctx, u.Key, u.Result, client.extraData)
+		}
+		for _, p := range plugins {
+			client.safePluginFeatureEvaluated(ctx, p, u.Key, u.Result)
+		}
+	}
+	for _, d := range t.Experiments {
+		if client.experimentCallback != nil {
+			client.experimentCallback(ctx, d.Experiment, d.Result, client.extraData)
+		}
+		for _, p := range plugins {
+			client.safePluginExperimentViewed(ctx, p, d.Experiment, d.Result)
+		}
+	}
 }
 
 func (client *Client) Features() FeatureMap {

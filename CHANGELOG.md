@@ -2,6 +2,35 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- **Behavior change (JS parity):** `EvalFeature` now fires `ExperimentCallback`
+  and plugin `OnExperimentViewed` for every experiment assignment made during
+  evaluation, in evaluation order — including passthrough assignments (e.g.
+  the control arm of a monitored ramp step) and assignments made while
+  evaluating prerequisite features. Previously only the experiment that
+  decided the served value was reported, so those exposures were silently
+  dropped.
+- **Behavior change (JS parity):** `FeatureUsageCallback` and plugin
+  `OnFeatureEvaluated` now also fire for prerequisite features evaluated
+  along the way, not just the requested feature. A feature is reported once
+  per evaluation unless its value changed.
+- **Behavior change (JS parity):** `RunExperiment` no longer fires tracking
+  callbacks for forced variations (`force`, forced variations set on the
+  client, querystring overrides) — these are not randomized exposures and the
+  JS SDK has never tracked them.
+- Added `EvalFeatureWithTracking` and `RunExperimentWithTracking`, which also
+  return an `EvalTracking`: every feature evaluated and every experiment
+  assignment made by that call, complete when the call returns. Intended for
+  servers that forward exposures to client SDKs (e.g. remote evaluation)
+  instead of tracking via callbacks. `TrackingData` serializes to the JS
+  SDK's `TrackingData` shape (compatible with `setDeferredTrackingCalls`),
+  and `TrackingData.DedupeKey` matches the JS SDK's dedupe key so callers
+  batching several evaluations for one user can deduplicate across calls.
+  Within a call, assignments are deduplicated automatically; there is
+  deliberately no cross-call deduplication (analysis dedupes exposures at
+  the query level).
+
 ## [v0.3.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.3.0) - 2026-08-26
 
 - **Behavior change (JS parity):** attribute values that are falsy in JS
