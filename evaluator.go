@@ -14,9 +14,22 @@ type evaluator struct {
 	evaluated   stack[string]
 	client      *Client
 	ctx         context.Context
+
+	recording          bool // false when no callbacks, plugins, or buffer consume tracking
+	userCtx            *TrackingUserContext
+	experiments        []TrackingData
+	featureUsage       []featureUsage
+	trackedExperiments map[string]bool
+	trackedFeatures    map[string]string
 }
 
 func (e *evaluator) evalFeature(key string) *FeatureResult {
+	res := e.doEvalFeature(key)
+	e.recordFeatureUsage(key, res)
+	return res
+}
+
+func (e *evaluator) doEvalFeature(key string) *FeatureResult {
 	if e.evaluated.has(key) {
 		return getFeatureResult(nil, CyclicPrerequisiteResultSource, "", nil, nil)
 	}
@@ -273,6 +286,13 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			hashValue,
 			e.client.stickyBucketAssignments,
 		)
+	}
+
+	// 14. Record the assignment for reporting. Earlier returns (forced
+	// variations, overrides) are deliberately not recorded; passthrough
+	// assignments are.
+	if result.InExperiment {
+		e.recordExperiment(exp, result)
 	}
 
 	return result

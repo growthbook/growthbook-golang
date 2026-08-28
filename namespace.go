@@ -20,6 +20,10 @@ func (namespace *Namespace) inNamespace(userId string) bool {
 	return n >= namespace.Start && n < namespace.End
 }
 
+func (namespace Namespace) MarshalJSON() ([]byte, error) {
+	return json.Marshal([]any{namespace.Id, namespace.Start, namespace.End})
+}
+
 func (namespace *Namespace) UnmarshalJSON(data []byte) error {
 	arr := []any{}
 	err := json.Unmarshal(data, &arr)

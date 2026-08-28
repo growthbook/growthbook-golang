@@ -40,13 +40,18 @@ type Client struct {
 	// stickyBucketAssignments caches assignments. Shared by reference with
 	// cloned clients and mutated during evaluation, hence mutex-guarded.
 	stickyBucketAssignments *lockedStickyBucketCache
+
+	// deferredTracks buffers experiment exposures when deferred tracking is
+	// enabled. Shared by reference with cloned clients, hence mutex-guarded.
+	deferredTracks *trackingBuffer
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
 type ForcedVariationsMap map[string]int
 
-// ExperimentCallback function that is executed every time a user is included in an Experiment.
-type ExperimentCallback func(context.Context, *Experiment, *ExperimentResult, any)
+// ExperimentCallback function that is executed every time a user is included
+// in an Experiment, with the user context the evaluation ran with.
+type ExperimentCallback func(context.Context, *Experiment, *ExperimentResult, *TrackingUserContext, any)
 
 // FeatureUsageCallback funcion is executed every time feature is evaluated
 type FeatureUsageCallback func(context.Context, string, *FeatureResult, any)
@@ -216,38 +221,48 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
 	e := client.evaluator(ctx)
 	res := e.evalFeature(key)
-	if client.featureUsageCallback != nil {
-		client.featureUsageCallback(ctx, key, res, client.extraData)
-	}
-	if client.experimentCallback != nil && res.InExperiment() {
-		client.experimentCallback(ctx, res.Experiment, res.ExperimentResult, client.extraData)
-	}
-	// Notify plugins. Panics are recovered so plugins never interrupt evaluation.
-	for _, p := range client.data.getPlugins() {
-		client.safePluginFeatureEvaluated(ctx, p, key, res)
-		if res.InExperiment() {
-			client.safePluginExperimentViewed(ctx, p, res.Experiment, res.ExperimentResult)
-		}
-	}
+	client.fireTracking(ctx, e)
 	return res
 }
 
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
 	e := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
-	if client.experimentCallback != nil && res.InExperiment {
-		client.experimentCallback(ctx, exp, res, client.extraData)
-	}
-	// Notify plugins.
-	for _, p := range client.data.getPlugins() {
-		if res.InExperiment {
-			client.safePluginExperimentViewed(ctx, p, exp, res)
-		}
-	}
+	client.fireTracking(ctx, e)
 	if client.data.subscribers.hasSubscribers() {
 		client.notifySubscribers(ctx, exp, res)
 	}
 	return res
+}
+
+// fireTracking reports one evaluation's tracking data to the deferred
+// tracking buffer when enabled, then to the configured callbacks and
+// plugins. The buffer is written first so a panicking callback cannot lose
+// exposures. Plugin panics are recovered so plugins never interrupt
+// evaluation.
+func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
+	if client.deferredTracks != nil {
+		// Detach before buffering: this runs on the evaluating goroutine, so
+		// nothing the caller later mutates can reach the buffer.
+		client.deferredTracks.add(client.detachTrackingData(e.experiments))
+	}
+	plugins := client.data.getPlugins()
+	for _, u := range e.featureUsage {
+		if client.featureUsageCallback != nil {
+			client.featureUsageCallback(ctx, u.key, u.result, client.extraData)
+		}
+		for _, p := range plugins {
+			client.safePluginFeatureEvaluated(ctx, p, u.key, u.result)
+		}
+	}
+	for _, d := range e.experiments {
+		if client.experimentCallback != nil {
+			client.experimentCallback(ctx, d.Experiment, d.Result, d.User, client.extraData)
+		}
+		for _, p := range plugins {
+			client.safePluginExperimentViewed(ctx, p, d.Experiment, d.Result)
+		}
+	}
 }
 
 func (client *Client) Features() FeatureMap {
@@ -279,6 +294,8 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 		savedGroups: client.data.savedGroups,
 		client:      client,
 		ctx:         ctx,
+		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
+			client.deferredTracks != nil || len(client.data.plugins) > 0,
 	}
 	client.data.mu.RUnlock()
 	return &e

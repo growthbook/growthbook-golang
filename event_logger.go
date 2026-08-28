@@ -13,10 +13,7 @@ type EventProperties map[string]any
 // with: the calling client's attributes and URL. It is the Go equivalent
 // of the userContext argument the JS and Python SDKs pass to their event
 // loggers.
-type EventUserContext struct {
-	Attributes Attributes
-	URL        string
-}
+type EventUserContext = TrackingUserContext
 
 // EventLogger is invoked by [Client.LogEvent] for every custom event.
 // Implementations should return quickly (e.g. by enqueueing work);
@@ -37,14 +34,7 @@ type EventLoggerPlugin interface {
 // implements [EventLoggerPlugin]. If neither is configured a warning is
 // logged and the call is a no-op.
 func (client *Client) LogEvent(ctx context.Context, eventName string, properties EventProperties) {
-	clientURL := ""
-	if client.url != nil {
-		clientURL = client.url.String()
-	}
-	userCtx := &EventUserContext{
-		Attributes: attributesFromValue(client.attributes),
-		URL:        clientURL,
-	}
+	userCtx := client.trackingUserContext()
 
 	logged := false
 	if client.eventLogger != nil {

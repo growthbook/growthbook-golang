@@ -369,7 +369,7 @@ func TestTrackingPluginWithExistingCallbacks(t *testing.T) {
 	client, err := NewClient(ctx,
 		WithClientKey("sdk-test-key"),
 		WithAttributes(Attributes{"id": "user-cb"}),
-		WithExperimentCallback(func(ctx context.Context, exp *Experiment, result *ExperimentResult, extraData any) {
+		WithExperimentCallback(func(ctx context.Context, exp *Experiment, result *ExperimentResult, userCtx *TrackingUserContext, extraData any) {
 			callbackCalled = true
 		}),
 		WithFeatureUsageCallback(func(ctx context.Context, key string, result *FeatureResult, extraData any) {

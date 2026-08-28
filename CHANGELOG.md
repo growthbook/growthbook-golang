@@ -2,6 +2,56 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
+
+- **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`
+  parameter — the evaluating client's attributes and URL, the JS SDK
+  `trackingCallback`'s user argument — before the extra-data parameter:
+  `func(ctx, experiment, result, userCtx, extraData)`. Existing callbacks
+  need the one added parameter to compile. The same user context is stamped
+  on each buffered `TrackingData` as its `user` field, snapshotted at
+  evaluation time. `EventUserContext` is now an alias of the new
+  `TrackingUserContext` type; event logger code is unaffected.
+- **Behavior change (JS parity):** `EvalFeature` now fires `ExperimentCallback`
+  and plugin `OnExperimentViewed` for every experiment assignment made during
+  evaluation, in evaluation order — including passthrough assignments (e.g.
+  the control arm of a monitored ramp step) and assignments made while
+  evaluating prerequisite features. Previously only the experiment that
+  decided the served value was reported, so those exposures were silently
+  dropped. Feature-usage callbacks fire before experiment callbacks. Unlike
+  the JS SDK, callbacks are deduplicated per evaluation, not per client
+  lifetime — repeat evaluations fire them again (the deferred tracking
+  buffer dedupes for its lifetime, and analysis dedupes exposures at query
+  time).
+- **Behavior change (JS parity):** `FeatureUsageCallback` and plugin
+  `OnFeatureEvaluated` now also fire for prerequisite features evaluated
+  along the way, not just the requested feature. A feature is reported once
+  per evaluation unless its value changed.
+- **Behavior change (JS parity):** forced variations (`force`, forced
+  variations set on the client, querystring overrides) no longer fire
+  tracking callbacks — from `RunExperiment` or from a feature's experiment
+  rules in `EvalFeature`. These are not randomized exposures and the JS SDK
+  has never tracked them.
+- Added deferred tracking, the Go equivalent of the JS SDK's deferred
+  tracking queue, for servers that forward exposures to client SDKs (e.g.
+  remote evaluation) instead of tracking via callbacks. Enable it with the
+  `WithDeferredTracking` option — typically on a per-request child client,
+  which acts as the user context — and every experiment exposure produced by
+  the standard evaluation methods is buffered: read it with
+  `Client.DeferredTrackingCalls` (which returns detached copies, safe to
+  retain or mutate) and empty it with `Client.ClearDeferredTrackingCalls`.
+  The buffer deduplicates by `TrackingData.DedupeKey` (the same fields as
+  the JS SDK's dedupe key) over its lifetime and keeps first-seen order.
+  `TrackingData` serializes to the
+  JS SDK's `TrackingData` shape, compatible with `setDeferredTrackingCalls`.
+  Callbacks and plugins are unaffected and keep firing per evaluation.
+- **Behavior change:** `Namespace` and `BucketRange` now marshal to their
+  payload tuple forms (`[id, start, end]` and `[min, max]`), matching what
+  they unmarshal from and what other SDKs emit. Previously they marshaled as
+  structs that could not be re-parsed, which broke JSON round-trips of
+  experiments (including deferred-tracking deep copies) for any experiment
+  carrying a namespace, ranges, or filters.
+
 ## [v0.3.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.3.0) - 2026-08-26
 
 - **Behavior change (JS parity):** attribute values that are falsy in JS

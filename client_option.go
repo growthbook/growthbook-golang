@@ -143,7 +143,7 @@ func WithExtraData(extraData any) ClientOption {
 	}
 }
 
-// WithExperiementCallbaback sets experiment callback function.
+// WithExperimentCallback sets experiment callback function.
 func WithExperimentCallback(cb ExperimentCallback) ClientOption {
 	return func(c *Client) error {
 		c.experimentCallback = cb
@@ -219,6 +219,17 @@ func WithGrowthBookTracking(config TrackingPluginConfig) ClientOption {
 	}
 }
 
+// WithDeferredTracking buffers every experiment exposure produced by
+// evaluation (passthrough and prerequisite assignments included) for later
+// retrieval with Client.DeferredTrackingCalls. Callbacks and plugins still
+// fire; clients cloned from this one share its buffer.
+func WithDeferredTracking() ClientOption {
+	return func(c *Client) error {
+		c.deferredTracks = newTrackingBuffer()
+		return nil
+	}
+}
+
 // Child client instance options
 
 // WithEnabled creates child client instance with updated enabled switch.
@@ -281,6 +292,12 @@ func (c *Client) WithFeatureUsageCallback(cb FeatureUsageCallback) (*Client, err
 // WithEventLogger creates child client with updated event logger function.
 func (c *Client) WithEventLogger(cb EventLogger) (*Client, error) {
 	return c.cloneWith(WithEventLogger(cb))
+}
+
+// WithDeferredTracking creates child client with deferred tracking enabled
+// and a fresh buffer.
+func (c *Client) WithDeferredTracking() (*Client, error) {
+	return c.cloneWith(WithDeferredTracking())
 }
 
 func withValueAttributes(value value.ObjValue) ClientOption {
