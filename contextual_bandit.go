@@ -1,6 +1,10 @@
 package growthbook
 
-import "github.com/growthbook/growthbook-golang/internal/condition"
+import (
+	"encoding/json"
+
+	"github.com/growthbook/growthbook-golang/internal/condition"
+)
 
 // ContextualBanditContext is one leaf of a contextual bandit definition: a
 // targeting condition and the variation weights to use when it matches.
@@ -19,6 +23,28 @@ type ContextualBanditDefinition struct {
 
 // ContextualBanditDefinitions maps bandit refs to their definitions.
 type ContextualBanditDefinitions map[string]ContextualBanditDefinition
+
+// UnmarshalJSON decodes leniently, dropping malformed definitions instead of
+// erroring: a bandit blob the SDK cannot parse (e.g. a future schema) must
+// not block the feature update it arrived with. Affected rules fall back to
+// their aggregate weights.
+func (defs *ContextualBanditDefinitions) UnmarshalJSON(data []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		*defs = nil
+		return nil
+	}
+	out := make(ContextualBanditDefinitions, len(raw))
+	for ref, rawDef := range raw {
+		var def ContextualBanditDefinition
+		if err := json.Unmarshal(rawDef, &def); err != nil {
+			continue
+		}
+		out[ref] = def
+	}
+	*defs = out
+	return nil
+}
 
 // CBContext is the contextual bandit context an assignment was made with.
 type CBContext struct {

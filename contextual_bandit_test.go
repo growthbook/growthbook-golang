@@ -219,6 +219,38 @@ func TestFeatureRuleUnmarshalErrors(t *testing.T) {
 	require.Error(t, json.Unmarshal([]byte(`"not-an-object"`), &rule))
 }
 
+func TestLooseContextualBanditPayloads(t *testing.T) {
+	// A bandit blob the SDK cannot parse must not block the feature update
+	// it arrived with; parseable definitions survive alongside broken ones.
+	ctx := context.Background()
+	client, err := NewClient(ctx, WithAttributes(Attributes{"id": "u1", "country": "nz"}))
+	require.NoError(t, err)
+
+	require.NoError(t, client.UpdateFromApiResponseJSON(`{
+		"features": `+banditFeaturesJSON+`,
+		"contextualBandits": {
+			"cb-broken": {"contexts": [{"leafId": "not-a-number"}]},
+			"cb-1": `+`{
+				"contexts": [{"leafId": 20, "condition": {"country": "nz"}, "weights": [0, 1]}]
+			}`+`
+		},
+		"dateUpdated": "2030-01-01T00:00:00Z"
+	}`))
+
+	res := client.EvalFeature(ctx, "bandit-flag")
+	require.Equal(t, 20, *res.ExperimentResult.LeafId, "parseable definition survives")
+
+	client2, err := NewClient(ctx, WithAttributes(Attributes{"id": "u1"}))
+	require.NoError(t, err)
+	require.NoError(t, client2.UpdateFromApiResponseJSON(`{
+		"features": {"f": {"defaultValue": 1}},
+		"contextualBandits": ["entirely-wrong-shape"],
+		"dateUpdated": "2030-01-01T00:00:00Z"
+	}`))
+	res2 := client2.EvalFeature(ctx, "f")
+	require.Equal(t, 1.0, res2.Value, "features still update")
+}
+
 func TestContextualBanditsFromApiResponse(t *testing.T) {
 	ctx := context.Background()
 	client, err := NewClient(ctx, WithAttributes(Attributes{"id": "u1", "country": "nz"}))
