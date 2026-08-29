@@ -52,8 +52,8 @@ func WithAttributes(attributes Attributes) ClientOption {
 	}
 }
 
-// WithContextualBandits sets the contextual bandit definitions referenced by
-// feature rules, normally delivered in the SDK payload.
+// WithContextualBandits sets contextual bandit definitions, normally
+// delivered in the SDK payload.
 func WithContextualBandits(bandits ContextualBanditDefinitions) ClientOption {
 	return func(c *Client) error {
 		c.data.contextualBandits = bandits

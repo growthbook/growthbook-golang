@@ -70,8 +70,8 @@ type FeatureRule struct {
 	// status in the JS SDK; use Experiment.Status with RunExperiment.
 	Status ExperimentStatus `json:"status"`
 
-	// forcePresent distinguishes {"force": null} from an absent force: the
-	// JS SDK serves the null (it checks key presence), so Go must too.
+	// forcePresent distinguishes {"force": null} from an absent force, so a
+	// rule forcing null serves it instead of being skipped.
 	forcePresent bool
 }
 

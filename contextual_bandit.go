@@ -20,8 +20,7 @@ type ContextualBanditDefinition struct {
 // ContextualBanditDefinitions maps bandit refs to their definitions.
 type ContextualBanditDefinitions map[string]ContextualBanditDefinition
 
-// CBContext is the contextual bandit context an assignment was made with,
-// mirroring the JS SDK type of the same name.
+// CBContext is the contextual bandit context an assignment was made with.
 type CBContext struct {
 	LeafId           int       `json:"leafId"`
 	VariationWeights []float64 `json:"variationWeights"`

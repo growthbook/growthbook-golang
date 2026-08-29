@@ -84,8 +84,6 @@ func experimentFromFeatureRule(featureId string, rule *FeatureRule) *Experiment 
 		expKey = featureId
 	}
 
-	// Contextual bandit rules carry their variations under
-	// ContextualVariations so SDKs without bandit support skip the rule.
 	variations := rule.Variations
 	if rule.ContextualVariations != nil {
 		variations = rule.ContextualVariations
