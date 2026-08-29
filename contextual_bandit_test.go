@@ -20,7 +20,8 @@ const banditFeaturesJSON = `{
         "coverage": 1,
         "contextualBanditRef": "cb-1",
         "contextualVariations": ["a", "b"],
-        "weights": [0.5, 0.5]
+        "weights": [0.5, 0.5],
+        "meta": [{"key": "0"}, {"key": "1"}]
       }
     ]
   },
@@ -192,6 +193,114 @@ func TestContextualBanditTracking(t *testing.T) {
 	nb, err := json.Marshal(calls[0])
 	require.NoError(t, err)
 	require.NotContains(t, string(nb), "leafId")
+}
+
+func TestContextualBanditRobustness(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("empty contextualVariations falls through without panicking", func(t *testing.T) {
+		client, err := NewClient(ctx,
+			WithJsonFeatures(`{"f": {"defaultValue": "d", "rules": [
+				{"contextualBanditRef": "x", "contextualVariations": []},
+				{"force": "next-rule"}
+			]}}`),
+			WithAttributes(Attributes{"id": "u"}))
+		require.NoError(t, err)
+		res := client.EvalFeature(ctx, "f")
+		require.Equal(t, "next-rule", res.Value)
+	})
+
+	t.Run("RunExperiment with no variations does not panic", func(t *testing.T) {
+		client, err := NewClient(ctx, WithAttributes(Attributes{"id": "u"}))
+		require.NoError(t, err)
+		res := client.RunExperiment(ctx, &Experiment{Key: "empty"})
+		require.False(t, res.InExperiment)
+		require.Nil(t, res.Value)
+	})
+
+	t.Run("leaf weights of the wrong length are sanitized and reported as used", func(t *testing.T) {
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+			WithContextualBandits(mustBanditDefs(t, `{
+				"cb-1": {"contexts": [{"leafId": 5, "condition": {}, "weights": [1, 0, 0]}]}
+			}`)))
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.True(t, res.InExperiment())
+		require.Equal(t, 5, *res.ExperimentResult.LeafId)
+		require.Equal(t, []float64{0.5, 0.5}, res.ExperimentResult.VariationWeights)
+	})
+
+	t.Run("a malformed context is dropped without discarding its siblings", func(t *testing.T) {
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "nz"},
+			WithContextualBandits(mustBanditDefs(t, `{
+				"cb-1": {"contexts": [
+					{"leafId": "junk", "condition": {}, "weights": [1, 0]},
+					{"leafId": 20, "condition": {"country": "nz"}, "weights": [0, 1]}
+				]}
+			}`)))
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.Equal(t, "b", res.Value)
+		require.Equal(t, 20, *res.ExperimentResult.LeafId)
+	})
+
+	t.Run("sticky-bucketed assignments carry no bandit fields", func(t *testing.T) {
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+			WithStickyBucketService(NewInMemoryStickyBucketService()))
+
+		first := client.EvalFeature(ctx, "bandit-flag")
+		require.False(t, first.ExperimentResult.StickyBucketUsed)
+		require.Equal(t, 10, *first.ExperimentResult.LeafId)
+
+		second := client.EvalFeature(ctx, "bandit-flag")
+		require.True(t, second.ExperimentResult.StickyBucketUsed)
+		require.Nil(t, second.ExperimentResult.LeafId)
+		require.Nil(t, second.ExperimentResult.VariationWeights)
+	})
+
+	t.Run("undecodable encrypted bandits do not block the feature update", func(t *testing.T) {
+		client, err := NewClient(ctx,
+			WithAttributes(Attributes{"id": "u"}),
+			WithDecryptionKey("Ns04T5n9+59rl2x3SlNHtQ=="))
+		require.NoError(t, err)
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"features": {"f": {"defaultValue": 1}},
+			"encryptedContextualBandits": "not-a-valid-blob",
+			"dateUpdated": "2030-01-01T00:00:00Z"
+		}`))
+		res := client.EvalFeature(ctx, "f")
+		require.Equal(t, 1.0, res.Value)
+	})
+}
+
+func TestFeatureRuleMarshalRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithJsonFeatures(`{
+			"exp": {"defaultValue": "d", "rules": [{"key": "e", "coverage": 1, "variations": ["a", "b"], "weights": [1, 0]}]},
+			"null-force": {"defaultValue": "d", "rules": [{"force": null}]}
+		}`),
+		WithAttributes(Attributes{"id": "u"}))
+	require.NoError(t, err)
+
+	b, err := json.Marshal(client.Features())
+	require.NoError(t, err)
+	reloaded, err := NewClient(ctx, WithAttributes(Attributes{"id": "u"}))
+	require.NoError(t, err)
+	require.NoError(t, reloaded.SetJSONFeatures(string(b)))
+
+	res := reloaded.EvalFeature(ctx, "exp")
+	require.Equal(t, "a", res.Value)
+	require.Equal(t, ExperimentResultSource, res.Source)
+
+	nf := reloaded.EvalFeature(ctx, "null-force")
+	require.Nil(t, nf.Value)
+	require.Equal(t, ForceResultSource, nf.Source)
+}
+
+func mustBanditDefs(t *testing.T, raw string) ContextualBanditDefinitions {
+	t.Helper()
+	var defs ContextualBanditDefinitions
+	require.NoError(t, json.Unmarshal([]byte(raw), &defs))
+	return defs
 }
 
 func TestSetContextualBandits(t *testing.T) {

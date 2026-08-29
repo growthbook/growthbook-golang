@@ -21,6 +21,28 @@ type ContextualBanditDefinition struct {
 	Contexts      []ContextualBanditContext `json:"contexts"`
 }
 
+// UnmarshalJSON drops malformed contexts instead of erroring, so one bad
+// leaf does not discard a definition's parseable ones.
+func (d *ContextualBanditDefinition) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		BanditVersion *int              `json:"banditVersion"`
+		Contexts      []json.RawMessage `json:"contexts"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	d.BanditVersion = raw.BanditVersion
+	d.Contexts = nil
+	for _, rawCtx := range raw.Contexts {
+		var c ContextualBanditContext
+		if err := json.Unmarshal(rawCtx, &c); err != nil {
+			continue
+		}
+		d.Contexts = append(d.Contexts, c)
+	}
+	return nil
+}
+
 // ContextualBanditDefinitions maps bandit refs to their definitions.
 type ContextualBanditDefinitions map[string]ContextualBanditDefinition
 
@@ -71,10 +93,13 @@ func (e *evaluator) buildContextualBanditExperiment(exp *Experiment, ref string,
 		if !leaf.Condition.Eval(e.client.attributes, e.savedGroups) {
 			continue
 		}
-		exp.Weights = leaf.Weights
+		// Sanitize so the reported weights always equal the weights the
+		// assignment uses — bandit analysis reweights by these propensities.
+		weights := e.client.effectiveWeights(len(exp.Variations), leaf.Weights)
+		exp.Weights = weights
 		exp.ContextualBandit = &CBContext{
 			LeafId:           leaf.LeafId,
-			VariationWeights: leaf.Weights,
+			VariationWeights: weights,
 			BanditVersion:    def.BanditVersion,
 		}
 		return
@@ -82,13 +107,9 @@ func (e *evaluator) buildContextualBanditExperiment(exp *Experiment, ref string,
 
 	e.client.logger.DebugContext(e.ctx, "Contextual bandit: no matching leaf, using fallback weights",
 		"id", featureId, "contextualBanditRef", ref)
-	weights := exp.Weights
-	if len(weights) == 0 {
-		weights = getEqualWeights(len(exp.Variations))
-	}
 	exp.ContextualBandit = &CBContext{
 		LeafId:           contextualBanditFallbackLeafId,
-		VariationWeights: weights,
+		VariationWeights: e.client.effectiveWeights(len(exp.Variations), exp.Weights),
 		BanditVersion:    def.BanditVersion,
 	}
 }

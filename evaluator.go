@@ -341,13 +341,18 @@ func (e *evaluator) getExperimentResult(
 		key = meta.Key
 	}
 
+	var value FeatureValue
+	if variationId < len(exp.Variations) {
+		value = exp.Variations[variationId]
+	}
+
 	res := ExperimentResult{
 		Key:              key,
 		FeatureId:        featureId,
 		InExperiment:     inExperiment,
 		HashUsed:         hashUsed,
 		VariationId:      variationId,
-		Value:            exp.Variations[variationId],
+		Value:            value,
 		HashAttribute:    hashAttribute,
 		HashValue:        hashValue,
 		Bucket:           bucket,
@@ -359,7 +364,9 @@ func (e *evaluator) getExperimentResult(
 		res.Passthrough = meta.Passthrough
 	}
 
-	if cb := exp.ContextualBandit; cb != nil && hashUsed && inExperiment {
+	// A sticky-bucketed assignment did not use the leaf weights, so
+	// reporting them would corrupt the bandit's propensity estimates.
+	if cb := exp.ContextualBandit; cb != nil && hashUsed && inExperiment && !isStickyBucketUsed {
 		leafId := cb.LeafId
 		res.LeafId = &leafId
 		res.VariationWeights = cb.VariationWeights
@@ -418,7 +425,11 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 	}
 	res := e.runExperiment(exp, featureId)
 	if exp.ContextualBandit != nil && !(res.HashUsed && res.InExperiment) {
-		exp.ContextualBandit = nil
+		// Detach via copy: subscribers already hold exp, so mutating it here
+		// would race with them.
+		expCopy := *exp
+		expCopy.ContextualBandit = nil
+		exp = &expCopy
 	}
 	if !res.InExperiment || res.Passthrough {
 		return nil

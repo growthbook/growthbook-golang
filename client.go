@@ -184,11 +184,12 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	bandits := resp.ContextualBandits
 	if resp.EncryptedContextualBandits != "" {
 		banditsJSON, err := client.data.decrypt(resp.EncryptedContextualBandits)
-		if err != nil {
-			return err
+		if err == nil {
+			err = json.Unmarshal([]byte(banditsJSON), &bandits)
 		}
-		if err := json.Unmarshal([]byte(banditsJSON), &bandits); err != nil {
-			return err
+		if err != nil {
+			client.logger.Warn("Dropping undecodable contextual bandits, applying the rest of the payload", "error", err)
+			bandits = nil
 		}
 	}
 	client.data.withLock(func(d *data) error {

@@ -75,6 +75,22 @@ type FeatureRule struct {
 	forcePresent bool
 }
 
+// MarshalJSON omits an absent force so a marshal/unmarshal round trip does
+// not turn every rule into a force-null rule.
+func (r FeatureRule) MarshalJSON() ([]byte, error) {
+	type alias FeatureRule
+	b, err := json.Marshal(alias(r))
+	if err != nil || r.forcePresent || r.Force != nil {
+		return b, err
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, err
+	}
+	delete(m, "force")
+	return json.Marshal(m)
+}
+
 func (r *FeatureRule) UnmarshalJSON(data []byte) error {
 	type alias FeatureRule
 	if err := json.Unmarshal(data, (*alias)(r)); err != nil {
