@@ -47,6 +47,17 @@ const banditFeaturesJSON = `{
         "weights": [0, 1]
       }
     ]
+  },
+  "bandit-no-weights": {
+    "defaultValue": "default",
+    "rules": [
+      {
+        "key": "bandit-nw",
+        "coverage": 1,
+        "contextualBanditRef": "cb-us-only",
+        "contextualVariations": ["a", "b"]
+      }
+    ]
   }
 }`
 
@@ -135,6 +146,15 @@ func TestContextualBanditLeafSelection(t *testing.T) {
 		require.Nil(t, res.Experiment.ContextualBandit)
 	})
 
+	t.Run("no matching leaf and no rule weights falls back to equal weights", func(t *testing.T) {
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "de"})
+		res := client.EvalFeature(ctx, "bandit-no-weights")
+
+		require.True(t, res.InExperiment())
+		require.Equal(t, -1, *res.ExperimentResult.LeafId)
+		require.Equal(t, []float64{0.5, 0.5}, res.ExperimentResult.VariationWeights)
+	})
+
 	t.Run("client-forced variations carry no bandit fields", func(t *testing.T) {
 		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
 			WithForcedVariations(ForcedVariationsMap{"bandit-exp": 1}))
@@ -172,6 +192,31 @@ func TestContextualBanditTracking(t *testing.T) {
 	nb, err := json.Marshal(calls[0])
 	require.NoError(t, err)
 	require.NotContains(t, string(nb), "leafId")
+}
+
+func TestSetContextualBandits(t *testing.T) {
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithJsonFeatures(banditFeaturesJSON),
+		WithAttributes(Attributes{"id": "u1", "country": "nz"}),
+	)
+	require.NoError(t, err)
+
+	res := client.EvalFeature(ctx, "bandit-flag")
+	require.Nil(t, res.ExperimentResult.LeafId, "no definitions set yet")
+
+	var defs ContextualBanditDefinitions
+	require.NoError(t, json.Unmarshal([]byte(banditDefsJSON), &defs))
+	require.NoError(t, client.SetContextualBandits(defs))
+
+	res = client.EvalFeature(ctx, "bandit-flag")
+	require.Equal(t, 20, *res.ExperimentResult.LeafId)
+}
+
+func TestFeatureRuleUnmarshalErrors(t *testing.T) {
+	var rule FeatureRule
+	require.Error(t, json.Unmarshal([]byte(`{"force": }`), &rule))
+	require.Error(t, json.Unmarshal([]byte(`"not-an-object"`), &rule))
 }
 
 func TestContextualBanditsFromApiResponse(t *testing.T) {
