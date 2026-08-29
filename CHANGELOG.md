@@ -14,6 +14,10 @@ All notable changes to this project will be documented in this file.
   `variationWeights`, and `banditVersion` on `ExperimentResult` — and on
   forwarded deferred-tracking data. Previously bandit rules were skipped and
   served the next rule or the default value.
+- **Bugfix (JS parity):** a feature rule of `{"force": null}` now serves
+  `null` with source `force`, as the JS SDK does. Previously a null force
+  was indistinguishable from an absent one, so the rule was skipped and the
+  next rule or default value was served.
 
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 

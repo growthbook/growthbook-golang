@@ -1,6 +1,10 @@
 package growthbook
 
-import "github.com/growthbook/growthbook-golang/internal/condition"
+import (
+	"encoding/json"
+
+	"github.com/growthbook/growthbook-golang/internal/condition"
+)
 
 type FeatureRule struct {
 	// Optional rule id, reserved for future use
@@ -65,4 +69,23 @@ type FeatureRule struct {
 	// Deprecated: ignored during evaluation. Feature rules never carried a
 	// status in the JS SDK; use Experiment.Status with RunExperiment.
 	Status ExperimentStatus `json:"status"`
+
+	// forcePresent distinguishes {"force": null} from an absent force: the
+	// JS SDK serves the null (it checks key presence), so Go must too.
+	forcePresent bool
+}
+
+func (r *FeatureRule) UnmarshalJSON(data []byte) error {
+	type alias FeatureRule
+	if err := json.Unmarshal(data, (*alias)(r)); err != nil {
+		return err
+	}
+	var probe struct {
+		Force json.RawMessage `json:"force"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return err
+	}
+	r.forcePresent = probe.Force != nil
+	return nil
 }

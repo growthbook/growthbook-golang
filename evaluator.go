@@ -396,7 +396,7 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 		return nil
 	}
 
-	if rule.Force != nil {
+	if rule.forcePresent || rule.Force != nil {
 		if !rule.Condition.Eval(e.client.attributes, e.savedGroups) {
 			return nil
 		}
