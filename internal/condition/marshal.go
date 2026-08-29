@@ -11,6 +11,7 @@ import (
 
 type Base struct {
 	cond Condition
+	raw  json.RawMessage
 }
 
 func (base Base) Eval(actual value.Value, groups SavedGroups) bool {
@@ -26,13 +27,26 @@ func (base *Base) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	json := value.New(m)
-	cond, err := buildBaseCond(json)
+	val := value.New(m)
+	cond, err := buildBaseCond(val)
 	if err != nil {
 		return err
 	}
-	*base = Base{cond}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	*base = Base{cond: cond, raw: raw}
 	return nil
+}
+
+// MarshalJSON emits the parsed condition in canonical form, so conditions
+// survive a marshal/unmarshal round trip instead of collapsing to {}.
+func (base Base) MarshalJSON() ([]byte, error) {
+	if base.raw == nil {
+		return []byte("null"), nil
+	}
+	return base.raw, nil
 }
 
 func buildBaseCond(json value.Value) (Condition, error) {

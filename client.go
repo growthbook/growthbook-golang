@@ -130,6 +130,15 @@ func (client *Client) SetFeatures(features FeatureMap) error {
 	return nil
 }
 
+// SetContextualBandits updates the shared contextual bandit definitions.
+func (client *Client) SetContextualBandits(bandits ContextualBanditDefinitions) error {
+	client.data.withLock(func(d *data) error {
+		d.contextualBandits = bandits
+		return nil
+	})
+	return nil
+}
+
 // SetJSONFeatures updates shared features from JSON
 func (client *Client) SetJSONFeatures(featuresJSON string) error {
 	var features FeatureMap
@@ -172,9 +181,20 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	} else {
 		features = resp.Features
 	}
+	bandits := resp.ContextualBandits
+	if resp.EncryptedContextualBandits != "" {
+		banditsJSON, err := client.data.decrypt(resp.EncryptedContextualBandits)
+		if err == nil {
+			err = json.Unmarshal([]byte(banditsJSON), &bandits)
+		}
+		if err != nil {
+			client.logger.Warn("Ignoring undecodable encrypted contextual bandits, applying the rest of the payload", "error", err)
+		}
+	}
 	client.data.withLock(func(d *data) error {
 		d.features = features
 		d.savedGroups = resp.SavedGroups
+		d.contextualBandits = bandits
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
@@ -290,10 +310,11 @@ func (client *Client) Logger() *slog.Logger {
 func (client *Client) evaluator(ctx context.Context) *evaluator {
 	client.data.mu.RLock()
 	e := evaluator{
-		features:    client.data.features,
-		savedGroups: client.data.savedGroups,
-		client:      client,
-		ctx:         ctx,
+		features:          client.data.features,
+		savedGroups:       client.data.savedGroups,
+		contextualBandits: client.data.contextualBandits,
+		client:            client,
+		ctx:               ctx,
 		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
 			client.deferredTracks != nil || len(client.data.plugins) > 0,
 	}

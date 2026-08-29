@@ -25,4 +25,10 @@ type ExperimentResult struct {
 	Passthrough bool `json:"passthrough"`
 	// If sticky bucketing was used to assign a variation
 	StickyBucketUsed bool `json:"stickyBucketUsed"`
+	// The contextual bandit leaf used for this assignment
+	LeafId *int `json:"leafId,omitempty"`
+	// The variation weights the contextual bandit assigned with
+	VariationWeights []float64 `json:"variationWeights,omitempty"`
+	// The version of the contextual bandit definition used
+	BanditVersion *int `json:"banditVersion,omitempty"`
 }

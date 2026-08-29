@@ -30,6 +30,7 @@ type cases struct {
 	GetEqualWeights        JsonTuples[getEqualWeightsCase]        `json:"getEqualWeights"`
 	Decrypt                JsonTuples[decryptCase]                `json:"decrypt"`
 	StickyBucket           JsonTuples[stickyBucketTestCase]       `json:"stickyBucket"`
+	ContextualBandit       JsonTuples[featureCase]                `json:"contextualBandit"`
 }
 
 type evalConditionCase struct {
@@ -153,13 +154,14 @@ type stickyBucketTestCase struct {
 }
 
 type env struct {
-	Attributes       Attributes            `json:"attributes"`
-	Features         FeatureMap            `json:"features"`
-	Enabled          *bool                 `json:"enabled"`
-	Url              string                `json:"url"`
-	ForcedVariations ForcedVariationsMap   `json:"forcedVariations"`
-	QaMode           *bool                 `json:"qaMode"`
-	SavedGroups      condition.SavedGroups `json:"savedGroups"`
+	Attributes        Attributes                  `json:"attributes"`
+	Features          FeatureMap                  `json:"features"`
+	Enabled           *bool                       `json:"enabled"`
+	Url               string                      `json:"url"`
+	ForcedVariations  ForcedVariationsMap         `json:"forcedVariations"`
+	QaMode            *bool                       `json:"qaMode"`
+	SavedGroups       condition.SavedGroups       `json:"savedGroups"`
+	ContextualBandits ContextualBanditDefinitions `json:"contextualBandits"`
 }
 
 type JsonTuple[T any] struct {
@@ -216,6 +218,7 @@ func TestCasesJson(t *testing.T) {
 	cases.GetEqualWeights.run("getEqualWeights", t)
 	cases.Decrypt.run("decrypt", t)
 	cases.StickyBucket.run("stickyBucket", t)
+	cases.ContextualBandit.run("contextualBandit", t)
 }
 
 // stringifyTopLevelHashValue converts a numeric top-level "hashValue" in an
@@ -415,6 +418,7 @@ func (e *env) client() (*Client, error) {
 		WithForcedVariations(e.ForcedVariations),
 		WithFeatures(e.Features),
 		WithSavedGroups(e.SavedGroups),
+		WithContextualBandits(e.ContextualBandits),
 		withSilentTestLogger(),
 	)
 	if err != nil {

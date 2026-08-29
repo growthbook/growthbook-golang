@@ -1,6 +1,10 @@
 package growthbook
 
-import "github.com/growthbook/growthbook-golang/internal/condition"
+import (
+	"encoding/json"
+
+	"github.com/growthbook/growthbook-golang/internal/condition"
+)
 
 type FeatureRule struct {
 	// Optional rule id, reserved for future use
@@ -48,6 +52,11 @@ type FeatureRule struct {
 	Name string `json:"name"`
 	// The phase id of the experiment
 	Phase string `json:"phase"`
+	// Reference to a contextual bandit definition in the payload
+	ContextualBanditRef string `json:"contextualBanditRef"`
+	// Variations for a contextual bandit rule, carried separately from
+	// Variations so SDKs without bandit support skip the rule
+	ContextualVariations []FeatureValue `json:"contextualVariations"`
 	// Deprecated: ignored during evaluation. Feature rules never carried URL
 	// targeting in the JS SDK; use Experiment.URLPatterns with RunExperiment.
 	URLPatterns []URLTarget `json:"urlPatterns"`
@@ -60,4 +69,39 @@ type FeatureRule struct {
 	// Deprecated: ignored during evaluation. Feature rules never carried a
 	// status in the JS SDK; use Experiment.Status with RunExperiment.
 	Status ExperimentStatus `json:"status"`
+
+	// forcePresent distinguishes {"force": null} from an absent force, so a
+	// rule forcing null serves it instead of being skipped.
+	forcePresent bool
+}
+
+// MarshalJSON omits an absent force so a marshal/unmarshal round trip does
+// not turn every rule into a force-null rule.
+func (r FeatureRule) MarshalJSON() ([]byte, error) {
+	type alias FeatureRule
+	b, err := json.Marshal(alias(r))
+	if err != nil || r.forcePresent || r.Force != nil {
+		return b, err
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(b, &m); err != nil {
+		return nil, err
+	}
+	delete(m, "force")
+	return json.Marshal(m)
+}
+
+func (r *FeatureRule) UnmarshalJSON(data []byte) error {
+	type alias FeatureRule
+	if err := json.Unmarshal(data, (*alias)(r)); err != nil {
+		return err
+	}
+	var probe struct {
+		Force json.RawMessage `json:"force"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return err
+	}
+	r.forcePresent = probe.Force != nil
+	return nil
 }

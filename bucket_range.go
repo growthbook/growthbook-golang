@@ -25,24 +25,7 @@ func (c *Client) getBucketRanges(numVariations int, coverage float64, weights []
 		coverage = 1
 	}
 
-	// Default to equal weights if missing or invalid
-	if len(weights) == 0 {
-		weights = getEqualWeights(numVariations)
-	}
-	if len(weights) != numVariations {
-		c.logger.Warn("Experiment weights and variations arrays must be the same length")
-		weights = getEqualWeights(numVariations)
-	}
-
-	// If weights don't add up to 1 (or close to it), default to equal weights
-	totalWeight := 0.0
-	for i := range weights {
-		totalWeight += weights[i]
-	}
-	if totalWeight < 0.99 || totalWeight > 1.01 {
-		c.logger.Warn("Experiment weights must add up to 1")
-		weights = getEqualWeights(numVariations)
-	}
+	weights = c.effectiveWeights(numVariations, weights)
 
 	// Cast weights to ranges
 	cumulative := 0.0
@@ -53,6 +36,27 @@ func (c *Client) getBucketRanges(numVariations int, coverage float64, weights []
 		ranges[i] = BucketRange{start, start + coverage*weights[i]}
 	}
 	return ranges
+}
+
+// effectiveWeights returns the weights assignment will actually use: equal
+// weights when missing, the wrong length, or not summing to ~1.
+func (c *Client) effectiveWeights(numVariations int, weights []float64) []float64 {
+	if len(weights) == 0 {
+		return getEqualWeights(numVariations)
+	}
+	if len(weights) != numVariations {
+		c.logger.Warn("Experiment weights and variations arrays must be the same length")
+		return getEqualWeights(numVariations)
+	}
+	totalWeight := 0.0
+	for i := range weights {
+		totalWeight += weights[i]
+	}
+	if totalWeight < 0.99 || totalWeight > 1.01 {
+		c.logger.Warn("Experiment weights must add up to 1")
+		return getEqualWeights(numVariations)
+	}
+	return weights
 }
 
 // Given a hash and bucket ranges, assigns one of the bucket ranges.

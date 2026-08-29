@@ -2,6 +2,39 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.5.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.5.0) - 2026-08-28
+
+- Added contextual bandit support (JS parity): feature rules carrying a
+  `contextualBanditRef` now evaluate using the per-context variation weights
+  from the payload's `contextualBandits` definitions (encrypted payloads
+  supported, plus a `WithContextualBandits` option and
+  `SetContextualBandits` for manual setup). The first context whose
+  condition matches the user supplies the weights; with no match, the rule's
+  aggregate weights apply under a fallback leaf. Assignments carry `leafId`,
+  `variationWeights`, and `banditVersion` on `ExperimentResult` — and on
+  forwarded deferred-tracking data. Definitions decode leniently and never
+  block the feature update they arrived with: a malformed definition is
+  dropped (its rules fall back to aggregate weights), and a malformed
+  context within a definition is dropped while its siblings are kept.
+  Previously bandit rules were skipped and served the next rule or the
+  default value.
+- **Bugfix (JS parity):** a feature rule of `{"force": null}` now serves
+  `null` with source `force`, as the JS SDK does. Previously a null force
+  was indistinguishable from an absent one, so the rule was skipped and the
+  next rule or default value was served.
+- **Behavior change:** rule and experiment conditions now marshal as their
+  parsed content in canonical form instead of `{}`, so feature JSON survives
+  a marshal/unmarshal round trip. Previously a reloaded gated rule lost its
+  condition and applied unconditionally.
+- Deliberate divergences from the JS SDK, all in favor of truthful bandit
+  exposures: sticky-bucketed assignments on bandit rules carry no bandit
+  attribution (the leaf weights did not produce the assignment; GrowthBook
+  disables sticky bucketing on bandit rules, so served payloads never hit
+  this path); reported `variationWeights` are the sanitized weights the
+  assignment actually used, where the JS SDK reports raw invalid weights;
+  and a type-malformed context is dropped rather than routed with junk
+  attribution.
+
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
 - **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`
