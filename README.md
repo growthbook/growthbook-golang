@@ -263,29 +263,6 @@ Plugins are shared with child clients. Any panics in plugin methods are recovere
 
 ---
 
-### Contextual Bandits
-
-Contextual bandit experiments reweight their variations per user segment.
-The GrowthBook API serves each bandit's per-context weights in the SDK
-payload alongside features (encrypted payloads included), and the SDK uses
-the first context whose condition matches the user — no extra setup needed.
-
-Assignments made by a bandit carry their attribution — `LeafId`,
-`VariationWeights`, and `BanditVersion` on the `ExperimentResult` — through
-callbacks, plugins, and deferred tracking alike.
-
-Good to know:
-
-- GrowthBook only serves bandit definitions to SDK versions that support
-  them, so make sure your SDK connection reports v0.5.0 or newer. Without
-  definitions in the payload, bandit rules serve their aggregate weights.
-- When no context matches the user, the rule's aggregate weights apply and
-  the exposure is attributed to the fallback leaf (`LeafId: -1`).
-- `WithContextualBandits` and `SetContextualBandits` exist for manual setup
-  and tests.
-
----
-
 ### Sticky Bucketing
 
 Sticky Bucketing ensures users see consistent experiment variations across sessions and devices. The SDK provides an in-memory implementation by default, but you can implement your own storage solution.
