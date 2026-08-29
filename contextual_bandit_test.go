@@ -289,7 +289,8 @@ func TestFeatureRuleMarshalRoundTrip(t *testing.T) {
 	client, err := NewClient(ctx,
 		WithJsonFeatures(`{
 			"exp": {"defaultValue": "d", "rules": [{"key": "e", "coverage": 1, "variations": ["a", "b"], "weights": [1, 0]}]},
-			"null-force": {"defaultValue": "d", "rules": [{"force": null}]}
+			"null-force": {"defaultValue": "d", "rules": [{"force": null}]},
+			"gated": {"defaultValue": "d", "rules": [{"force": "forced", "condition": {"country": "us"}}]}
 		}`),
 		WithAttributes(Attributes{"id": "u"}))
 	require.NoError(t, err)
@@ -303,6 +304,9 @@ func TestFeatureRuleMarshalRoundTrip(t *testing.T) {
 	res := reloaded.EvalFeature(ctx, "exp")
 	require.Equal(t, "a", res.Value)
 	require.Equal(t, ExperimentResultSource, res.Source)
+
+	gated := reloaded.EvalFeature(ctx, "gated")
+	require.Equal(t, "d", gated.Value, "rule conditions survive the round trip")
 
 	nf := reloaded.EvalFeature(ctx, "null-force")
 	require.Nil(t, nf.Value)

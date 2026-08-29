@@ -20,6 +20,14 @@ All notable changes to this project will be documented in this file.
   `null` with source `force`, as the JS SDK does. Previously a null force
   was indistinguishable from an absent one, so the rule was skipped and the
   next rule or default value was served.
+- **Behavior change:** rule and experiment conditions now marshal as their
+  parsed content in canonical form instead of `{}`, so feature JSON survives
+  a marshal/unmarshal round trip. Previously a reloaded gated rule lost its
+  condition and applied unconditionally.
+- Deliberate divergence from the JS SDK: sticky-bucketed assignments on
+  bandit rules carry no bandit attribution, since the leaf weights did not
+  produce the assignment. GrowthBook disables sticky bucketing on bandit
+  rules, so served payloads never hit this path.
 
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
