@@ -12,8 +12,10 @@ All notable changes to this project will be documented in this file.
   condition matches the user supplies the weights; with no match, the rule's
   aggregate weights apply under a fallback leaf. Assignments carry `leafId`,
   `variationWeights`, and `banditVersion` on `ExperimentResult` — and on
-  forwarded deferred-tracking data. Previously bandit rules were skipped and
-  served the next rule or the default value.
+  forwarded deferred-tracking data. Definitions decode leniently: a
+  malformed one is dropped (its rules fall back to aggregate weights) and
+  never blocks the feature update it arrived with. Previously bandit rules
+  were skipped and served the next rule or the default value.
 - **Bugfix (JS parity):** a feature rule of `{"force": null}` now serves
   `null` with source `force`, as the JS SDK does. Previously a null force
   was indistinguishable from an absent one, so the rule was skipped and the
