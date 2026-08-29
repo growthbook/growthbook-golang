@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [v0.5.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.5.0) - 2026-08-28
 
 - Added contextual bandit support (JS parity): feature rules carrying a
   `contextualBanditRef` now evaluate using the per-context variation weights
