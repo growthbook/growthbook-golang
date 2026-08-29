@@ -424,7 +424,7 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 		e.buildContextualBanditExperiment(exp, rule.ContextualBanditRef, featureId)
 	}
 	res := e.runExperiment(exp, featureId)
-	if exp.ContextualBandit != nil && !(res.HashUsed && res.InExperiment) {
+	if exp.ContextualBandit != nil && res.LeafId == nil {
 		// Detach via copy: subscribers already hold exp, so mutating it here
 		// would race with them.
 		expCopy := *exp

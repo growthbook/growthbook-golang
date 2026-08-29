@@ -249,16 +249,24 @@ func TestContextualBanditRobustness(t *testing.T) {
 
 	t.Run("sticky-bucketed assignments carry no bandit fields", func(t *testing.T) {
 		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
-			WithStickyBucketService(NewInMemoryStickyBucketService()))
+			WithStickyBucketService(NewInMemoryStickyBucketService()),
+			WithDeferredTracking())
 
 		first := client.EvalFeature(ctx, "bandit-flag")
 		require.False(t, first.ExperimentResult.StickyBucketUsed)
 		require.Equal(t, 10, *first.ExperimentResult.LeafId)
+		client.ClearDeferredTrackingCalls()
 
 		second := client.EvalFeature(ctx, "bandit-flag")
 		require.True(t, second.ExperimentResult.StickyBucketUsed)
 		require.Nil(t, second.ExperimentResult.LeafId)
 		require.Nil(t, second.ExperimentResult.VariationWeights)
+		require.Nil(t, second.Experiment.ContextualBandit)
+
+		calls := client.DeferredTrackingCalls()
+		require.Len(t, calls, 1)
+		require.Nil(t, calls[0].Experiment.ContextualBandit)
+		require.Nil(t, calls[0].Result.LeafId)
 	})
 
 	t.Run("undecodable encrypted bandits do not block the feature update", func(t *testing.T) {

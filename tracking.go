@@ -140,6 +140,11 @@ func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
 		e.userCtx = e.client.trackingUserContext()
 	}
 	expCopy, resCopy := *exp, *res
+	// The result is the truth for bandit attribution: a snapshot must not
+	// claim a context the assignment did not use (e.g. sticky-bucketed).
+	if res.LeafId == nil {
+		expCopy.ContextualBandit = nil
+	}
 	e.experiments = append(e.experiments, TrackingData{Experiment: &expCopy, Result: &resCopy, User: e.userCtx})
 }
 
