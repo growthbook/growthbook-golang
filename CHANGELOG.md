@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Added contextual bandit support (JS parity): feature rules carrying a
+  `contextualBanditRef` now evaluate using the per-context variation weights
+  from the payload's `contextualBandits` definitions (encrypted payloads
+  supported, plus a `WithContextualBandits` option and
+  `SetContextualBandits` for manual setup). The first context whose
+  condition matches the user supplies the weights; with no match, the rule's
+  aggregate weights apply under a fallback leaf. Assignments carry `leafId`,
+  `variationWeights`, and `banditVersion` on `ExperimentResult` — and on
+  forwarded deferred-tracking data. Previously bandit rules were skipped and
+  served the next rule or the default value.
+
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
 - **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`

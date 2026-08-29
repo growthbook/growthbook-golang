@@ -9,11 +9,12 @@ import (
 )
 
 type evaluator struct {
-	features    FeatureMap
-	savedGroups condition.SavedGroups
-	evaluated   stack[string]
-	client      *Client
-	ctx         context.Context
+	features          FeatureMap
+	savedGroups       condition.SavedGroups
+	contextualBandits ContextualBanditDefinitions
+	evaluated         stack[string]
+	client            *Client
+	ctx               context.Context
 
 	recording          bool // false when no callbacks, plugins, or buffer consume tracking
 	userCtx            *TrackingUserContext
@@ -358,6 +359,13 @@ func (e *evaluator) getExperimentResult(
 		res.Passthrough = meta.Passthrough
 	}
 
+	if cb := exp.ContextualBandit; cb != nil && hashUsed && inExperiment {
+		leafId := cb.LeafId
+		res.LeafId = &leafId
+		res.VariationWeights = cb.VariationWeights
+		res.BanditVersion = cb.BanditVersion
+	}
+
 	return &res
 }
 
@@ -400,12 +408,18 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 		return getFeatureResult(rule.Force, ForceResultSource, rule.Id, nil, nil)
 	}
 
-	if len(rule.Variations) == 0 {
+	if len(rule.Variations) == 0 && rule.ContextualVariations == nil {
 		return nil
 	}
 
 	exp := experimentFromFeatureRule(featureId, rule)
+	if rule.ContextualBanditRef != "" {
+		e.buildContextualBanditExperiment(exp, rule.ContextualBanditRef, featureId)
+	}
 	res := e.runExperiment(exp, featureId)
+	if exp.ContextualBandit != nil && !(res.HashUsed && res.InExperiment) {
+		exp.ContextualBandit = nil
+	}
 	if !res.InExperiment || res.Passthrough {
 		return nil
 	}

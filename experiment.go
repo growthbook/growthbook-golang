@@ -65,6 +65,9 @@ type Experiment struct {
 	Groups []string `json:"groups"`
 	// Status controls eval: "draft" is skipped unless qaMode/forced, "stopped" only honors Force, "running" is normal.
 	Status ExperimentStatus `json:"status"`
+	// ContextualBandit is set during evaluation when a contextual bandit
+	// decided this experiment's weights.
+	ContextualBandit *CBContext `json:"contextualBandit,omitempty"`
 }
 
 // NewExperiment creates an experiment with default settings: active,
@@ -81,13 +84,20 @@ func experimentFromFeatureRule(featureId string, rule *FeatureRule) *Experiment 
 		expKey = featureId
 	}
 
+	// Contextual bandit rules carry their variations under
+	// ContextualVariations so SDKs without bandit support skip the rule.
+	variations := rule.Variations
+	if rule.ContextualVariations != nil {
+		variations = rule.ContextualVariations
+	}
+
 	// Copy only the fields the JS SDK forwards when building the inline
 	// experiment (sdk-js core.ts evalFeature). ParentConditions are already
 	// evaluated by evalRule, so forwarding them would evaluate prerequisites
 	// twice; URLPatterns/URL/Groups/Status don't exist on JS feature rules.
 	exp := Experiment{
 		Key:                    expKey,
-		Variations:             rule.Variations,
+		Variations:             variations,
 		Coverage:               rule.Coverage,
 		Weights:                rule.Weights,
 		HashAttribute:          rule.HashAttribute,

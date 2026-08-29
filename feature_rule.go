@@ -48,6 +48,11 @@ type FeatureRule struct {
 	Name string `json:"name"`
 	// The phase id of the experiment
 	Phase string `json:"phase"`
+	// Reference to a contextual bandit definition in the payload
+	ContextualBanditRef string `json:"contextualBanditRef"`
+	// Variations for a contextual bandit rule, carried separately from
+	// Variations so SDKs without bandit support skip the rule
+	ContextualVariations []FeatureValue `json:"contextualVariations"`
 	// Deprecated: ignored during evaluation. Feature rules never carried URL
 	// targeting in the JS SDK; use Experiment.URLPatterns with RunExperiment.
 	URLPatterns []URLTarget `json:"urlPatterns"`

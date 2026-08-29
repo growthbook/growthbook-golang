@@ -52,6 +52,15 @@ func WithAttributes(attributes Attributes) ClientOption {
 	}
 }
 
+// WithContextualBandits sets the contextual bandit definitions referenced by
+// feature rules, normally delivered in the SDK payload.
+func WithContextualBandits(bandits ContextualBanditDefinitions) ClientOption {
+	return func(c *Client) error {
+		c.data.contextualBandits = bandits
+		return nil
+	}
+}
+
 // WithSavedGroups sets saved groups used to target the same group of users across multiple features and experiments.
 func WithSavedGroups(savedGroups condition.SavedGroups) ClientOption {
 	return func(c *Client) error {
