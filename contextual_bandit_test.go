@@ -78,13 +78,18 @@ const banditDefsJSON = `{
   }
 }`
 
-func newBanditTestClient(t *testing.T, attrs Attributes, extra ...ClientOption) *Client {
+func mustBanditDefs(t *testing.T, raw string) ContextualBanditDefinitions {
 	t.Helper()
 	var defs ContextualBanditDefinitions
-	require.NoError(t, json.Unmarshal([]byte(banditDefsJSON), &defs))
+	require.NoError(t, json.Unmarshal([]byte(raw), &defs))
+	return defs
+}
+
+func newBanditTestClient(t *testing.T, attrs Attributes, extra ...ClientOption) *Client {
+	t.Helper()
 	opts := []ClientOption{
 		WithJsonFeatures(banditFeaturesJSON),
-		WithContextualBandits(defs),
+		WithContextualBandits(mustBanditDefs(t, banditDefsJSON)),
 		WithAttributes(attrs),
 	}
 	client, err := NewClient(context.Background(), append(opts, extra...)...)
@@ -296,13 +301,6 @@ func TestFeatureRuleMarshalRoundTrip(t *testing.T) {
 	require.Equal(t, ForceResultSource, nf.Source)
 }
 
-func mustBanditDefs(t *testing.T, raw string) ContextualBanditDefinitions {
-	t.Helper()
-	var defs ContextualBanditDefinitions
-	require.NoError(t, json.Unmarshal([]byte(raw), &defs))
-	return defs
-}
-
 func TestSetContextualBandits(t *testing.T) {
 	ctx := context.Background()
 	client, err := NewClient(ctx,
@@ -314,9 +312,7 @@ func TestSetContextualBandits(t *testing.T) {
 	res := client.EvalFeature(ctx, "bandit-flag")
 	require.Nil(t, res.ExperimentResult.LeafId, "no definitions set yet")
 
-	var defs ContextualBanditDefinitions
-	require.NoError(t, json.Unmarshal([]byte(banditDefsJSON), &defs))
-	require.NoError(t, client.SetContextualBandits(defs))
+	require.NoError(t, client.SetContextualBandits(mustBanditDefs(t, banditDefsJSON)))
 
 	res = client.EvalFeature(ctx, "bandit-flag")
 	require.Equal(t, 20, *res.ExperimentResult.LeafId)
