@@ -15,6 +15,13 @@ const defaultApiHost = "https://cdn.growthbook.io"
 
 var (
 	ErrNoDecryptionKey = errors.New("no decryption key provided")
+
+	// ErrNoFeatures is returned by UpdateFromApiResponse (and RefreshFeatures)
+	// when a response carries no usable features (a missing/null "features" and
+	// no encrypted features), so SSE, polling, and manual callers can tell a
+	// rejected/malformed payload from a successful refresh. The current features
+	// are left untouched.
+	ErrNoFeatures = errors.New("api response contains no features")
 )
 
 // Client is a GrowthBook SDK client.
@@ -172,6 +179,15 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	} else {
 		features = resp.Features
 	}
+	if features == nil {
+		// Never overwrite the current features with a response that carries none
+		// (e.g. a malformed SSE event that omits "features"). Return a sentinel
+		// so callers can distinguish a rejected payload from a successful
+		// refresh. Note that an explicit "features": {} is a non-nil empty map
+		// and still replaces the current features.
+		client.logger.Warn("Api response contains no features, refuse to update")
+		return ErrNoFeatures
+	}
 	client.data.withLock(func(d *data) error {
 		d.features = features
 		d.savedGroups = resp.SavedGroups
@@ -212,7 +228,7 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 		return err
 	}
 	if resp.Features == nil && resp.EncryptedFeatures == "" {
-		return nil
+		return ErrNoFeatures
 	}
 	return client.UpdateFromApiResponse(resp)
 }

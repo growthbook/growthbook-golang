@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- A feature API response that carries no features (missing/null `features` and
+  no encrypted features) no longer overwrites the current feature map. Such a
+  response is rejected with the new `ErrNoFeatures` sentinel so callers can tell
+  it apart from a successful refresh; an explicit `"features": {}` still applies.
+
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
 - **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`
