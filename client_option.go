@@ -101,6 +101,15 @@ func WithForcedVariations(forcedVariations ForcedVariationsMap) ClientOption {
 	}
 }
 
+// WithForcedFeatures forces specific features to always evaluate to a given value,
+// bypassing rules and experiments. The result uses the "override" source. Useful for QA.
+func WithForcedFeatures(forcedFeatures ForcedFeaturesMap) ClientOption {
+	return func(c *Client) error {
+		c.forcedFeatures = forcedFeatures
+		return nil
+	}
+}
+
 // WithGroups sets legacy group membership for the user, used by experiments that
 // declare a `groups` array. Distinct from saved groups, which power $inGroup
 // conditions on `condition`.
@@ -267,6 +276,21 @@ func (c *Client) WithUrl(rawUrl string) (*Client, error) {
 // WithForcedVariations creates child client with updated forced variations.
 func (c *Client) WithForcedVariations(forcedVariations ForcedVariationsMap) (*Client, error) {
 	return c.cloneWith(WithForcedVariations(forcedVariations))
+}
+
+// WithForcedFeatures creates a child client whose forced feature values are
+// merged over the parent's (child keys take precedence). The supplied map must
+// not be mutated concurrently.
+func (c *Client) WithForcedFeatures(forcedFeatures ForcedFeaturesMap) (*Client, error) {
+	// Merge into the parent's forced features (child entries take precedence),
+	// mirroring how the JS SDK combines global and user-scoped maps. The parent
+	// is left untouched.
+	merged := maps.Clone(c.forcedFeatures)
+	if merged == nil {
+		merged = make(ForcedFeaturesMap, len(forcedFeatures))
+	}
+	maps.Copy(merged, forcedFeatures)
+	return c.cloneWith(WithForcedFeatures(merged))
 }
 
 // WithGroups creates child client with updated legacy group membership.
