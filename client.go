@@ -172,13 +172,38 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	} else {
 		features = resp.Features
 	}
+	bandits := resp.ContextualBandits
+	if resp.EncryptedContextualBandits != "" {
+		// A bandit decryption/parse failure must not drop the features: log it
+		// and continue with no bandits, so rules referencing a bandit fall back
+		// to their own weights.
+		if decrypted, berr := client.decryptContextualBandits(resp.EncryptedContextualBandits); berr != nil {
+			client.logger.Warn("Failed to decrypt contextual bandits, ignoring", "error", berr)
+			bandits = nil
+		} else {
+			bandits = decrypted
+		}
+	}
 	client.data.withLock(func(d *data) error {
 		d.features = features
 		d.savedGroups = resp.SavedGroups
 		d.dateUpdated = resp.DateUpdated
+		d.contextualBandits = bandits
 		return nil
 	})
 	return nil
+}
+
+func (client *Client) decryptContextualBandits(encrypted string) (ContextualBanditsMap, error) {
+	banditsJSON, err := client.data.decrypt(encrypted)
+	if err != nil {
+		return nil, err
+	}
+	var bandits ContextualBanditsMap
+	if err := json.Unmarshal([]byte(banditsJSON), &bandits); err != nil {
+		return nil, err
+	}
+	return bandits, nil
 }
 
 func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
@@ -290,10 +315,11 @@ func (client *Client) Logger() *slog.Logger {
 func (client *Client) evaluator(ctx context.Context) *evaluator {
 	client.data.mu.RLock()
 	e := evaluator{
-		features:    client.data.features,
-		savedGroups: client.data.savedGroups,
-		client:      client,
-		ctx:         ctx,
+		features:          client.data.features,
+		savedGroups:       client.data.savedGroups,
+		contextualBandits: client.data.contextualBandits,
+		client:            client,
+		ctx:               ctx,
 		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
 			client.deferredTracks != nil || len(client.data.plugins) > 0,
 	}

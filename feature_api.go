@@ -19,6 +19,10 @@ type FeatureApiResponse struct {
 	EncryptedFeatures string                `json:"encryptedFeatures"`
 	SseSupport        bool
 	Etag              string
+	// ContextualBandits holds bandit definitions referenced by feature rules.
+	ContextualBandits ContextualBanditsMap `json:"contextualBandits"`
+	// EncryptedContextualBandits is the AES-CBC encrypted form (same key as features).
+	EncryptedContextualBandits string `json:"encryptedContextualBandits"`
 }
 
 const userAgent = "Growhthbook Go SDK client"

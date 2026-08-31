@@ -25,4 +25,12 @@ type ExperimentResult struct {
 	Passthrough bool `json:"passthrough"`
 	// If sticky bucketing was used to assign a variation
 	StickyBucketUsed bool `json:"stickyBucketUsed"`
+	// Contextual bandit attribution, set only on a real exposure of a bandit rule.
+	// LeafId is the matched context's id, or -1 when the definition matched no
+	// leaf. Nil when the rule is not a contextual bandit.
+	LeafId *int `json:"leafId,omitempty"`
+	// VariationWeights are the weights the user was bucketed against for a bandit rule.
+	VariationWeights []float64 `json:"variationWeights,omitempty"`
+	// BanditVersion is the version of the backend-computed weights.
+	BanditVersion *int `json:"banditVersion,omitempty"`
 }

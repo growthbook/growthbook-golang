@@ -55,9 +55,10 @@ SKIPLIST = REPO_ROOT / "tests" / "scripts" / "corpus_skiplist.json"
 DEFAULT_JS_URL = "https://raw.githubusercontent.com/growthbook/growthbook/main/packages/sdk-js/test/cases.json"
 
 # Top-level keys to diff. Other keys in cases.json (specVersion, decrypt
-# binary blobs, urlRedirect which Go doesn't yet wire, contextualBandit which
-# Go doesn't implement) are skipped either because they're scalar metadata or
-# because the divergence is tracked separately.
+# binary blobs, urlRedirect which Go doesn't yet wire, contextualBandit whose
+# Go cases are locally authored — the JS SDK exercises CB through its feature/
+# run corpora rather than a dedicated key) are skipped either because they're
+# scalar metadata or because the divergence is tracked separately.
 KEYS_TO_DIFF = (
     "evalCondition",
     "feature",

@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Added contextual bandit support: feature rules carrying a
+  `contextualBanditRef` / `contextualVariations` pair now resolve their
+  variations and weights from a bandit definition supplied via the new
+  `WithContextualBandits` option (`ContextualBanditsMap` /
+  `ContextualBanditDefinition` / `ContextualBanditContext`). A leaf is
+  selected by the first matching context condition, falling back to a
+  catch-all leaf when none match.
+- `ExperimentResult` now surfaces `LeafId`, `VariationWeights`, and
+  `BanditVersion` (all omitted when unset) when a contextual bandit drove the
+  assignment, so downstream tracking can attribute the exposure to the bandit.
+
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
 - **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`
