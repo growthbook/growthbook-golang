@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
@@ -15,6 +16,10 @@ const defaultApiHost = "https://cdn.growthbook.io"
 
 var (
 	ErrNoDecryptionKey = errors.New("no decryption key provided")
+
+	ErrRemoteEvalNoClientKey    = errors.New("remote eval requires a client key")
+	ErrRemoteEvalDecryptionKey  = errors.New("remote eval is not compatible with a decryption key")
+	ErrRemoteEvalWithDataSource = errors.New("remote eval is not compatible with a poll/SSE data source")
 )
 
 // Client is a GrowthBook SDK client.
@@ -31,6 +36,15 @@ type Client struct {
 	eventLogger          EventLogger
 	logger               *slog.Logger
 	extraData            any
+
+	// remoteEval, when true, evaluates features on a remote endpoint
+	// (/api/eval/{clientKey}) instead of locally. cacheKeyAttributes limits
+	// which attributes trigger a new remote request.
+	remoteEval          bool
+	cacheKeyAttributes  []string
+	remoteEvalTTL       time.Duration
+	remoteEvalCacheSize int
+
 	// StickyBucketService for storing experiment assignments
 	stickyBucketService StickyBucketService
 
@@ -68,6 +82,12 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	for _, opt := range opts {
 		err := opt(client)
 		if err != nil {
+			return nil, err
+		}
+	}
+
+	if client.remoteEval {
+		if err := client.validateRemoteEval(); err != nil {
 			return nil, err
 		}
 	}
@@ -118,6 +138,8 @@ func defaultClient() *Client {
 		logger:                  slog.Default(),
 		attributes:              value.ObjValue{},
 		stickyBucketAssignments: newStickyBucketCache(defaultStickyBucketCacheSize),
+		remoteEvalTTL:           defaultRemoteEvalTTL,
+		remoteEvalCacheSize:     defaultRemoteEvalCacheSize,
 	}
 }
 
@@ -219,6 +241,7 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
+	client.maybeLoadRemoteEval(ctx)
 	e := client.evaluator(ctx)
 	res := e.evalFeature(key)
 	client.fireTracking(ctx, e)
@@ -226,6 +249,7 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 }
 
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
+	client.maybeLoadRemoteEval(ctx)
 	e := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
 	client.fireTracking(ctx, e)
@@ -289,16 +313,29 @@ func (client *Client) Logger() *slog.Logger {
 // Internals
 func (client *Client) evaluator(ctx context.Context) *evaluator {
 	client.data.mu.RLock()
-	e := evaluator{
-		features:    client.data.features,
-		savedGroups: client.data.savedGroups,
+	features := client.data.features
+	savedGroups := client.data.savedGroups
+	client.data.mu.RUnlock()
+
+	// In remote-eval mode the features are the server-evaluated set cached for
+	// this client's attributes; fall back to none when not loaded yet.
+	if client.remoteEval {
+		features = nil
+		if key, err := client.remoteEvalCacheKey(); err == nil {
+			if entry, ok := client.data.getRemoteEval(key); ok {
+				features = entry.features
+			}
+		}
+	}
+
+	return &evaluator{
+		features:    features,
+		savedGroups: savedGroups,
 		client:      client,
 		ctx:         ctx,
 		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
 			client.deferredTracks != nil || len(client.data.plugins) > 0,
 	}
-	client.data.mu.RUnlock()
-	return &e
 }
 
 func (client *Client) clone() *Client {
