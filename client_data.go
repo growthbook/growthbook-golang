@@ -9,20 +9,21 @@ import (
 )
 
 type data struct {
-	mu            sync.RWMutex
-	features      FeatureMap
-	savedGroups   condition.SavedGroups
-	dateUpdated   time.Time
-	apiHost       string
-	clientKey     string
-	decryptionKey string
-	httpClient    *http.Client
-	dataSource    DataSource
-	dsStarted     bool
-	dsStartWait   chan struct{}
-	dsStartErr    error
-	plugins       []Plugin
-	subscribers   subscriberRegistry
+	mu             sync.RWMutex
+	features       FeatureMap
+	savedGroups    condition.SavedGroups
+	dateUpdated    time.Time
+	apiHost        string
+	clientKey      string
+	decryptionKey  string
+	httpClient     *http.Client
+	dataSource     DataSource
+	dsStarted      bool
+	dsStartWait    chan struct{}
+	dsStartErr     error
+	plugins        []Plugin
+	subscribers    subscriberRegistry
+	refreshHandler FeaturesRefreshHandler
 }
 
 func newData() *data {
@@ -97,4 +98,10 @@ func (d *data) decrypt(encrypted string) (string, error) {
 		return "", ErrNoDecryptionKey
 	}
 	return decrypt(encrypted, key)
+}
+
+func (d *data) getRefreshHandler() FeaturesRefreshHandler {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.refreshHandler
 }
