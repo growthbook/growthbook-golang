@@ -11,6 +11,8 @@ import (
 	"runtime/debug"
 	"sync"
 	"time"
+
+	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
 const (
@@ -201,9 +203,9 @@ var (
 
 // addEventAttributes splits attributes into the top-level EventPayload
 // fields and the context_json object, like the JS plugin's parseAttributes:
-// id fields are always present (null when not a string), device_id falls
-// back to anonymous_id then id, and UTM/page_title fields are only set
-// when they hold a string.
+// id fields are always present (scalars stringified, null otherwise — see
+// identifierString), device_id falls back to anonymous_id then id, and
+// UTM/page_title fields are only set when they hold a string.
 func addEventAttributes(event trackingEvent, attributes Attributes) {
 	nested := make(map[string]any, len(attributes))
 	for k, v := range attributes {
@@ -221,12 +223,12 @@ func addEventAttributes(event trackingEvent, attributes Attributes) {
 	event["context_json"] = nested
 
 	for attrKey, field := range eventIDAttrKeys {
-		event[field] = stringOrNil(attributes[attrKey])
+		event[field] = identifierString(attributes[attrKey])
 	}
 	event["device_id"] = nil
 	for _, k := range eventDeviceIDAttrKeys {
 		if truthy(attributes[k]) {
-			event["device_id"] = stringOrNil(attributes[k])
+			event["device_id"] = identifierString(attributes[k])
 			break
 		}
 	}
@@ -237,13 +239,21 @@ func addEventAttributes(event trackingEvent, attributes Attributes) {
 	}
 }
 
-// stringOrNil returns the value if it is a string, otherwise nil —
-// like the JS plugin's parseString.
-func stringOrNil(v any) any {
-	if s, ok := v.(string); ok {
-		return s
+// identifierString returns an identifier attribute's value for the event
+// payload: strings pass through, numeric and boolean scalars are stringified
+// with the SDK's JS-toString semantics, everything else is nil. The JS
+// plugin's parseString nulls all non-strings, but Go attributes commonly
+// carry numeric ids (the README's examples do) and the SDK already
+// stringifies them for hashing — nulling them here would strip attribution
+// from every event. A deliberate, documented divergence from the JS plugin.
+func identifierString(v any) any {
+	val := value.New(v)
+	switch val.Type() {
+	case value.StrType, value.NumType, value.BoolType:
+		return val.String()
+	default:
+		return nil
 	}
-	return nil
 }
 
 // Close flushes any remaining events and releases resources. Safe to

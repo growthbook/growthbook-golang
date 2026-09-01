@@ -734,3 +734,32 @@ func TestTrackingPluginChildClientAttributes(t *testing.T) {
 	require.Equal(t, "child-user", event["user_id"])
 	require.Equal(t, "child-user", event["device_id"])
 }
+
+// Numeric identifier attributes must stringify into the id fields — the
+// README documents numeric ids (Attributes{"id": 100}), and the SDK already
+// stringifies them for hashing. (The JS plugin nulls non-strings; deliberate
+// divergence.)
+func TestTrackingPluginNumericIdentifiers(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithAttributes(Attributes{"id": 100, "user_id": 42}),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost: srv.URL,
+			BatchSize:    1,
+		}),
+	)
+	require.NoError(t, err)
+
+	client.LogEvent(ctx, "numeric_ids", nil)
+	require.NoError(t, client.Close())
+
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+	require.Len(t, byName["numeric_ids"], 1)
+	event := byName["numeric_ids"][0]
+	require.Equal(t, "42", event["user_id"])
+	require.Equal(t, "100", event["device_id"])
+}

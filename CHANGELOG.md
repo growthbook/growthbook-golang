@@ -23,6 +23,12 @@ All notable changes to this project will be documented in this file.
 - `GrowthBookTrackingPlugin.OnExperimentViewed` / `OnFeatureEvaluated` are
   now no-ops; the plugin receives built-in events via `OnEvent`, which is
   how they gain the user attributes the ingestor payload requires.
+- Numeric and boolean identifier attributes (`id`, `user_id`, `device_id`,
+  `anonymous_id`, `page_id`, `session_id`) are stringified into the event
+  payload's id fields instead of being emitted as null. The JS plugin nulls
+  non-string identifiers, but Go attributes commonly carry numeric ids and
+  the SDK already stringifies them for hashing — a deliberate divergence so
+  events stay attributable.
 
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
