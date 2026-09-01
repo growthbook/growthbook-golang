@@ -540,11 +540,15 @@ func saveStickyBucketAssignment(
 
 	// Only save if a change was detected
 	if data.Doc != nil && data.Changed {
-		// Update cache if provided
+		// Persist first, cache second: the cache feeds the fast path above,
+		// so it must only hold assignments the service accepted — caching a
+		// failed write would stop every future evaluation from retrying it.
+		if err := service.SaveAssignments(data.Doc); err != nil {
+			return err
+		}
 		if cache != nil {
 			cache.set(data.Key, data.Doc)
 		}
-		return service.SaveAssignments(data.Doc)
 	}
 
 	return nil
