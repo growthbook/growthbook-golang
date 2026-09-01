@@ -759,3 +759,37 @@ func TestStickyBucketFalsyFallbackAttributeIgnored(t *testing.T) {
 	require.False(t, res.ExperimentResult.StickyBucketUsed,
 		"sticky doc keyed by falsy fallback value must not be applied")
 }
+
+// A negative bucketVersion must read and write the same assignment key.
+// Previously the read normalized -1 to 0 ("exp__0") while the save wrote
+// "exp__-1", so the saved assignment was never found again.
+func TestStickyBucketNegativeBucketVersionRoundTrip(t *testing.T) {
+	ctx := context.TODO()
+	service := NewInMemoryStickyBucketService()
+	client, err := NewClient(ctx,
+		WithAttributes(Attributes{"id": "neg-user"}),
+		WithStickyBucketService(service),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	exp := &Experiment{
+		Key:           "neg-exp",
+		Variations:    []FeatureValue{"control", "treatment"},
+		Meta:          []VariationMeta{{Key: "0"}, {Key: "1"}},
+		BucketVersion: -1,
+	}
+
+	res1 := client.RunExperiment(ctx, exp)
+	require.True(t, res1.InExperiment)
+
+	doc, err := service.GetAssignments("id", "neg-user")
+	require.NoError(t, err)
+	require.NotNil(t, doc)
+	require.Contains(t, doc.Assignments, "neg-exp__0",
+		"negative bucketVersion must normalize to 0 in the saved key")
+
+	res2 := client.RunExperiment(ctx, exp)
+	require.True(t, res2.StickyBucketUsed,
+		"second run must find the assignment saved by the first")
+}

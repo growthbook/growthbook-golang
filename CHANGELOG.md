@@ -29,6 +29,10 @@ All notable changes to this project will be documented in this file.
   non-string identifiers, but Go attributes commonly carry numeric ids and
   the SDK already stringifies them for hashing — a deliberate divergence so
   events stay attributable.
+- Fixed: a negative experiment `bucketVersion` saved sticky assignments under
+  a different key than reads looked up (`exp__-1` vs `exp__0`), so the saved
+  assignment was never found again. Keys now normalize negative versions to
+  0 in one place, for reads and saves alike.
 
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 

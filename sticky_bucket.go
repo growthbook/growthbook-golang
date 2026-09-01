@@ -245,8 +245,15 @@ func (s *InMemoryStickyBucketService) Destroy() {
 
 // Helper functions for sticky bucketing
 
-// getStickyBucketExperimentKey generates a key for storing experiment assignments
+// getStickyBucketExperimentKey generates a key for storing experiment
+// assignments. Negative versions normalize to 0 here, in the one place keys
+// are built, so reads (which already defaulted negatives to 0) and saves
+// agree on the key — previously a negative BucketVersion read "exp__0" but
+// saved "exp__-1", so the saved assignment was never found again.
 func getStickyBucketExperimentKey(experimentKey string, bucketVersion int) string {
+	if bucketVersion < 0 {
+		bucketVersion = 0
+	}
 	return fmt.Sprintf("%s__%d", experimentKey, bucketVersion)
 }
 
@@ -494,6 +501,8 @@ func saveStickyBucketAssignment(
 		return nil
 	}
 
+	experimentVersionKey := getStickyBucketExperimentKey(experimentKey, bucketVersion)
+
 	// Saving is a read-modify-write cycle: serialize it per document so
 	// concurrent saves for the same user merge instead of the last write
 	// dropping the other's assignment.
@@ -504,7 +513,6 @@ func saveStickyBucketAssignment(
 
 	// Create assignment map with the experiment key and variation key
 	assignments := make(map[string]string)
-	experimentVersionKey := getStickyBucketExperimentKey(experimentKey, bucketVersion)
 	assignments[experimentVersionKey] = variationKey
 
 	// Generate the sticky bucket assignment document
