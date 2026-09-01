@@ -7,18 +7,18 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"runtime/debug"
 	"sync"
 	"time"
+
+	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
 const (
 	defaultIngestorHost = "https://us1.gb-ingest.com"
 	defaultBatchSize    = 100
 	defaultBatchTimeout = 10 * time.Second
-
-	eventExperimentViewed = "experiment_viewed"
-	eventFeatureEvaluated = "feature_evaluated"
 )
 
 var (
@@ -81,15 +81,9 @@ type TrackingPluginConfig struct {
 	Logger *slog.Logger
 }
 
-// trackingEvent is the JSON payload for a single tracking event.
+// trackingEvent is the JSON payload for a single tracking event, in the
+// ingestor's EventPayload shape (same as the JS/Python tracking plugins).
 type trackingEvent map[string]any
-
-// trackingRequest is the JSON body sent to the ingestor. Events are
-// pre-marshaled individually in enqueue.
-type trackingRequest struct {
-	Events    []json.RawMessage `json:"events"`
-	ClientKey string            `json:"client_key"`
-}
 
 // GrowthBookTrackingPlugin sends experiment and feature evaluation
 // events to the GrowthBook ingestor for warehouse analytics.
@@ -151,67 +145,24 @@ func (p *GrowthBookTrackingPlugin) Init(client *Client) error {
 	return nil
 }
 
-// OnExperimentViewed enqueues an experiment_viewed event.
-// No-op if the plugin was not successfully initialized.
+// OnExperimentViewed is a no-op: built-in "Experiment Viewed" events
+// arrive via OnEvent through the client's event-logger dispatch, which
+// carries the user context the ingestor payload needs. Retained to
+// satisfy the Plugin interface.
 func (p *GrowthBookTrackingPlugin) OnExperimentViewed(ctx context.Context, experiment *Experiment, result *ExperimentResult) {
-	if !p.initialized {
-		return
-	}
-	event := trackingEvent{
-		"event_type":      eventExperimentViewed,
-		"timestamp":       time.Now().UnixMilli(),
-		"sdk_language":    "go",
-		"sdk_version":     sdkVersion(),
-		"experiment_id":   experiment.Key,
-		"variation_id":    result.VariationId,
-		"variation_key":   result.Key,
-		"variation_value": result.Value,
-		"in_experiment":   result.InExperiment,
-		"hash_used":       result.HashUsed,
-		"hash_attribute":  result.HashAttribute,
-		"hash_value":      result.HashValue,
-	}
-	if experiment.Name != "" {
-		event["experiment_name"] = experiment.Name
-	}
-	if result.FeatureId != "" {
-		event["feature_id"] = result.FeatureId
-	}
-	p.enqueue(event)
 }
 
-// OnFeatureEvaluated enqueues a feature_evaluated event.
-// No-op if the plugin was not successfully initialized.
+// OnFeatureEvaluated is a no-op: built-in "Feature Evaluated" events
+// arrive via OnEvent through the client's event-logger dispatch.
+// Retained to satisfy the Plugin interface.
 func (p *GrowthBookTrackingPlugin) OnFeatureEvaluated(ctx context.Context, featureKey string, result *FeatureResult) {
-	if !p.initialized {
-		return
-	}
-	event := trackingEvent{
-		"event_type":    eventFeatureEvaluated,
-		"timestamp":     time.Now().UnixMilli(),
-		"sdk_language":  "go",
-		"sdk_version":   sdkVersion(),
-		"feature_key":   featureKey,
-		"feature_value": result.Value,
-		"source":        string(result.Source),
-		"on":            result.On,
-		"off":           result.Off,
-	}
-	if result.RuleId != "" {
-		event["rule_id"] = result.RuleId
-	}
-	if result.Experiment != nil {
-		event["experiment_id"] = result.Experiment.Key
-	}
-	if result.ExperimentResult != nil {
-		event["variation_id"] = result.ExperimentResult.VariationId
-	}
-	p.enqueue(event)
 }
 
-// OnEvent enqueues a custom event logged via [Client.LogEvent]. The
-// payload mirrors the EventPayload shape used by the JS and Python
-// tracking plugins (sdk-js plugins/growthbook-tracking.ts getEventPayload).
+// OnEvent enqueues an event from the client's event-logger dispatch: the
+// built-in Experiment Viewed / Feature Evaluated events and custom events
+// logged via [Client.LogEvent]. The payload mirrors the EventPayload shape
+// used by the JS and Python tracking plugins (sdk-js
+// plugins/growthbook-tracking.ts getEventPayload).
 // No-op if the plugin was not successfully initialized.
 func (p *GrowthBookTrackingPlugin) OnEvent(ctx context.Context, eventName string, properties EventProperties, userCtx *EventUserContext) {
 	if !p.initialized {
@@ -252,9 +203,9 @@ var (
 
 // addEventAttributes splits attributes into the top-level EventPayload
 // fields and the context_json object, like the JS plugin's parseAttributes:
-// id fields are always present (null when not a string), device_id falls
-// back to anonymous_id then id, and UTM/page_title fields are only set
-// when they hold a string.
+// id fields are always present (scalars stringified, null otherwise — see
+// identifierString), device_id falls back to anonymous_id then id, and
+// UTM/page_title fields are only set when they hold a string.
 func addEventAttributes(event trackingEvent, attributes Attributes) {
 	nested := make(map[string]any, len(attributes))
 	for k, v := range attributes {
@@ -272,12 +223,12 @@ func addEventAttributes(event trackingEvent, attributes Attributes) {
 	event["context_json"] = nested
 
 	for attrKey, field := range eventIDAttrKeys {
-		event[field] = stringOrNil(attributes[attrKey])
+		event[field] = identifierString(attributes[attrKey])
 	}
 	event["device_id"] = nil
 	for _, k := range eventDeviceIDAttrKeys {
 		if truthy(attributes[k]) {
-			event["device_id"] = stringOrNil(attributes[k])
+			event["device_id"] = identifierString(attributes[k])
 			break
 		}
 	}
@@ -288,13 +239,21 @@ func addEventAttributes(event trackingEvent, attributes Attributes) {
 	}
 }
 
-// stringOrNil returns the value if it is a string, otherwise nil —
-// like the JS plugin's parseString.
-func stringOrNil(v any) any {
-	if s, ok := v.(string); ok {
-		return s
+// identifierString returns an identifier attribute's value for the event
+// payload: strings pass through, numeric and boolean scalars are stringified
+// with the SDK's JS-toString semantics, everything else is nil. The JS
+// plugin's parseString nulls all non-strings, but Go attributes commonly
+// carry numeric ids (the README's examples do) and the SDK already
+// stringifies them for hashing — nulling them here would strip attribution
+// from every event. A deliberate, documented divergence from the JS plugin.
+func identifierString(v any) any {
+	val := value.New(v)
+	switch val.Type() {
+	case value.StrType, value.NumType, value.BoolType:
+		return val.String()
+	default:
+		return nil
 	}
-	return nil
 }
 
 // Close flushes any remaining events and releases resources. Safe to
@@ -397,27 +356,28 @@ func (p *GrowthBookTrackingPlugin) timerFlush() {
 	}
 }
 
-// sendBatch POSTs a batch of events to the ingestor endpoint.
-// Delivery is best-effort: transient errors are logged and the batch
-// is dropped. No retry is attempted to keep the implementation simple
-// and avoid unbounded memory growth or complex retry state.
+// sendBatch POSTs a batch of events to the ingestor: a bare JSON array to
+// {host}/track?client_key={key}, the contract the JS and Python SDKs use
+// and the only one the ingestor documents. Content-Type text/plain matches
+// those SDKs' requests. Delivery is best-effort: transient errors are
+// logged and the batch is dropped. No retry is attempted to keep the
+// implementation simple and avoid unbounded memory growth or complex
+// retry state.
 func (p *GrowthBookTrackingPlugin) sendBatch(ctx context.Context, events []json.RawMessage) {
-	body, err := json.Marshal(trackingRequest{
-		Events:    events,
-		ClientKey: p.clientKey,
-	})
+	body, err := json.Marshal(events)
 	if err != nil {
 		p.logger.Error("Failed to marshal tracking events", "error", err)
 		return
 	}
 
-	url := p.config.IngestorHost + "/events"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	endpoint := p.config.IngestorHost + "/track?client_key=" + url.QueryEscape(p.clientKey)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		p.logger.Error("Failed to create tracking request", "error", err)
 		return
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "text/plain")
+	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", fmt.Sprintf("growthbook-go-sdk/%s", sdkVersion()))
 
 	resp, err := p.httpClient.Do(req)

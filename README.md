@@ -130,9 +130,15 @@ The plugin batches events and sends them in the background. Configuration option
 | `HTTPClient` | Client's HTTP client | Custom HTTP client for sending events |
 | `Logger` | Client's logger | Custom logger for error reporting |
 
-Events tracked automatically:
-- **`experiment_viewed`** — when a user is bucketed into an experiment
-- **`feature_evaluated`** — every time a feature flag is evaluated
+Events tracked automatically (standard GrowthBook event names, shared with
+the JS SDK):
+- **`Experiment Viewed`** — when a user is bucketed into an experiment
+- **`Feature Evaluated`** — every time a feature flag is evaluated
+
+Events are sent in the ingestor's standard `EventPayload` shape (`POST
+{IngestorHost}/track?client_key=...` with a JSON array), carrying the
+evaluating client's attributes — so exposures from child clients are
+attributed to the right user.
 
 If plugin initialization fails (e.g., missing client key), the plugin silently becomes a no-op — it never interferes with SDK evaluation.
 
@@ -147,14 +153,21 @@ the ingestor alongside the automatic events:
 client.LogEvent(ctx, "button_clicked", gb.EventProperties{"button": "buy"})
 ```
 
-You can also handle custom events yourself with `WithEventLogger` (with or
-without the tracking plugin — like callbacks, both fire independently):
+You can also handle events yourself with `WithEventLogger` (with or
+without the tracking plugin — like callbacks, both fire independently).
+Matching the JS SDK, the event logger receives the built-in
+`Experiment Viewed` / `Feature Evaluated` events as well as custom
+`LogEvent` events — match on the `gb.EventExperimentViewed` /
+`gb.EventFeatureEvaluated` constants to filter:
 
 ```go
 client, err := gb.NewClient(
     context.Background(),
     gb.WithEventLogger(func(ctx context.Context, eventName string, properties gb.EventProperties, userCtx *gb.EventUserContext) {
-        // Send to your analytics provider; userCtx carries the calling
+        if eventName == gb.EventExperimentViewed || eventName == gb.EventFeatureEvaluated {
+            return // only interested in custom events
+        }
+        // Send to your analytics provider; userCtx carries the evaluating
         // client's attributes and URL.
     }),
 )
