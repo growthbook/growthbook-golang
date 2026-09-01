@@ -760,6 +760,51 @@ func TestStickyBucketFalsyFallbackAttributeIgnored(t *testing.T) {
 		"sticky doc keyed by falsy fallback value must not be applied")
 }
 
+// Steady state: once an assignment is saved and cached, repeat evaluations
+// must not touch the sticky bucket service at all — JS/Python answer
+// "unchanged?" from memory, and the save is skipped entirely when the
+// variation came from the sticky bucket (evaluator step 13.5).
+func TestStickyBucketSteadyStateNoServiceCalls(t *testing.T) {
+	ctx := context.TODO()
+	var calls atomic.Int32
+	svc := &mockStickyBucketService{
+		InMemoryStickyBucketService: NewInMemoryStickyBucketService(),
+		onGetAssignments: func(_, _ string) {
+			calls.Add(1)
+		},
+	}
+
+	client, err := NewClient(ctx,
+		WithAttributes(Attributes{"id": "steady-user"}),
+		WithFeatures(FeatureMap{
+			"feature": {
+				DefaultValue: 0,
+				Rules: []FeatureRule{{
+					Variations: []FeatureValue{0, 1},
+					Meta:       []VariationMeta{{Key: "0"}, {Key: "1"}},
+				}},
+			},
+		}),
+		WithStickyBucketService(svc),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	// First evaluation: read miss + save cycle both hit the service.
+	res1 := client.EvalFeature(ctx, "feature")
+	require.True(t, res1.InExperiment())
+	require.Positive(t, calls.Load())
+
+	// Steady state: everything answered from the client cache.
+	calls.Store(0)
+	res2 := client.EvalFeature(ctx, "feature")
+	require.True(t, res2.InExperiment())
+	require.True(t, res2.ExperimentResult.StickyBucketUsed)
+	require.Equal(t, res1.Value, res2.Value)
+	require.Equal(t, int32(0), calls.Load(),
+		"steady-state evaluation must not call the sticky bucket service")
+}
+
 // A negative bucketVersion must read and write the same assignment key.
 // Previously the read normalized -1 to 0 ("exp__0") while the save wrote
 // "exp__-1", so the saved assignment was never found again.

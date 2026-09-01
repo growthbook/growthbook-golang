@@ -503,6 +503,21 @@ func saveStickyBucketAssignment(
 
 	experimentVersionKey := getStickyBucketExperimentKey(experimentKey, bucketVersion)
 
+	// Fast path: when the client cache already holds this exact assignment,
+	// the save is a guaranteed no-op — skip the doc lock and the service
+	// read that GenerateStickyBucketAssignmentDoc would make to compute
+	// Changed == false. This matches JS/Python, which answer "unchanged?"
+	// from memory without touching the store (sdk-js core.ts
+	// generateStickyBucketAssignmentDoc). Falls through on a cache miss
+	// (e.g. LRU eviction).
+	if cache != nil {
+		if doc, ok := cache.get(getKey(attributeName, attributeValue)); ok && doc != nil {
+			if existing, ok := doc.Assignments[experimentVersionKey]; ok && existing == variationKey {
+				return nil
+			}
+		}
+	}
+
 	// Saving is a read-modify-write cycle: serialize it per document so
 	// concurrent saves for the same user merge instead of the last write
 	// dropping the other's assignment.
