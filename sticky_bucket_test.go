@@ -838,3 +838,67 @@ func TestStickyBucketNegativeBucketVersionRoundTrip(t *testing.T) {
 	require.True(t, res2.StickyBucketUsed,
 		"second run must find the assignment saved by the first")
 }
+
+// failingSaveService fails SaveAssignments on demand, counting attempts.
+type failingSaveService struct {
+	*InMemoryStickyBucketService
+	failSaves atomic.Bool
+	saveCalls atomic.Int32
+}
+
+func (s *failingSaveService) SaveAssignments(doc *StickyBucketAssignmentDoc) error {
+	s.saveCalls.Add(1)
+	if s.failSaves.Load() {
+		return fmt.Errorf("service unavailable")
+	}
+	return s.InMemoryStickyBucketService.SaveAssignments(doc)
+}
+
+// A failed SaveAssignments must not populate the cache: the fast path would
+// then treat the assignment as persisted and no evaluation would ever retry
+// the missing durable write.
+func TestStickyBucketFailedSaveRetries(t *testing.T) {
+	ctx := context.TODO()
+	svc := &failingSaveService{InMemoryStickyBucketService: NewInMemoryStickyBucketService()}
+	svc.failSaves.Store(true)
+
+	client, err := NewClient(ctx,
+		WithAttributes(Attributes{"id": "retry-user"}),
+		WithFeatures(FeatureMap{
+			"feature": {
+				DefaultValue: 0,
+				Rules: []FeatureRule{{
+					Variations: []FeatureValue{0, 1},
+					Meta:       []VariationMeta{{Key: "0"}, {Key: "1"}},
+				}},
+			},
+		}),
+		WithStickyBucketService(svc),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	// First evaluation: the save is attempted and fails.
+	res1 := client.EvalFeature(ctx, "feature")
+	require.True(t, res1.InExperiment())
+	require.Equal(t, int32(1), svc.saveCalls.Load())
+
+	// The failed write must be retried, not treated as persisted.
+	client.EvalFeature(ctx, "feature")
+	require.Equal(t, int32(2), svc.saveCalls.Load(),
+		"failed save must be retried on the next evaluation")
+
+	// Service recovers: the retry persists the assignment...
+	svc.failSaves.Store(false)
+	client.EvalFeature(ctx, "feature")
+	require.Equal(t, int32(3), svc.saveCalls.Load())
+	doc, err := svc.GetAssignments("id", "retry-user")
+	require.NoError(t, err)
+	require.NotNil(t, doc)
+	require.Contains(t, doc.Assignments, "feature__0")
+
+	// ...and only then does the steady-state fast path kick in.
+	client.EvalFeature(ctx, "feature")
+	require.Equal(t, int32(3), svc.saveCalls.Load(),
+		"persisted assignment must not be re-saved")
+}
