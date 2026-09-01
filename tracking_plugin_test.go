@@ -14,10 +14,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// capturedRequest holds the parsed body from a tracking POST.
+// capturedRequest holds one tracking POST: the request metadata the
+// ingestor contract requires plus the parsed bare-array body.
 type capturedRequest struct {
-	ClientKey string          `json:"client_key"`
-	Events    []trackingEvent `json:"events"`
+	Path        string
+	ClientKey   string
+	ContentType string
+	Events      []trackingEvent
 }
 
 // newTestIngestor creates an httptest server that captures tracking requests.
@@ -33,18 +36,42 @@ func newTestIngestor(t *testing.T) (*httptest.Server, *[]capturedRequest, *sync.
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
-		var req capturedRequest
-		if err := json.Unmarshal(body, &req); err != nil {
-			t.Errorf("failed to unmarshal body: %v", err)
+		var events []trackingEvent
+		if err := json.Unmarshal(body, &events); err != nil {
+			t.Errorf("body is not a bare JSON array of events: %v", err)
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
 		}
 		mu.Lock()
-		reqs = append(reqs, req)
+		reqs = append(reqs, capturedRequest{
+			Path:        r.URL.Path,
+			ClientKey:   r.URL.Query().Get("client_key"),
+			ContentType: r.Header.Get("Content-Type"),
+			Events:      events,
+		})
 		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	}))
 	return srv, &reqs, &mu
+}
+
+// eventsByName splits captured events by event_name, asserting the wire
+// contract on every request: POST /track, client_key in the query string,
+// text/plain content type.
+func eventsByName(t *testing.T, captured []capturedRequest, clientKey string) map[string][]trackingEvent {
+	t.Helper()
+	out := make(map[string][]trackingEvent)
+	for _, req := range captured {
+		require.Equal(t, "/track", req.Path)
+		require.Equal(t, clientKey, req.ClientKey)
+		require.Equal(t, "text/plain", req.ContentType)
+		for _, e := range req.Events {
+			name, _ := e["event_name"].(string)
+			require.NotEmpty(t, name, "every event must carry event_name")
+			out[name] = append(out[name], e)
+		}
+	}
+	return out
 }
 
 func getRequests(reqs *[]capturedRequest, mu *sync.Mutex) []capturedRequest {
@@ -87,38 +114,36 @@ func TestTrackingPluginExperimentViewed(t *testing.T) {
 
 	captured := getRequests(reqs, mu)
 	require.NotEmpty(t, captured)
+	byName := eventsByName(t, captured, "sdk-test-key")
 
-	// Collect all events across batches.
-	var allEvents []trackingEvent
-	for _, batch := range captured {
-		require.Equal(t, "sdk-test-key", batch.ClientKey)
-		allEvents = append(allEvents, batch.Events...)
-	}
+	// One exposure evaluation yields exactly one of each built-in event.
+	require.Len(t, byName[EventExperimentViewed], 1, "expected one Experiment Viewed event")
+	require.Len(t, byName[EventFeatureEvaluated], 1, "expected one Feature Evaluated event")
 
-	// Should have both feature_evaluated and experiment_viewed.
-	var expEvent, featEvent trackingEvent
-	for _, e := range allEvents {
-		switch e["event_type"] {
-		case eventExperimentViewed:
-			expEvent = e
-		case eventFeatureEvaluated:
-			featEvent = e
-		}
-	}
-
-	require.NotNil(t, expEvent, "expected experiment_viewed event")
-	require.Equal(t, "exp-feature", expEvent["experiment_id"])
+	expEvent := byName[EventExperimentViewed][0]
+	require.Equal(t, map[string]any{
+		"experimentId":  "exp-feature",
+		"variationId":   "1", // variation key, not the numeric index
+		"hashAttribute": "id",
+		"hashValue":     "user-123",
+	}, expEvent["properties_json"])
 	require.Equal(t, "go", expEvent["sdk_language"])
-	require.Equal(t, true, expEvent["in_experiment"])
-	require.Equal(t, true, expEvent["hash_used"])
-	require.Equal(t, "id", expEvent["hash_attribute"])
-	require.Equal(t, "user-123", expEvent["hash_value"])
-	// client_key belongs in the batch envelope, not individual events
-	require.Nil(t, expEvent["client_key"], "client_key should not be duplicated in individual events")
+	// "id" is lifted to device_id; nothing remains for context_json.
+	require.Equal(t, "user-123", expEvent["device_id"])
+	require.Contains(t, expEvent, "user_id")
+	require.Nil(t, expEvent["user_id"])
+	require.Equal(t, map[string]any{}, expEvent["context_json"])
+	require.NotContains(t, expEvent, "event_type")
+	require.NotContains(t, expEvent, "client_key")
 
-	require.NotNil(t, featEvent, "expected feature_evaluated event")
-	require.Equal(t, "exp-feature", featEvent["feature_key"])
-	require.Equal(t, "experiment", featEvent["source"])
+	featEvent := byName[EventFeatureEvaluated][0]
+	require.Equal(t, map[string]any{
+		"feature":     "exp-feature",
+		"source":      "experiment",
+		"value":       1.0,
+		"ruleId":      "",
+		"variationId": "1",
+	}, featEvent["properties_json"])
 }
 
 func TestTrackingPluginFeatureEvaluated(t *testing.T) {
@@ -147,19 +172,20 @@ func TestTrackingPluginFeatureEvaluated(t *testing.T) {
 	captured := getRequests(reqs, mu)
 	require.NotEmpty(t, captured)
 
-	var allEvents []trackingEvent
-	for _, batch := range captured {
-		allEvents = append(allEvents, batch.Events...)
-	}
+	byName := eventsByName(t, captured, "sdk-test-key")
+	require.Len(t, byName[EventFeatureEvaluated], 1)
+	require.Empty(t, byName[EventExperimentViewed])
 
-	require.Len(t, allEvents, 1)
-	event := allEvents[0]
-	require.Equal(t, eventFeatureEvaluated, event["event_type"])
-	require.Equal(t, "simple-flag", event["feature_key"])
-	require.Equal(t, true, event["feature_value"])
-	require.Equal(t, "defaultValue", event["source"])
-	require.Equal(t, true, event["on"])
-	require.Equal(t, false, event["off"])
+	event := byName[EventFeatureEvaluated][0]
+	// $default marks defaultValue-sourced evaluations, matching the JS SDK.
+	require.Equal(t, map[string]any{
+		"feature":     "simple-flag",
+		"source":      "defaultValue",
+		"value":       true,
+		"ruleId":      "$default",
+		"variationId": "",
+	}, event["properties_json"])
+	require.Equal(t, "user-456", event["device_id"])
 }
 
 func TestTrackingPluginBatching(t *testing.T) {
@@ -350,13 +376,14 @@ func TestTrackingPluginRunExperiment(t *testing.T) {
 
 	captured := getRequests(reqs, mu)
 	require.Len(t, captured, 1)
+	byName := eventsByName(t, captured, "sdk-test-key")
 
-	allEvents := captured[0].Events
-	// RunExperiment produces exactly one event: experiment_viewed.
-	// feature_evaluated is only emitted by EvalFeature.
-	require.Len(t, allEvents, 1)
-	require.Equal(t, eventExperimentViewed, allEvents[0]["event_type"])
-	require.Equal(t, "my-experiment", allEvents[0]["experiment_id"])
+	// RunExperiment produces exactly one event: Experiment Viewed.
+	// Feature Evaluated is only emitted by EvalFeature.
+	require.Len(t, byName[EventExperimentViewed], 1)
+	require.Empty(t, byName[EventFeatureEvaluated])
+	props := byName[EventExperimentViewed][0]["properties_json"].(map[string]any)
+	require.Equal(t, "my-experiment", props["experimentId"])
 }
 
 func TestTrackingPluginWithExistingCallbacks(t *testing.T) {
@@ -397,21 +424,9 @@ func TestTrackingPluginWithExistingCallbacks(t *testing.T) {
 	require.True(t, callbackCalled, "experiment callback should still fire")
 	require.True(t, featureCbCalled, "feature usage callback should still fire")
 
-	var allEvents []trackingEvent
-	for _, batch := range getRequests(reqs, mu) {
-		allEvents = append(allEvents, batch.Events...)
-	}
-	var hasExpViewed, hasFeatEval bool
-	for _, e := range allEvents {
-		switch e["event_type"] {
-		case eventExperimentViewed:
-			hasExpViewed = true
-		case eventFeatureEvaluated:
-			hasFeatEval = true
-		}
-	}
-	require.True(t, hasExpViewed, "plugin should have sent experiment_viewed")
-	require.True(t, hasFeatEval, "plugin should have sent feature_evaluated")
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+	require.NotEmpty(t, byName[EventExperimentViewed], "plugin should have sent Experiment Viewed")
+	require.NotEmpty(t, byName[EventFeatureEvaluated], "plugin should have sent Feature Evaluated")
 }
 
 func TestTrackingPluginChildClientSharesPlugin(t *testing.T) {
@@ -648,4 +663,74 @@ func TestTrackingPluginBadPropertyDropsOnlyThatEvent(t *testing.T) {
 	require.Len(t, captured, 1)
 	require.Len(t, captured[0].Events, 1)
 	require.Equal(t, "good_event", captured[0].Events[0]["event_name"])
+}
+
+// Built-in events flow through the event-logger channel, so a WithEventLogger
+// callback receives them even without the tracking plugin — matching the JS
+// SDK, where eventLogger gets "Experiment Viewed"/"Feature Evaluated" too.
+func TestBuiltInEventsReachEventLogger(t *testing.T) {
+	ctx := context.Background()
+	var mu sync.Mutex
+	got := map[string][]EventProperties{}
+	client, err := NewClient(ctx,
+		WithAttributes(Attributes{"id": "user-123"}),
+		WithEventLogger(func(ctx context.Context, eventName string, properties EventProperties, userCtx *EventUserContext) {
+			mu.Lock()
+			got[eventName] = append(got[eventName], properties)
+			mu.Unlock()
+			require.NotNil(t, userCtx)
+			require.Equal(t, Attributes{"id": "user-123"}, userCtx.Attributes)
+		}),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	featuresJSON := `{
+		"exp-feature": {
+			"defaultValue": 0,
+			"rules": [{"variations": [0, 1]}]
+		}
+	}`
+	require.NoError(t, client.SetJSONFeatures(featuresJSON))
+
+	res := client.EvalFeature(ctx, "exp-feature")
+	require.True(t, res.InExperiment())
+
+	require.Len(t, got[EventFeatureEvaluated], 1)
+	require.Len(t, got[EventExperimentViewed], 1)
+	require.Equal(t, "exp-feature", got[EventExperimentViewed][0]["experimentId"])
+	require.Equal(t, res.ExperimentResult.Key, got[EventExperimentViewed][0]["variationId"])
+}
+
+// Events emitted from a child client's evaluation must carry the child's
+// attributes, not the root client's.
+func TestTrackingPluginChildClientAttributes(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithAttributes(Attributes{"id": "parent-user", "user_id": "parent-user"}),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost: srv.URL,
+			BatchSize:    1,
+		}),
+	)
+	require.NoError(t, err)
+
+	featuresJSON := `{"flag": {"defaultValue": true}}`
+	require.NoError(t, client.SetJSONFeatures(featuresJSON))
+
+	child, err := client.WithAttributes(Attributes{"id": "child-user", "user_id": "child-user"})
+	require.NoError(t, err)
+	child.EvalFeature(ctx, "flag")
+
+	require.NoError(t, client.Close())
+
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+	require.Len(t, byName[EventFeatureEvaluated], 1)
+	event := byName[EventFeatureEvaluated][0]
+	require.Equal(t, "child-user", event["user_id"])
+	require.Equal(t, "child-user", event["device_id"])
 }
