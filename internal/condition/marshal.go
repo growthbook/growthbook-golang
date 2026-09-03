@@ -1,6 +1,7 @@
 package condition
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -11,6 +12,12 @@ import (
 
 type Base struct {
 	cond Condition
+	// raw is the condition's source JSON, compacted, kept so it can be marshaled
+	// back. Parsing is one-way — the condition tree holds compiled regexps and
+	// operator nodes that cannot be rendered as JSON again — so without it
+	// marshaling would emit an empty object, silently turning a targeted rule
+	// into one that matches everyone.
+	raw json.RawMessage
 }
 
 func (base Base) Eval(actual value.Value, groups SavedGroups) bool {
@@ -26,13 +33,31 @@ func (base *Base) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	json := value.New(m)
-	cond, err := buildBaseCond(json)
+	cond, err := buildBaseCond(value.New(m))
 	if err != nil {
 		return err
 	}
-	*base = Base{cond}
+	// Compact rather than copy the input: it drops insignificant whitespace, so
+	// two conditions that differ only in formatting stay equal under
+	// reflect.DeepEqual, and the buffer is ours (encoding/json may reuse the one
+	// backing data once we return).
+	var raw bytes.Buffer
+	if err := json.Compact(&raw, data); err != nil {
+		return err
+	}
+	*base = Base{cond: cond, raw: raw.Bytes()}
 	return nil
+}
+
+// MarshalJSON writes the condition's source JSON back out, so a feature payload
+// survives a round-trip through JSON without losing its targeting rules. A zero
+// Base (a rule that declares no condition) marshals to an empty object, which
+// parses back to a condition matching everyone — the same meaning it has now.
+func (base Base) MarshalJSON() ([]byte, error) {
+	if len(base.raw) == 0 {
+		return []byte("{}"), nil
+	}
+	return base.raw, nil
 }
 
 func buildBaseCond(json value.Value) (Condition, error) {

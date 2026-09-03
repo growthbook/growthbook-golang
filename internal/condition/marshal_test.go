@@ -148,3 +148,45 @@ func TestCaseInsensitiveOperators(t *testing.T) {
 		require.False(t, b.Eval(value.New(map[string]any{"tags": []string{"python", "django"}}), nil))
 	})
 }
+
+func TestBaseMarshalPreservesCondition(t *testing.T) {
+	src := `{"country":"US","age":{"$gt":18},"tags":{"$in":["a","b"]}}`
+
+	var base Base
+	require.NoError(t, json.Unmarshal([]byte(src), &base))
+
+	out, err := json.Marshal(base)
+	require.NoError(t, err)
+	require.JSONEq(t, src, string(out))
+
+	// The re-parsed condition must behave identically to the original.
+	var back Base
+	require.NoError(t, json.Unmarshal(out, &back))
+	attrs := value.New(map[string]any{"country": "US", "age": 21, "tags": []any{"a"}})
+	require.True(t, base.Eval(attrs, nil))
+	require.True(t, back.Eval(attrs, nil))
+
+	other := value.New(map[string]any{"country": "UA", "age": 21, "tags": []any{"a"}})
+	require.False(t, base.Eval(other, nil))
+	require.False(t, back.Eval(other, nil), "round-tripped condition must still reject non-matching users")
+}
+
+func TestZeroBaseMarshalsToEmptyObject(t *testing.T) {
+	// A rule with no condition: marshals to {} and parses back to match-everyone.
+	out, err := json.Marshal(Base{})
+	require.NoError(t, err)
+	require.JSONEq(t, `{}`, string(out))
+
+	var back Base
+	require.NoError(t, json.Unmarshal(out, &back))
+	require.True(t, back.Eval(value.New(map[string]any{}), nil))
+}
+
+func TestBaseEqualityIgnoresFormatting(t *testing.T) {
+	// Conditions are compared by value inside FeatureRule/Experiment, so keeping
+	// the raw JSON must not make formatting significant.
+	var compact, pretty Base
+	require.NoError(t, json.Unmarshal([]byte(`{"premium":true}`), &compact))
+	require.NoError(t, json.Unmarshal([]byte("{\n  \"premium\": true\n}"), &pretty))
+	require.Equal(t, compact, pretty)
+}
