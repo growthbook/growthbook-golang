@@ -487,3 +487,42 @@ func TestReturnsNullWhenHittingPrerequisiteCycle(t *testing.T) {
 	require.Nil(t, result.Value)
 	require.Equal(t, CyclicPrerequisiteResultSource, result.Source)
 }
+
+// Features are part of the public API, so users marshal them for debug
+// endpoints, diagnostics and home-grown caches. A round-trip must not quietly
+// drop targeting: a rule whose condition is lost fires for every user.
+func TestFeatureMapSurvivesJSONRoundTrip(t *testing.T) {
+	src := `{"feat":{"defaultValue":"off","rules":[{
+		"condition":{"country":"US"},
+		"force":"on",
+		"namespace":["ns",0,0.5],
+		"ranges":[[0,0.5],[0.5,1]]
+	}]}}`
+
+	var features FeatureMap
+	require.NoError(t, json.Unmarshal([]byte(src), &features))
+
+	out, err := json.Marshal(features)
+	require.NoError(t, err)
+
+	var back FeatureMap
+	require.NoError(t, json.Unmarshal(out, &back), "re-parsing marshaled features must not fail")
+
+	rule := back["feat"].Rules[0]
+	require.JSONEq(t, `{"country":"US"}`, mustMarshal(t, rule.Condition))
+	require.Equal(t, Namespace{Id: "ns", Start: 0, End: 0.5}, *rule.Namespace)
+	require.Equal(t, []BucketRange{{0, 0.5}, {0.5, 1}}, rule.Ranges)
+
+	// The decisive check: the rule must still be scoped to US users.
+	client, err := NewClient(ctx, WithFeatures(back), WithAttributes(Attributes{"country": "UA"}))
+	require.NoError(t, err)
+	require.Equal(t, "off", client.EvalFeature(ctx, "feat").Value,
+		"a non-US user must not get the forced value")
+}
+
+func mustMarshal(t *testing.T, v any) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	return string(b)
+}

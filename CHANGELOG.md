@@ -2,6 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- Add a pluggable `FeatureCache` (with `WithFeatureCache`) for persisting the
+  raw feature payload across restarts or sharing it between instances (e.g.
+  Redis). The client seeds from it on startup without writing back and writes
+  through after successful updates; `Get`/`Set` return backend errors, which are
+  logged and never fail evaluation.
+- `FeatureCacheEntry` gains `UpdatedAt`, stamped on every write. Backends with
+  no expiry of their own — a file-based cache, say — need it to age entries out;
+  ones with a TTL can ignore it. Entries stored without it still seed.
+- Fix: marshaling features no longer drops their targeting conditions.
+  `json.Marshal` on the `FeatureMap` returned by `Client.Features()` emitted
+  `"condition":{}` without an error, so a re-parsed rule matched every user
+  instead of its intended audience.
+
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
 - **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`

@@ -101,6 +101,17 @@ func WithForcedVariations(forcedVariations ForcedVariationsMap) ClientOption {
 	}
 }
 
+// WithFeatureCache sets a pluggable cache backend for feature data. The client
+// seeds features from it on startup and writes back after each successful
+// update, enabling faster cold starts, offline resilience, and shared state
+// across instances. Without this option no external cache is used.
+func WithFeatureCache(cache FeatureCache) ClientOption {
+	return func(c *Client) error {
+		c.data.featureCache = cache
+		return nil
+	}
+}
+
 // WithGroups sets legacy group membership for the user, used by experiments that
 // declare a `groups` array. Distinct from saved groups, which power $inGroup
 // conditions on `condition`.
