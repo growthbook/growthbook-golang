@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
@@ -147,7 +148,8 @@ func (client *Client) writeCache(ctx context.Context, payload json.RawMessage, e
 			etag = prev.Etag
 		}
 	}
-	if err := cache.Set(ctx, key, &FeatureCacheEntry{Payload: payload, Etag: etag}); err != nil {
+	entry := &FeatureCacheEntry{Payload: payload, Etag: etag, UpdatedAt: time.Now().UTC()}
+	if err := cache.Set(ctx, key, entry); err != nil {
 		client.logger.WarnContext(ctx, "Failed to write features to cache", "error", err)
 	}
 }

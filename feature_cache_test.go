@@ -253,3 +253,34 @@ func TestPollIgnoresCachedEtagWhenInlineFeaturesUsed(t *testing.T) {
 	require.Empty(t, sentEtag)
 	require.Equal(t, "fromApi", client.EvalFeature(ctx, "feat").Value)
 }
+
+func TestWriteThroughStampsUpdatedAt(t *testing.T) {
+	cache := NewInMemoryFeatureCache()
+	client, err := NewClient(ctx,
+		WithApiHost("https://example.com"), WithClientKey("k"), WithFeatureCache(cache))
+	require.NoError(t, err)
+
+	before := time.Now().UTC()
+	require.NoError(t, client.UpdateFromApiResponseJSON(
+		`{"features":{"feat":{"defaultValue":"v"}},"dateUpdated":"2020-01-01T00:00:00Z"}`))
+
+	entry, ok, err := cache.Get(ctx, "https://example.com::k")
+	require.NoError(t, err)
+	require.True(t, ok)
+	// A backend with no expiry of its own (e.g. a file) ages entries out by this.
+	require.False(t, entry.UpdatedAt.Before(before))
+	require.Equal(t, time.UTC, entry.UpdatedAt.Location())
+}
+
+func TestSeedDoesNotDependOnUpdatedAt(t *testing.T) {
+	// Entries written before UpdatedAt existed (zero value) must still seed.
+	cache := NewInMemoryFeatureCache()
+	require.NoError(t, cache.Set(ctx, "https://example.com::k", &FeatureCacheEntry{
+		Payload: json.RawMessage(`{"features":{"feat":{"defaultValue":"cached"}}}`),
+	}))
+
+	client, err := NewClient(ctx,
+		WithApiHost("https://example.com"), WithClientKey("k"), WithFeatureCache(cache))
+	require.NoError(t, err)
+	require.Equal(t, "cached", client.EvalFeature(ctx, "feat").Value)
+}

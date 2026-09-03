@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"sync"
+	"time"
 )
 
 // FeatureCacheEntry is a snapshot of feature data persisted by a FeatureCache.
@@ -18,6 +19,10 @@ type FeatureCacheEntry struct {
 	Payload json.RawMessage
 	// Etag is the HTTP ETag for the payload, enabling conditional requests after a restart.
 	Etag string
+	// UpdatedAt is when the SDK wrote this entry, in UTC. Backends without their
+	// own expiry — a file, say — need it to age entries out, and it is what a
+	// stale-while-revalidate policy would be built on.
+	UpdatedAt time.Time
 }
 
 // FeatureCache is a pluggable backend for persisting feature data so it can
