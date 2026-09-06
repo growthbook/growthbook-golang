@@ -52,6 +52,11 @@ type FeatureRule struct {
 	Name string `json:"name"`
 	// The phase id of the experiment
 	Phase string `json:"phase"`
+	// Reference to a contextual bandit definition in the payload
+	ContextualBanditRef string `json:"contextualBanditRef"`
+	// Variations for a contextual bandit rule, carried separately from
+	// Variations so SDKs without bandit support skip the rule
+	ContextualVariations []FeatureValue `json:"contextualVariations"`
 	// Deprecated: ignored during evaluation. Feature rules never carried URL
 	// targeting in the JS SDK; use Experiment.URLPatterns with RunExperiment.
 	URLPatterns []URLTarget `json:"urlPatterns"`
@@ -65,8 +70,8 @@ type FeatureRule struct {
 	// status in the JS SDK; use Experiment.Status with RunExperiment.
 	Status ExperimentStatus `json:"status"`
 
-	// forcePresent distinguishes {"force": null} from an absent force: the
-	// JS SDK serves the null (it checks key presence), so Go must too.
+	// forcePresent distinguishes {"force": null} from an absent force, so a
+	// rule forcing null serves it instead of being skipped.
 	forcePresent bool
 }
 
