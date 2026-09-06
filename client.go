@@ -247,12 +247,26 @@ func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
 		client.deferredTracks.add(client.detachTrackingData(e.experiments))
 	}
 	plugins := client.data.getPlugins()
+	// Built-in events flow through the event-logger channel alongside the
+	// callbacks, mirroring the JS SDK (core.ts onExperimentViewed /
+	// onFeatureUsage fire eventLogger per tracked item). Resolve the user
+	// context once; exposures carry their own snapshot.
+	dispatchEvents := client.hasEventConsumers()
+	var usageCtx *EventUserContext
+	if dispatchEvents && len(e.featureUsage) > 0 {
+		if usageCtx = e.userCtx; usageCtx == nil {
+			usageCtx = client.trackingUserContext()
+		}
+	}
 	for _, u := range e.featureUsage {
 		if client.featureUsageCallback != nil {
 			client.featureUsageCallback(ctx, u.key, u.result, client.extraData)
 		}
 		for _, p := range plugins {
 			client.safePluginFeatureEvaluated(ctx, p, u.key, u.result)
+		}
+		if dispatchEvents {
+			client.dispatchEvent(ctx, EventFeatureEvaluated, featureEvaluatedProperties(u.key, u.result), usageCtx)
 		}
 	}
 	for _, d := range e.experiments {
@@ -262,6 +276,41 @@ func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
 		for _, p := range plugins {
 			client.safePluginExperimentViewed(ctx, p, d.Experiment, d.Result)
 		}
+		if dispatchEvents {
+			client.dispatchEvent(ctx, EventExperimentViewed, experimentViewedProperties(d.Experiment, d.Result), d.User)
+		}
+	}
+}
+
+// experimentViewedProperties builds the "Experiment Viewed" event properties,
+// matching the JS SDK (core.ts onExperimentViewed): variationId is the
+// variation key, not the numeric index.
+func experimentViewedProperties(exp *Experiment, res *ExperimentResult) EventProperties {
+	return EventProperties{
+		"experimentId":  exp.Key,
+		"variationId":   res.Key,
+		"hashAttribute": res.HashAttribute,
+		"hashValue":     res.HashValue,
+	}
+}
+
+// featureEvaluatedProperties builds the "Feature Evaluated" event properties,
+// matching the JS SDK (core.ts onFeatureUsage).
+func featureEvaluatedProperties(key string, res *FeatureResult) EventProperties {
+	ruleId := res.RuleId
+	if res.Source == DefaultValueResultSource {
+		ruleId = "$default"
+	}
+	variationId := ""
+	if res.ExperimentResult != nil {
+		variationId = res.ExperimentResult.Key
+	}
+	return EventProperties{
+		"feature":     key,
+		"source":      string(res.Source),
+		"value":       res.Value,
+		"ruleId":      ruleId,
+		"variationId": variationId,
 	}
 }
 
@@ -295,7 +344,7 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 		client:      client,
 		ctx:         ctx,
 		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
-			client.deferredTracks != nil || len(client.data.plugins) > 0,
+			client.eventLogger != nil || client.deferredTracks != nil || len(client.data.plugins) > 0,
 	}
 	client.data.mu.RUnlock()
 	return &e

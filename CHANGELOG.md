@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- **Fixed:** the GrowthBook tracking plugin now speaks the ingestor's actual
+  wire protocol: `POST {host}/track?client_key=...` with a bare JSON array of
+  `EventPayload` objects, and built-in events use the standard
+  `"Experiment Viewed"` / `"Feature Evaluated"` names and property shapes
+  shared with the JS SDK (previously: a bespoke `{client_key, events}`
+  envelope POSTed to a `/events` endpoint the ingestor does not serve).
+  Events sent by earlier versions were never ingested, so there is no data
+  migration — warehouse tracking simply starts working.
+- **Changed:** built-in experiment/feature events now flow through the
+  event-logger channel, matching the JS SDK: callbacks registered with
+  `WithEventLogger` and plugins implementing `EventLoggerPlugin` receive
+  `"Experiment Viewed"` and `"Feature Evaluated"` events — with the
+  evaluating client's attributes and URL — in addition to custom `LogEvent`
+  events. Match on the new `EventExperimentViewed` / `EventFeatureEvaluated`
+  constants to filter them. Built-in events cover everything the tracking
+  pipeline records, including passthrough and prerequisite exposures.
+- `GrowthBookTrackingPlugin.OnExperimentViewed` / `OnFeatureEvaluated` are
+  now no-ops; the plugin receives built-in events via `OnEvent`, which is
+  how they gain the user attributes the ingestor payload requires.
+- Numeric and boolean identifier attributes (`id`, `user_id`, `device_id`,
+  `anonymous_id`, `page_id`, `session_id`) are stringified into the event
+  payload's id fields instead of being emitted as null. The JS plugin nulls
+  non-string identifiers, but Go attributes commonly carry numeric ids and
+  the SDK already stringifies them for hashing — a deliberate divergence so
+  events stay attributable.
+
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
 - **Breaking change:** `ExperimentCallback` gains a `*TrackingUserContext`
