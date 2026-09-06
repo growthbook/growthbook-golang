@@ -98,7 +98,7 @@ func (e *evaluator) buildContextualBanditExperiment(exp *Experiment, ref string,
 		}
 		// Sanitize so the reported weights always equal the weights the
 		// assignment uses — bandit analysis reweights by these propensities.
-		weights := e.client.effectiveWeights(len(exp.Variations), leaf.Weights)
+		weights := normalizedWeights(len(exp.Variations), leaf.Weights, e.client.logger)
 		exp.Weights = weights
 		exp.ContextualBandit = &ContextualBanditAssignment{
 			LeafId:           leaf.LeafId,
@@ -112,7 +112,7 @@ func (e *evaluator) buildContextualBanditExperiment(exp *Experiment, ref string,
 		"id", featureId, "contextualBanditRef", ref)
 	exp.ContextualBandit = &ContextualBanditAssignment{
 		LeafId:           contextualBanditFallbackLeafId,
-		VariationWeights: e.client.effectiveWeights(len(exp.Variations), exp.Weights),
+		VariationWeights: normalizedWeights(len(exp.Variations), exp.Weights, e.client.logger),
 		BanditVersion:    def.BanditVersion,
 	}
 }

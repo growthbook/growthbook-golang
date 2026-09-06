@@ -1,6 +1,10 @@
 package growthbook
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"log/slog"
+	"math"
+)
 
 // BucketRange represents a single bucket range.
 type BucketRange struct {
@@ -25,7 +29,7 @@ func (c *Client) getBucketRanges(numVariations int, coverage float64, weights []
 		coverage = 1
 	}
 
-	weights = c.effectiveWeights(numVariations, weights)
+	weights = normalizedWeights(numVariations, weights, c.logger)
 
 	// Cast weights to ranges
 	cumulative := 0.0
@@ -38,25 +42,44 @@ func (c *Client) getBucketRanges(numVariations int, coverage float64, weights []
 	return ranges
 }
 
-// effectiveWeights returns the weights assignment will actually use: equal
-// weights when missing, the wrong length, or not summing to ~1.
-func (c *Client) effectiveWeights(numVariations int, weights []float64) []float64 {
+// isValidWeightVector reports whether weights is a usable propensity vector
+// for numVariations variations: right length, every element finite and
+// non-negative, and summing to ~1. Deliberately stricter than the JS SDK,
+// which checks only length and sum and buckets on inverted ranges for
+// vectors like [1.2, -0.2]; the Python SDK applies this same rule.
+func isValidWeightVector(weights []float64, numVariations int) bool {
+	if len(weights) == 0 || len(weights) != numVariations {
+		return false
+	}
+	total := 0.0
+	for _, w := range weights {
+		if math.IsNaN(w) || math.IsInf(w, 0) || w < 0 {
+			return false
+		}
+		total += w
+	}
+	return total >= 0.99 && total <= 1.01
+}
+
+// normalizedWeights returns the weights bucketing will actually use: the
+// input when it is a valid vector, equal weights otherwise. Reported bandit
+// propensities come from the same function, so they always describe the
+// vector bucketing used. A nil logger skips the warnings.
+func normalizedWeights(numVariations int, weights []float64, logger *slog.Logger) []float64 {
 	if len(weights) == 0 {
 		return getEqualWeights(numVariations)
 	}
-	if len(weights) != numVariations {
-		c.logger.Warn("Experiment weights and variations arrays must be the same length")
-		return getEqualWeights(numVariations)
+	if isValidWeightVector(weights, numVariations) {
+		return weights
 	}
-	totalWeight := 0.0
-	for i := range weights {
-		totalWeight += weights[i]
+	if logger != nil {
+		if len(weights) != numVariations {
+			logger.Warn("Experiment weights and variations arrays must be the same length")
+		} else {
+			logger.Warn("Experiment weights must be finite, non-negative, and add up to 1")
+		}
 	}
-	if totalWeight < 0.99 || totalWeight > 1.01 {
-		c.logger.Warn("Experiment weights must add up to 1")
-		return getEqualWeights(numVariations)
-	}
-	return weights
+	return getEqualWeights(numVariations)
 }
 
 // Given a hash and bucket ranges, assigns one of the bucket ranges.
