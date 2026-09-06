@@ -247,6 +247,10 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 }
 
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
+	// Copy: evaluation may adjust bandit metadata (propensity resync, strip
+	// of unused attribution) and must never mutate the caller's experiment.
+	expCopy := *exp
+	exp = &expCopy
 	e := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
 	client.fireTracking(ctx, e)

@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -53,6 +54,23 @@ func (e *evaluator) doEvalFeature(key string) *FeatureResult {
 }
 
 func (e *evaluator) runExperiment(exp *Experiment, featureId string) *ExperimentResult {
+	if exp.ContextualBandit != nil {
+		if len(exp.Ranges) > 0 {
+			// Explicit ranges govern bucketing (step 9), so no truthful
+			// propensity vector exists: drop the bandit metadata rather than
+			// describe a distribution bucketing ignored. Bucketing itself is
+			// untouched (same assignment as the JS SDK).
+			exp.ContextualBandit = nil
+		} else if exp.Weights != nil {
+			// Resync reported propensities to the weights bucketing will
+			// actually use — a no-op for payload-built bandit experiments,
+			// defense for caller-built inline experiments.
+			cb := *exp.ContextualBandit
+			cb.VariationWeights = slices.Clone(normalizedWeights(len(exp.Variations), exp.Weights, e.client.logger))
+			exp.ContextualBandit = &cb
+		}
+	}
+
 	// 1. If experiment.variations has fewer than 2 variations, return getExperimentResult(experiment)
 	if len(exp.Variations) < 2 {
 		e.client.logger.DebugContext(e.ctx, "Invalid experiment", "id", exp.Key)

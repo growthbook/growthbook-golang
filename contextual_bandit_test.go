@@ -447,3 +447,60 @@ func TestContextualBanditsFromApiResponse(t *testing.T) {
 	require.Equal(t, "b", res.Value)
 	require.Equal(t, 20, *res.ExperimentResult.LeafId)
 }
+
+func TestContextualBanditRangesAndResync(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("explicit ranges suppress bandit metadata; bucketing follows the ranges", func(t *testing.T) {
+		// The leaf's weights [0, 1] would force variation 1; the explicit
+		// ranges force variation 0. Step 9 buckets on ranges, so there is no
+		// truthful propensity vector to report.
+		features := `{"ranged": {"defaultValue": "default", "rules": [{
+			"key": "ranged-exp",
+			"contextualBanditRef": "cb-us-only",
+			"contextualVariations": ["a", "b"],
+			"ranges": [[0, 1], [0, 0]]
+		}]}}`
+		client, err := NewClient(ctx,
+			WithJsonFeatures(features),
+			WithContextualBandits(mustBanditDefs(t, `{
+				"cb-us-only": {"contexts": [{"leafId": 10, "condition": {"country": "us"}, "weights": [0, 1]}]}
+			}`)),
+			WithAttributes(Attributes{"id": "u1", "country": "us"}))
+		require.NoError(t, err)
+
+		res := client.EvalFeature(ctx, "ranged")
+		require.True(t, res.InExperiment())
+		require.Equal(t, "a", res.Value, "ranges govern bucketing, not the leaf weights")
+		require.Nil(t, res.ExperimentResult.LeafId)
+		require.Nil(t, res.ExperimentResult.VariationWeights)
+		require.Nil(t, res.ExperimentResult.BanditVersion)
+		require.Nil(t, res.Experiment.ContextualBandit)
+	})
+
+	t.Run("inline experiments report the weights bucketing uses", func(t *testing.T) {
+		client, err := NewClient(ctx, WithAttributes(Attributes{"id": "u1"}))
+		require.NoError(t, err)
+
+		two := 2
+		exp := Experiment{
+			Key:        "inline-bandit",
+			Variations: []FeatureValue{"a", "b"},
+			Weights:    []float64{1, 0},
+			ContextualBandit: &ContextualBanditAssignment{
+				LeafId:           7,
+				VariationWeights: []float64{0, 1}, // inconsistent with Weights
+				BanditVersion:    &two,
+			},
+		}
+		res := client.RunExperiment(ctx, &exp)
+		require.True(t, res.InExperiment)
+		require.Equal(t, "a", res.Value)
+		require.Equal(t, 7, *res.LeafId)
+		require.Equal(t, []float64{1, 0}, res.VariationWeights,
+			"reported propensities must be the weights bucketing used")
+
+		// The caller's experiment is never mutated.
+		require.Equal(t, []float64{0, 1}, exp.ContextualBandit.VariationWeights)
+	})
+}
