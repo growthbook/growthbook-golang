@@ -13,11 +13,12 @@ All notable changes to this project will be documented in this file.
   aggregate weights apply under a fallback leaf. Assignments carry `leafId`,
   `variationWeights`, and `banditVersion` on `ExperimentResult` — and on
   forwarded deferred-tracking data. Definitions decode leniently and never
-  block the feature update they arrived with: a malformed definition is
-  dropped (its rules fall back to aggregate weights), and a malformed
-  context within a definition is dropped while its siblings are kept.
-  Previously bandit rules were skipped and served the next rule or the
-  default value.
+  block the feature update they arrived with; malformed pieces degrade at
+  evaluation time instead (see the divergences entry below). An absent
+  `contextualBandits` payload section preserves the previous definitions;
+  an explicit empty one clears them; a section that fails to decrypt is
+  ignored, keeping the previous definitions. Previously bandit rules were
+  skipped and served the next rule or the default value.
 - **Bugfix (JS parity):** a feature rule of `{"force": null}` now serves
   `null` with source `force`, as the JS SDK does. Previously a null force
   was indistinguishable from an absent one, so the rule was skipped and the
@@ -85,14 +86,27 @@ All notable changes to this project will be documented in this file.
   a different key than reads looked up (`exp__-1` vs `exp__0`), so the saved
   assignment was never found again. Keys now normalize negative versions to
   0 in one place, for reads and saves alike.
-- Deliberate divergences from the JS SDK, all in favor of truthful bandit
-  exposures: sticky-bucketed assignments on bandit rules carry no bandit
-  attribution (the leaf weights did not produce the assignment; GrowthBook
-  disables sticky bucketing on bandit rules, so served payloads never hit
-  this path); reported `variationWeights` are the sanitized weights the
-  assignment actually used, where the JS SDK reports raw invalid weights;
-  and a type-malformed context is dropped rather than routed with junk
-  attribution.
+- Deliberate divergences from the JS SDK (shared with the Python SDK), all
+  in favor of truthful bandit exposures:
+  - Sticky-bucketed assignments on bandit rules carry no bandit attribution:
+    the leaf weights did not produce the assignment. GrowthBook disables
+    sticky bucketing on bandit rules server-side, so served payloads never
+    hit this path.
+  - Weight vectors are validated strictly (right length, finite,
+    non-negative, summing to ~1) and fall back to equal weights everywhere,
+    where the JS SDK checks only length and sum and buckets on the inverted
+    ranges a vector like `[1.2, -0.2]` produces.
+  - A matched leaf with a junk `leafId` or unusable weights demotes to the
+    fallback leaf (-1) with the rule's aggregate weights, rather than
+    repairing the weights while keeping the leaf's identity — reported
+    propensities always describe the vector bucketing used.
+  - A type-malformed context aborts leaf selection (later leaves are not
+    consulted): evaluation cannot know whether it would have matched.
+  - A rule pairing explicit `ranges` with a `contextualBanditRef` buckets on
+    the ranges (identical assignment to the JS SDK) but reports no bandit
+    metadata, since no truthful propensity vector exists.
+  - `RunExperiment` evaluates a copy of the caller's experiment and notifies
+    subscribers with unused bandit attribution stripped.
 
 ## [v0.4.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.4.0) - 2026-08-28
 
