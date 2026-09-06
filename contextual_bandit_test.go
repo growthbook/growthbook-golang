@@ -223,18 +223,31 @@ func TestContextualBanditRobustness(t *testing.T) {
 		require.Nil(t, res.Value)
 	})
 
-	t.Run("leaf weights of the wrong length are sanitized and reported as used", func(t *testing.T) {
-		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
-			WithContextualBandits(mustBanditDefs(t, `{
-				"cb-1": {"contexts": [{"leafId": 5, "condition": {}, "weights": [1, 0, 0]}]}
-			}`)))
-		res := client.EvalFeature(ctx, "bandit-flag")
-		require.True(t, res.InExperiment())
-		require.Equal(t, 5, *res.ExperimentResult.LeafId)
-		require.Equal(t, []float64{0.5, 0.5}, res.ExperimentResult.VariationWeights)
+	t.Run("a matched leaf with invalid weights demotes to the fallback leaf", func(t *testing.T) {
+		// Substituting repaired weights would report a leaf whose
+		// propensities differ from the vector bucketing used; the Python SDK
+		// demotes to leafId -1 and keeps the rule's aggregate weights.
+		for name, weights := range map[string]string{
+			"wrong length": `[1, 0, 0]`,
+			"negative":     `[1.2, -0.2]`,
+			"sum not ~1":   `[0.4, 0.1]`,
+			"missing":      `null`,
+		} {
+			t.Run(name, func(t *testing.T) {
+				client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+					WithContextualBandits(mustBanditDefs(t, `{
+						"cb-1": {"contexts": [{"leafId": 5, "condition": {}, "weights": `+weights+`}]}
+					}`)))
+				res := client.EvalFeature(ctx, "bandit-flag")
+				require.True(t, res.InExperiment())
+				require.Equal(t, -1, *res.ExperimentResult.LeafId)
+				require.Equal(t, []float64{0.5, 0.5}, res.ExperimentResult.VariationWeights,
+					"reported weights must be the aggregate weights bucketing used")
+			})
+		}
 	})
 
-	t.Run("a malformed context is dropped without discarding its siblings", func(t *testing.T) {
+	t.Run("a matched leaf with a junk leafId demotes instead of routing to a sibling", func(t *testing.T) {
 		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "nz"},
 			WithContextualBandits(mustBanditDefs(t, `{
 				"cb-1": {"contexts": [
@@ -243,8 +256,59 @@ func TestContextualBanditRobustness(t *testing.T) {
 				]}
 			}`)))
 		res := client.EvalFeature(ctx, "bandit-flag")
-		require.Equal(t, "b", res.Value)
-		require.Equal(t, 20, *res.ExperimentResult.LeafId)
+		require.True(t, res.InExperiment())
+		require.Equal(t, -1, *res.ExperimentResult.LeafId,
+			"the catch-all leaf matched; its junk leafId demotes it rather than skipping to the sibling")
+		require.Equal(t, []float64{0.5, 0.5}, res.ExperimentResult.VariationWeights)
+	})
+
+	t.Run("a type-malformed context aborts leaf selection", func(t *testing.T) {
+		// Selection cannot know whether the junk context would have matched,
+		// so a later valid leaf must not be used (Python SDK parity).
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "nz"},
+			WithContextualBandits(mustBanditDefs(t, `{
+				"cb-1": {"contexts": [
+					"garbage",
+					{"leafId": 20, "condition": {"country": "nz"}, "weights": [0, 1]}
+				]}
+			}`)))
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.True(t, res.InExperiment())
+		require.Equal(t, -1, *res.ExperimentResult.LeafId)
+		require.Equal(t, []float64{0.5, 0.5}, res.ExperimentResult.VariationWeights)
+	})
+
+	t.Run("a junk banditVersion is omitted without dropping the definition", func(t *testing.T) {
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+			WithContextualBandits(mustBanditDefs(t, `{
+				"cb-1": {"banditVersion": "not-a-number", "contexts": [
+					{"leafId": 10, "condition": {"country": "us"}, "weights": [1, 0]}
+				]}
+			}`)))
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.Equal(t, "a", res.Value)
+		require.Equal(t, 10, *res.ExperimentResult.LeafId)
+		require.Nil(t, res.ExperimentResult.BanditVersion)
+	})
+
+	t.Run("JS-falsy definitions dangle; truthy junk takes the fallback leaf", func(t *testing.T) {
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+			WithContextualBandits(mustBanditDefs(t, `{"cb-1": null, "cb-truthy": 5}`)))
+
+		// null definition == missing definition: plain experiment, no metadata.
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.True(t, res.InExperiment())
+		require.Nil(t, res.ExperimentResult.LeafId)
+		require.Nil(t, res.ExperimentResult.VariationWeights)
+
+		// A truthy non-object definition counts as found with no leaves:
+		// fallback attribution.
+		client2 := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+			WithContextualBandits(mustBanditDefs(t, `{"cb-1": 5}`)))
+		res2 := client2.EvalFeature(ctx, "bandit-flag")
+		require.True(t, res2.InExperiment())
+		require.Equal(t, -1, *res2.ExperimentResult.LeafId)
+		require.Equal(t, []float64{0.5, 0.5}, res2.ExperimentResult.VariationWeights)
 	})
 
 	t.Run("sticky-bucketed assignments carry no bandit fields", func(t *testing.T) {
