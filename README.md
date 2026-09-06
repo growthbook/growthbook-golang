@@ -213,38 +213,47 @@ produces — including passthrough assignments and experiments inside
 prerequisite features — so you can read the buffer and forward it, instead of
 intercepting callbacks.
 
-Enable it with `WithDeferredTracking`. The usual pattern is one child client
-per user request; the child acts as the user context, so every request gets
-its own buffer:
+Create a `TrackingBuffer` and attach it with `WithTrackingBuffer`. The usual
+pattern is one buffer and one child client per user request; the child acts
+as the user context, and you hold the buffer handle:
 
 ```go
+buf := gb.NewTrackingBuffer()
 child, _ := client.WithAttributes(gb.Attributes{"id": userID})
-child, _ = child.WithDeferredTracking()
+child, _ = child.WithTrackingBuffer(buf)
 
 child.EvalFeature(ctx, "feature-a")
 child.EvalFeature(ctx, "feature-b")
 
-exposures := child.DeferredTrackingCalls() // []gb.TrackingData
+exposures := buf.TrackingCalls() // []gb.TrackingData
 ```
+
+`WithDeferredTracking()` is the convenience form — it attaches a fresh
+internal buffer, readable through `Client.DeferredTrackingCalls()` and
+cleared with `Client.ClearDeferredTrackingCalls()` (both delegate to the
+attached buffer, whichever way it was attached).
 
 Good to know:
 
 - The buffer keeps one entry per unique assignment (same user, experiment,
   and variation), in the order they were first seen. Reads return detached
-  copies, safe to retain or mutate; `ClearDeferredTrackingCalls` empties the
-  buffer.
+  copies, safe to retain or mutate, and don't drain the buffer; `Clear`
+  empties it, including its dedupe memory.
 - `TrackingData` marshals to the same JSON shape as the JS SDK's tracking
   data — including the `user` context the evaluation ran with — so a
   forwarded list can be passed directly to a JS client's
   `setDeferredTrackingCalls`.
-- Child clients cloned from an armed client share its buffer. Calling
-  `WithDeferredTracking` again gives the new client a fresh, separate buffer.
-- Arming a shared client also works — the buffer is safe for concurrent use
-  and entries carry their user identity — but you lose the per-request
-  boundary, so prefer arming per-request children.
-- Callbacks and plugins are unaffected and keep firing. If you both forward
-  the buffer and track via callbacks, you'll report exposures twice — pick
-  one channel.
+- Child clients cloned from a client with a buffer share it — the attacher
+  chooses the scope. Attaching a different buffer (or nil) detaches the new
+  client from the parent's.
+- Attaching one buffer to a long-lived shared client also works — the buffer
+  is safe for concurrent use and entries carry their user identity — but it
+  grows without bound until cleared, so prefer one buffer per request.
+- Buffering is independent of callbacks and plugins: both always fire. The
+  buffer exists to forward exposures to a client SDK that reports them
+  *there*; if a server-side callback reports to the same analytics
+  destination, that destination sees each exposure twice — route each
+  destination through one channel.
 - Feature usage is not buffered, only experiment exposures. Usage events
   describe where evaluation happened, and remote-evaluation clients report
   their own; on the server they still reach callbacks and plugins.
