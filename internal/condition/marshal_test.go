@@ -148,3 +148,30 @@ func TestCaseInsensitiveOperators(t *testing.T) {
 		require.False(t, b.Eval(value.New(map[string]any{"tags": []string{"python", "django"}}), nil))
 	})
 }
+
+func TestConditionMarshalRoundTrip(t *testing.T) {
+	t.Run("conditions survive a marshal round trip", func(t *testing.T) {
+		src := `{"$or": [{"age": {"$gte": 18}}, {"name": "Bob"}]}`
+		var b Base
+		require.NoError(t, json.Unmarshal([]byte(src), &b))
+
+		out, err := json.Marshal(b)
+		require.NoError(t, err)
+
+		var got, want map[string]any
+		require.NoError(t, json.Unmarshal(out, &got))
+		require.NoError(t, json.Unmarshal([]byte(src), &want))
+		require.Equal(t, want, got)
+
+		var again Base
+		require.NoError(t, json.Unmarshal(out, &again))
+		require.True(t, again.Eval(value.New(map[string]any{"age": 20}), nil))
+		require.False(t, again.Eval(value.New(map[string]any{"age": 10, "name": "Ann"}), nil))
+	})
+
+	t.Run("the zero value marshals as null", func(t *testing.T) {
+		out, err := json.Marshal(Base{})
+		require.NoError(t, err)
+		require.Equal(t, "null", string(out))
+	})
+}
