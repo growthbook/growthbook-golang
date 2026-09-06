@@ -273,7 +273,11 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	// 13. Build the result object
 	result := e.experimentResult(exp, stickyBucketVariation, true, featureId, n, stickyBucketFound)
 
-	// 13.5 Save sticky bucket assignment if in experiment and sticky bucketing is enabled
+	// 13.5 Save sticky bucket assignment if in experiment and sticky bucketing is enabled.
+	// saveStickyBucketAssignment short-circuits from the client cache when
+	// the primary doc already holds this assignment; the check must be
+	// against the primary doc, not the sticky match, because a match found
+	// via the fallback doc still needs upgrading into the hash-attribute doc.
 	if e.client.stickyBucketService != nil && !exp.DisableStickyBucketing && result.InExperiment {
 		// Create the sticky bucket assignment and save it
 		saveStickyBucketAssignment(

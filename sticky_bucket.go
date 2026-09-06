@@ -245,8 +245,15 @@ func (s *InMemoryStickyBucketService) Destroy() {
 
 // Helper functions for sticky bucketing
 
-// getStickyBucketExperimentKey generates a key for storing experiment assignments
+// getStickyBucketExperimentKey generates a key for storing experiment
+// assignments. Negative versions normalize to 0 here, in the one place keys
+// are built, so reads (which already defaulted negatives to 0) and saves
+// agree on the key — previously a negative BucketVersion read "exp__0" but
+// saved "exp__-1", so the saved assignment was never found again.
 func getStickyBucketExperimentKey(experimentKey string, bucketVersion int) string {
+	if bucketVersion < 0 {
+		bucketVersion = 0
+	}
 	return fmt.Sprintf("%s__%d", experimentKey, bucketVersion)
 }
 
@@ -494,6 +501,23 @@ func saveStickyBucketAssignment(
 		return nil
 	}
 
+	experimentVersionKey := getStickyBucketExperimentKey(experimentKey, bucketVersion)
+
+	// Fast path: when the client cache already holds this exact assignment,
+	// the save is a guaranteed no-op — skip the doc lock and the service
+	// read that GenerateStickyBucketAssignmentDoc would make to compute
+	// Changed == false. This matches JS/Python, which answer "unchanged?"
+	// from memory without touching the store (sdk-js core.ts
+	// generateStickyBucketAssignmentDoc). Falls through on a cache miss
+	// (e.g. LRU eviction).
+	if cache != nil {
+		if doc, ok := cache.get(getKey(attributeName, attributeValue)); ok && doc != nil {
+			if existing, ok := doc.Assignments[experimentVersionKey]; ok && existing == variationKey {
+				return nil
+			}
+		}
+	}
+
 	// Saving is a read-modify-write cycle: serialize it per document so
 	// concurrent saves for the same user merge instead of the last write
 	// dropping the other's assignment.
@@ -504,7 +528,6 @@ func saveStickyBucketAssignment(
 
 	// Create assignment map with the experiment key and variation key
 	assignments := make(map[string]string)
-	experimentVersionKey := getStickyBucketExperimentKey(experimentKey, bucketVersion)
 	assignments[experimentVersionKey] = variationKey
 
 	// Generate the sticky bucket assignment document
@@ -517,11 +540,15 @@ func saveStickyBucketAssignment(
 
 	// Only save if a change was detected
 	if data.Doc != nil && data.Changed {
-		// Update cache if provided
+		// Persist first, cache second: the cache feeds the fast path above,
+		// so it must only hold assignments the service accepted — caching a
+		// failed write would stop every future evaluation from retrying it.
+		if err := service.SaveAssignments(data.Doc); err != nil {
+			return err
+		}
 		if cache != nil {
 			cache.set(data.Key, data.Doc)
 		}
-		return service.SaveAssignments(data.Doc)
 	}
 
 	return nil
