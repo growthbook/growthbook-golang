@@ -636,3 +636,71 @@ func TestContextualBanditPrerequisiteExposure(t *testing.T) {
 	require.Equal(t, []float64{1, 0}, calls[0].Result.VariationWeights)
 	require.Equal(t, 10, calls[0].Experiment.ContextualBandit.LeafId)
 }
+
+func TestContextualBanditPayloadSectionSemantics(t *testing.T) {
+	// Absent section = preserve, explicit empty (or null) = clear, failed
+	// decrypt = preserve — so a broken or bandit-less refresh never wipes a
+	// coherent previous map (Python SDK parity).
+	ctx := context.Background()
+
+	banditAssigned := func(t *testing.T, client *Client) bool {
+		t.Helper()
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.True(t, res.InExperiment())
+		return res.ExperimentResult.LeafId != nil
+	}
+
+	seed := func(t *testing.T, opts ...ClientOption) *Client {
+		t.Helper()
+		client, err := NewClient(ctx, append([]ClientOption{
+			WithAttributes(Attributes{"id": "u1", "country": "us"}),
+		}, opts...)...)
+		require.NoError(t, err)
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"features": `+banditFeaturesJSON+`,
+			"contextualBandits": `+banditDefsJSON+`,
+			"dateUpdated": "2030-01-01T00:00:00Z"
+		}`))
+		require.True(t, banditAssigned(t, client), "seed payload must assign a leaf")
+		return client
+	}
+
+	t.Run("a refresh without the bandit section preserves the previous map", func(t *testing.T) {
+		client := seed(t)
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"features": `+banditFeaturesJSON+`,
+			"dateUpdated": "2030-01-02T00:00:00Z"
+		}`))
+		require.True(t, banditAssigned(t, client), "absent section must not clear definitions")
+	})
+
+	t.Run("an explicit empty section clears the map", func(t *testing.T) {
+		client := seed(t)
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"features": `+banditFeaturesJSON+`,
+			"contextualBandits": {},
+			"dateUpdated": "2030-01-02T00:00:00Z"
+		}`))
+		require.False(t, banditAssigned(t, client), "explicit empty section must clear definitions")
+	})
+
+	t.Run("an explicit null section clears the map", func(t *testing.T) {
+		client := seed(t)
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"features": `+banditFeaturesJSON+`,
+			"contextualBandits": null,
+			"dateUpdated": "2030-01-02T00:00:00Z"
+		}`))
+		require.False(t, banditAssigned(t, client))
+	})
+
+	t.Run("a failed bandit decryption preserves the previous map", func(t *testing.T) {
+		client := seed(t, WithDecryptionKey("Ns04T5n9+59rl2x3SlNHtQ=="))
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"features": `+banditFeaturesJSON+`,
+			"encryptedContextualBandits": "not-a-valid-blob",
+			"dateUpdated": "2030-01-02T00:00:00Z"
+		}`))
+		require.True(t, banditAssigned(t, client), "failed decrypt must not wipe the previous map")
+	})
+}

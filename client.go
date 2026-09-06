@@ -182,20 +182,30 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	} else {
 		features = resp.Features
 	}
+	// Section-presence semantics: an absent contextualBandits section
+	// preserves the previous definitions, an explicit empty (or null)
+	// section clears them, and a section that fails to decrypt is ignored
+	// like an absent one — the previous coherent map stays active rather
+	// than being wiped by a broken update (Python SDK parity).
 	bandits := resp.ContextualBandits
+	banditsPresent := bandits != nil
 	if resp.EncryptedContextualBandits != "" {
 		banditsJSON, err := client.data.decrypt(resp.EncryptedContextualBandits)
 		if err == nil {
 			err = json.Unmarshal([]byte(banditsJSON), &bandits)
 		}
 		if err != nil {
-			client.logger.Warn("Ignoring undecodable encrypted contextual bandits, applying the rest of the payload", "error", err)
+			client.logger.Warn("Ignoring undecodable encrypted contextual bandits, keeping the previous definitions", "error", err)
+		} else {
+			banditsPresent = true
 		}
 	}
 	client.data.withLock(func(d *data) error {
 		d.features = features
 		d.savedGroups = resp.SavedGroups
-		d.contextualBandits = bandits
+		if banditsPresent {
+			d.contextualBandits = bandits
+		}
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
