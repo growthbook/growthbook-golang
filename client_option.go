@@ -219,15 +219,26 @@ func WithGrowthBookTracking(config TrackingPluginConfig) ClientOption {
 	}
 }
 
-// WithDeferredTracking buffers every experiment exposure produced by
-// evaluation (passthrough and prerequisite assignments included) for later
-// retrieval with Client.DeferredTrackingCalls. Callbacks and plugins still
-// fire; clients cloned from this one share its buffer.
-func WithDeferredTracking() ClientOption {
+// WithTrackingBuffer attaches a caller-owned buffer that collects every
+// experiment exposure produced by evaluation (passthrough and prerequisite
+// assignments included) for forwarding to a client SDK — read it with
+// TrackingBuffer.TrackingCalls or Client.DeferredTrackingCalls. Buffering is
+// independent of callbacks and plugins, which still fire. Clients cloned
+// from this one share the attached buffer — attach a fresh buffer per
+// request or user scope. A nil buffer detaches.
+func WithTrackingBuffer(b *TrackingBuffer) ClientOption {
 	return func(c *Client) error {
-		c.deferredTracks = newTrackingBuffer()
+		c.trackingBuffer = b
 		return nil
 	}
+}
+
+// WithDeferredTracking buffers every experiment exposure produced by
+// evaluation for later retrieval with Client.DeferredTrackingCalls. It is
+// the convenience form of WithTrackingBuffer(NewTrackingBuffer()) — use that
+// form to hold the buffer handle yourself.
+func WithDeferredTracking() ClientOption {
+	return WithTrackingBuffer(NewTrackingBuffer())
 }
 
 // Child client instance options
@@ -294,8 +305,16 @@ func (c *Client) WithEventLogger(cb EventLogger) (*Client, error) {
 	return c.cloneWith(WithEventLogger(cb))
 }
 
+// WithTrackingBuffer creates a child client that collects exposures into the
+// given caller-owned buffer (nil detaches). Attach a fresh buffer per
+// request or user scope; the child's own clones share it.
+func (c *Client) WithTrackingBuffer(b *TrackingBuffer) (*Client, error) {
+	return c.cloneWith(WithTrackingBuffer(b))
+}
+
 // WithDeferredTracking creates child client with deferred tracking enabled
-// and a fresh buffer.
+// and a fresh internal buffer — the convenience form of
+// WithTrackingBuffer(NewTrackingBuffer()).
 func (c *Client) WithDeferredTracking() (*Client, error) {
 	return c.cloneWith(WithDeferredTracking())
 }

@@ -3,6 +3,7 @@ package growthbook
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"sync"
 )
@@ -60,21 +61,28 @@ type featureUsage struct {
 	result *FeatureResult
 }
 
-// trackingBuffer accumulates exposures across evaluations, deduped by
-// trackingKey, keeping first-seen order.
-type trackingBuffer struct {
+// TrackingBuffer accumulates experiment exposures across evaluations,
+// deduplicated for the buffer's lifetime, in first-seen order. Attach one to
+// a client with WithTrackingBuffer; every client sharing the buffer (clones
+// included) collects into it. Safe for concurrent use; the zero value is
+// ready to use.
+type TrackingBuffer struct {
 	mu   sync.Mutex
 	seen map[trackingKey]bool
 	data []TrackingData
 }
 
-func newTrackingBuffer() *trackingBuffer {
-	return &trackingBuffer{seen: make(map[trackingKey]bool)}
+// NewTrackingBuffer creates an empty tracking buffer.
+func NewTrackingBuffer() *TrackingBuffer {
+	return &TrackingBuffer{}
 }
 
-func (b *trackingBuffer) add(data []TrackingData) {
+func (b *TrackingBuffer) add(data []TrackingData) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if b.seen == nil {
+		b.seen = make(map[trackingKey]bool)
+	}
 	for _, d := range data {
 		key := dedupeKey(d.Experiment, d.Result)
 		if b.seen[key] {
@@ -85,27 +93,48 @@ func (b *trackingBuffer) add(data []TrackingData) {
 	}
 }
 
-// DeferredTrackingCalls returns the experiment exposures buffered so far —
-// passthrough and prerequisite assignments included, deduped by DedupeKey,
-// in first-seen order — as detached copies in the SDK's JSON shape, safe to
-// retain or mutate without affecting the buffer. Returns nil unless deferred
-// tracking is enabled (see WithDeferredTracking).
-func (client *Client) DeferredTrackingCalls() []TrackingData {
-	if client.deferredTracks == nil {
+// TrackingCalls returns the exposures buffered so far — passthrough and
+// prerequisite assignments included, in first-seen order — as detached
+// copies in the SDK's JSON shape, safe to retain or mutate without affecting
+// the buffer. It does not drain the buffer; pair with Clear.
+func (b *TrackingBuffer) TrackingCalls() []TrackingData {
+	if b == nil {
 		return nil
 	}
-	b := client.deferredTracks
 	b.mu.Lock()
 	shared := append([]TrackingData(nil), b.data...)
 	b.mu.Unlock()
-	return client.detachTrackingData(shared)
+	// Entries were proven serializable when buffered, so this detach cannot
+	// drop any; a nil logger is fine.
+	return detachTrackingData(shared, nil)
+}
+
+// Clear empties the buffer, including its dedupe memory: a subsequent
+// exposure identical to one seen before Clear is recorded again. For the
+// intended request-scoped lifecycle (one buffer per request, read once,
+// then cleared or dropped) this never matters.
+func (b *TrackingBuffer) Clear() {
+	if b == nil {
+		return
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.seen = nil
+	b.data = nil
+}
+
+// DeferredTrackingCalls returns the exposures collected by the client's
+// attached tracking buffer (see TrackingBuffer.TrackingCalls). Returns nil
+// when no buffer is attached.
+func (client *Client) DeferredTrackingCalls() []TrackingData {
+	return client.trackingBuffer.TrackingCalls()
 }
 
 // detachTrackingData deep-copies entries via a JSON round-trip, dropping
-// (and logging) any entry that cannot be serialized — such an exposure
-// could not be forwarded anyway, and returning it aliased would break the
-// detached-copy guarantee.
-func (client *Client) detachTrackingData(data []TrackingData) []TrackingData {
+// (and logging, when a logger is given) any entry that cannot be
+// serialized — such an exposure could not be forwarded anyway, and
+// returning it aliased would break the detached-copy guarantee.
+func detachTrackingData(data []TrackingData, logger *slog.Logger) []TrackingData {
 	if len(data) == 0 {
 		return nil
 	}
@@ -119,22 +148,18 @@ func (client *Client) detachTrackingData(data []TrackingData) []TrackingData {
 				continue
 			}
 		}
-		client.logger.Warn("Dropping unserializable exposure from deferred tracking",
-			"experiment", d.Experiment.Key, "error", err)
+		if logger != nil {
+			logger.Warn("Dropping unserializable exposure from deferred tracking",
+				"experiment", d.Experiment.Key, "error", err)
+		}
 	}
 	return out
 }
 
-// ClearDeferredTrackingCalls empties the deferred tracking buffer.
+// ClearDeferredTrackingCalls empties the client's attached tracking buffer
+// (see TrackingBuffer.Clear). No-op when no buffer is attached.
 func (client *Client) ClearDeferredTrackingCalls() {
-	if client.deferredTracks == nil {
-		return
-	}
-	b := client.deferredTracks
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	b.seen = make(map[trackingKey]bool)
-	b.data = nil
+	client.trackingBuffer.Clear()
 }
 
 func (client *Client) trackingUserContext() *TrackingUserContext {
