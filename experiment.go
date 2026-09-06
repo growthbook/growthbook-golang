@@ -67,7 +67,7 @@ type Experiment struct {
 	Status ExperimentStatus `json:"status"`
 	// ContextualBandit is set during evaluation when a contextual bandit
 	// decided this experiment's weights.
-	ContextualBandit *CBContext `json:"contextualBandit,omitempty"`
+	ContextualBandit *ContextualBanditAssignment `json:"contextualBandit,omitempty"`
 }
 
 // NewExperiment creates an experiment with default settings: active,

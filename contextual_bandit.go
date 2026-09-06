@@ -68,8 +68,11 @@ func (defs *ContextualBanditDefinitions) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// CBContext is the contextual bandit context an assignment was made with.
-type CBContext struct {
+// ContextualBanditAssignment is what a contextual bandit assignment was
+// made with: the chosen leaf (or the fallback -1) and the variation weights
+// bucketing used. Distinct from ContextualBanditContext, which is a payload
+// leaf (a targeting condition plus candidate weights).
+type ContextualBanditAssignment struct {
 	LeafId           int       `json:"leafId"`
 	VariationWeights []float64 `json:"variationWeights"`
 	BanditVersion    *int      `json:"banditVersion,omitempty"`
@@ -97,7 +100,7 @@ func (e *evaluator) buildContextualBanditExperiment(exp *Experiment, ref string,
 		// assignment uses — bandit analysis reweights by these propensities.
 		weights := e.client.effectiveWeights(len(exp.Variations), leaf.Weights)
 		exp.Weights = weights
-		exp.ContextualBandit = &CBContext{
+		exp.ContextualBandit = &ContextualBanditAssignment{
 			LeafId:           leaf.LeafId,
 			VariationWeights: weights,
 			BanditVersion:    def.BanditVersion,
@@ -107,7 +110,7 @@ func (e *evaluator) buildContextualBanditExperiment(exp *Experiment, ref string,
 
 	e.client.logger.DebugContext(e.ctx, "Contextual bandit: no matching leaf, using fallback weights",
 		"id", featureId, "contextualBanditRef", ref)
-	exp.ContextualBandit = &CBContext{
+	exp.ContextualBandit = &ContextualBanditAssignment{
 		LeafId:           contextualBanditFallbackLeafId,
 		VariationWeights: e.client.effectiveWeights(len(exp.Variations), exp.Weights),
 		BanditVersion:    def.BanditVersion,
