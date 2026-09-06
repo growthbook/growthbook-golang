@@ -365,6 +365,25 @@ func TestDeferredTracking(t *testing.T) {
 		require.Equal(t, "user-1", calls[0].User.Attributes["id"])
 		require.Equal(t, "user-2", calls[1].User.Attributes["id"])
 	})
+
+	t.Run("distinct exposures whose fields collide under delimiter joining are both kept", func(t *testing.T) {
+		shared, _, _ := newTrackingTestClient(t)
+		user1, err := shared.WithAttributes(Attributes{"id": "u\x001exp"})
+		require.NoError(t, err)
+		user2, err := shared.WithAttributes(Attributes{"id": "u"})
+		require.NoError(t, err)
+
+		one := 1.0
+		expA := Experiment{Key: "x", Variations: []FeatureValue{"a", "b"}, Weights: []float64{1, 0}, Coverage: &one}
+		expB := Experiment{Key: "1exp\x00x", Variations: []FeatureValue{"a", "b"}, Weights: []float64{1, 0}, Coverage: &one}
+
+		require.True(t, user1.RunExperiment(ctx, &expA).InExperiment)
+		require.True(t, user2.RunExperiment(ctx, &expB).InExperiment)
+
+		// Both NUL-joined keys read "id\x00u\x001exp\x00x\x000"; a string-keyed
+		// buffer would silently drop the second user's exposure.
+		require.Len(t, shared.DeferredTrackingCalls(), 2)
+	})
 }
 
 func TestExperimentCallbackUserContext(t *testing.T) {
@@ -541,6 +560,21 @@ func TestTrackingDataShape(t *testing.T) {
 			Result:     &ExperimentResult{HashAttribute: "id", HashValue: "u", VariationId: 2},
 		}
 		require.NotEqual(t, td.DedupeKey(), other.DedupeKey())
+	})
+
+	t.Run("internal dedupe key is field-wise: delimiter bytes in values cannot collide", func(t *testing.T) {
+		a := TrackingData{
+			Experiment: &Experiment{Key: "x"},
+			Result:     &ExperimentResult{HashAttribute: "id", HashValue: "u\x001exp", VariationId: 0},
+		}
+		b := TrackingData{
+			Experiment: &Experiment{Key: "1exp\x00x"},
+			Result:     &ExperimentResult{HashAttribute: "id", HashValue: "u", VariationId: 0},
+		}
+		// The deprecated string encoding collides on exactly this pair...
+		require.Equal(t, a.DedupeKey(), b.DedupeKey())
+		// ...the struct key the SDK dedupes on does not.
+		require.NotEqual(t, dedupeKey(a.Experiment, a.Result), dedupeKey(b.Experiment, b.Result))
 	})
 
 	t.Run("exposures with namespaces, ranges, and filters detach losslessly", func(t *testing.T) {

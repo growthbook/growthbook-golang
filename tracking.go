@@ -25,10 +25,34 @@ type TrackingData struct {
 }
 
 // DedupeKey identifies an exposure by hash attribute, hash value, experiment
-// key, and variation. Exposures are deduplicated by this key within a single
-// evaluation and in the deferred tracking buffer.
+// key, and variation.
+//
+// Deprecated: informational only. The SDK no longer dedupes on this string —
+// field values containing the NUL delimiter can make two distinct exposures
+// share a key. Internal deduplication uses a field-wise comparable key that
+// cannot collide.
 func (t TrackingData) DedupeKey() string {
 	return t.Result.HashAttribute + "\x00" + t.Result.HashValue + "\x00" + t.Experiment.Key + "\x00" + strconv.Itoa(t.Result.VariationId)
+}
+
+// trackingKey is the exposure identity used for deduplication, within a
+// single evaluation and across a tracking buffer's lifetime. A comparable
+// struct rather than a joined string: no delimiter means no cross-field
+// collisions when values contain the delimiter byte.
+type trackingKey struct {
+	hashAttribute string
+	hashValue     string
+	experimentKey string
+	variationId   int
+}
+
+func dedupeKey(exp *Experiment, res *ExperimentResult) trackingKey {
+	return trackingKey{
+		hashAttribute: res.HashAttribute,
+		hashValue:     res.HashValue,
+		experimentKey: exp.Key,
+		variationId:   res.VariationId,
+	}
 }
 
 type featureUsage struct {
@@ -37,22 +61,22 @@ type featureUsage struct {
 }
 
 // trackingBuffer accumulates exposures across evaluations, deduped by
-// DedupeKey, keeping first-seen order.
+// trackingKey, keeping first-seen order.
 type trackingBuffer struct {
 	mu   sync.Mutex
-	seen map[string]bool
+	seen map[trackingKey]bool
 	data []TrackingData
 }
 
 func newTrackingBuffer() *trackingBuffer {
-	return &trackingBuffer{seen: make(map[string]bool)}
+	return &trackingBuffer{seen: make(map[trackingKey]bool)}
 }
 
 func (b *trackingBuffer) add(data []TrackingData) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, d := range data {
-		key := d.DedupeKey()
+		key := dedupeKey(d.Experiment, d.Result)
 		if b.seen[key] {
 			continue
 		}
@@ -109,7 +133,7 @@ func (client *Client) ClearDeferredTrackingCalls() {
 	b := client.deferredTracks
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	b.seen = make(map[string]bool)
+	b.seen = make(map[trackingKey]bool)
 	b.data = nil
 }
 
@@ -128,12 +152,12 @@ func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
 	if !e.recording {
 		return
 	}
-	key := TrackingData{Experiment: exp, Result: res}.DedupeKey()
+	if e.trackedExperiments == nil {
+		e.trackedExperiments = make(map[trackingKey]bool)
+	}
+	key := dedupeKey(exp, res)
 	if e.trackedExperiments[key] {
 		return
-	}
-	if e.trackedExperiments == nil {
-		e.trackedExperiments = make(map[string]bool)
 	}
 	e.trackedExperiments[key] = true
 	if e.userCtx == nil {
@@ -149,12 +173,12 @@ func (e *evaluator) recordFeatureUsage(key string, res *FeatureResult) {
 	if !e.recording {
 		return
 	}
+	if e.trackedFeatures == nil {
+		e.trackedFeatures = make(map[string]string)
+	}
 	stringified := stringifyFeatureValue(res.Value)
 	if prev, ok := e.trackedFeatures[key]; ok && prev == stringified {
 		return
-	}
-	if e.trackedFeatures == nil {
-		e.trackedFeatures = make(map[string]string)
 	}
 	e.trackedFeatures[key] = stringified
 	e.featureUsage = append(e.featureUsage, featureUsage{key: key, result: res})
