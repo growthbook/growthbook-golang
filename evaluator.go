@@ -330,6 +330,16 @@ func (e *evaluator) experimentResult(
 	isStickyBucketUsed bool,
 ) *ExperimentResult {
 	result := e.getExperimentResult(exp, variationId, hashUsed, featureId, bucket, isStickyBucketUsed)
+	// The result is the truth for bandit attribution: when it carries no
+	// leaf (forced, QA, sticky-bucketed, not included), the experiment must
+	// not claim one either. The experiment is evaluator-owned on every path
+	// (evalRule builds it; RunExperiment copies the caller's), so this
+	// single strip covers subscribers, tracking snapshots, and the returned
+	// FeatureResult alike — matching the JS SDK, which deletes
+	// experiment.contextualBandit before onExperimentEval.
+	if exp.ContextualBandit != nil && result.LeafId == nil {
+		exp.ContextualBandit = nil
+	}
 	if featureId != "" && e.client.data.subscribers.hasSubscribers() {
 		e.client.notifySubscribers(e.ctx, exp, result)
 	}
@@ -446,13 +456,6 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 		e.buildContextualBanditExperiment(exp, rule.ContextualBanditRef, featureId)
 	}
 	res := e.runExperiment(exp, featureId)
-	if exp.ContextualBandit != nil && res.LeafId == nil {
-		// Detach via copy: subscribers already hold exp, so mutating it here
-		// would race with them.
-		expCopy := *exp
-		expCopy.ContextualBandit = nil
-		exp = &expCopy
-	}
 	if !res.InExperiment || res.Passthrough {
 		return nil
 	}

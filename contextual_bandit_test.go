@@ -504,3 +504,135 @@ func TestContextualBanditRangesAndResync(t *testing.T) {
 		require.Equal(t, []float64{0, 1}, exp.ContextualBandit.VariationWeights)
 	})
 }
+
+func TestContextualBanditSubscriberVisibility(t *testing.T) {
+	ctx := context.Background()
+
+	subscribeBandit := func(t *testing.T, attrs Attributes, extra ...ClientOption) (*Client, *[]*Experiment) {
+		t.Helper()
+		var seen []*Experiment
+		client := newBanditTestClient(t, attrs, extra...)
+		client.Subscribe(func(_ context.Context, exp *Experiment, _ *ExperimentResult) {
+			seen = append(seen, exp)
+		})
+		return client, &seen
+	}
+
+	t.Run("a real bandit assignment reaches subscribers with its context", func(t *testing.T) {
+		client, seen := subscribeBandit(t, Attributes{"id": "u1", "country": "us"})
+		client.EvalFeature(ctx, "bandit-flag")
+		require.Len(t, *seen, 1)
+		require.NotNil(t, (*seen)[0].ContextualBandit)
+		require.Equal(t, 10, (*seen)[0].ContextualBandit.LeafId)
+	})
+
+	t.Run("a forced variation reaches subscribers with the context stripped", func(t *testing.T) {
+		client, seen := subscribeBandit(t, Attributes{"id": "u1", "country": "us"},
+			WithForcedVariations(ForcedVariationsMap{"bandit-exp": 1}))
+		client.EvalFeature(ctx, "bandit-flag")
+		require.Len(t, *seen, 1)
+		require.Nil(t, (*seen)[0].ContextualBandit,
+			"subscribers must see the same stripped experiment tracking records")
+	})
+
+	t.Run("a sticky-bucketed assignment reaches subscribers with the context stripped", func(t *testing.T) {
+		client, seen := subscribeBandit(t, Attributes{"id": "u1", "country": "us"},
+			WithStickyBucketService(NewInMemoryStickyBucketService()))
+		client.EvalFeature(ctx, "bandit-flag")
+		client.EvalFeature(ctx, "bandit-flag")
+		require.Len(t, *seen, 1, "the unchanged second assignment does not re-notify")
+
+		// Re-subscribe records the sticky-bucketed eval on a fresh client
+		// sharing the same service via a child with the same attributes.
+		client2, seen2 := subscribeBandit(t, Attributes{"id": "u1", "country": "us"},
+			WithStickyBucketService(NewInMemoryStickyBucketService()))
+		first := client2.EvalFeature(ctx, "bandit-flag")
+		require.False(t, first.ExperimentResult.StickyBucketUsed)
+		require.NotNil(t, (*seen2)[0].ContextualBandit)
+	})
+}
+
+func TestContextualBanditTrackingRoundTrip(t *testing.T) {
+	// detachTrackingData deep-copies via a JSON round trip — the mechanism
+	// that silently lost Namespace in the deferred-tracking release. Pin that
+	// bandit fields survive it, including the falsy-looking leafId values 0
+	// and -1.
+	ctx := context.Background()
+
+	t.Run("a real leaf with leafId 0 survives the detach", func(t *testing.T) {
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+			WithContextualBandits(mustBanditDefs(t, `{
+				"cb-1": {"banditVersion": 0, "contexts": [
+					{"leafId": 0, "condition": {"country": "us"}, "weights": [1, 0]}
+				]}
+			}`)),
+			WithDeferredTracking())
+		client.EvalFeature(ctx, "bandit-flag")
+
+		calls := client.DeferredTrackingCalls()
+		require.Len(t, calls, 1)
+		require.Equal(t, 0, *calls[0].Result.LeafId)
+		require.Equal(t, 0, *calls[0].Result.BanditVersion)
+		require.NotNil(t, calls[0].Experiment.ContextualBandit)
+		require.Equal(t, 0, calls[0].Experiment.ContextualBandit.LeafId)
+		require.Equal(t, []float64{1, 0}, calls[0].Experiment.ContextualBandit.VariationWeights)
+
+		b, err := json.Marshal(calls[0])
+		require.NoError(t, err)
+		var m map[string]map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(b, &m))
+		require.Equal(t, "0", string(m["result"]["leafId"]))
+		require.Contains(t, m["experiment"], "contextualBandit")
+		var cb ContextualBanditAssignment
+		require.NoError(t, json.Unmarshal(m["experiment"]["contextualBandit"], &cb))
+		require.Equal(t, 0, cb.LeafId)
+		require.Equal(t, []float64{1, 0}, cb.VariationWeights)
+		require.Equal(t, 0, *cb.BanditVersion)
+	})
+
+	t.Run("the fallback leaf -1 survives the detach", func(t *testing.T) {
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "de"}, WithDeferredTracking())
+		client.EvalFeature(ctx, "bandit-no-match")
+
+		calls := client.DeferredTrackingCalls()
+		require.Len(t, calls, 1)
+		require.Equal(t, -1, *calls[0].Result.LeafId)
+		require.Equal(t, -1, calls[0].Experiment.ContextualBandit.LeafId)
+	})
+}
+
+func TestContextualBanditPrerequisiteExposure(t *testing.T) {
+	// A bandit rule deciding a prerequisite feature must land in the buffer
+	// and callbacks with its real leaf attribution.
+	ctx := context.Background()
+	features := `{
+		"parent-bandit": {"defaultValue": "default", "rules": [{
+			"key": "parent-bandit-exp",
+			"coverage": 1,
+			"contextualBanditRef": "cb-us-only",
+			"contextualVariations": ["a", "b"],
+			"weights": [0.5, 0.5]
+		}]},
+		"gated-child": {"defaultValue": "off", "rules": [{
+			"parentConditions": [{"id": "parent-bandit", "condition": {"value": "a"}}],
+			"force": "on"
+		}]}
+	}`
+	client, err := NewClient(ctx,
+		WithJsonFeatures(features),
+		WithContextualBandits(mustBanditDefs(t, banditDefsJSON)),
+		WithAttributes(Attributes{"id": "u1", "country": "us"}),
+		WithDeferredTracking())
+	require.NoError(t, err)
+
+	res := client.EvalFeature(ctx, "gated-child")
+	require.Equal(t, "on", res.Value)
+
+	calls := client.DeferredTrackingCalls()
+	require.Len(t, calls, 1)
+	require.Equal(t, "parent-bandit-exp", calls[0].Experiment.Key)
+	require.Equal(t, "parent-bandit", calls[0].Result.FeatureId)
+	require.Equal(t, 10, *calls[0].Result.LeafId)
+	require.Equal(t, []float64{1, 0}, calls[0].Result.VariationWeights)
+	require.Equal(t, 10, calls[0].Experiment.ContextualBandit.LeafId)
+}

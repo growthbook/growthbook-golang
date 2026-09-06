@@ -70,9 +70,9 @@ func (r *subscriberRegistry) subscribersForResult(exp *Experiment, res *Experime
 // Subscribe registers a callback fired when an experiment assignment changes.
 // The returned function unregisters it. Subscribers are shared across child
 // clients created via With* methods - register once on the root client.
-// Subscribers are notified during evaluation, so the experiment may carry
-// in-flight state (e.g. a bandit context) the outcome did not use; the
-// result is the authoritative record of the assignment.
+// Subscribers observe the same experiment state the tracking pipeline
+// records: bandit metadata is stripped before notification whenever the
+// result carries no leaf attribution, matching the JS and Python SDKs.
 func (client *Client) Subscribe(fn ExperimentSubscriber) (unsubscribe func()) {
 	if fn == nil {
 		return func() {}
