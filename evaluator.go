@@ -344,13 +344,18 @@ func (e *evaluator) getExperimentResult(
 		key = meta.Key
 	}
 
+	var value FeatureValue
+	if variationId < len(exp.Variations) {
+		value = exp.Variations[variationId]
+	}
+
 	res := ExperimentResult{
 		Key:              key,
 		FeatureId:        featureId,
 		InExperiment:     inExperiment,
 		HashUsed:         hashUsed,
 		VariationId:      variationId,
-		Value:            exp.Variations[variationId],
+		Value:            value,
 		HashAttribute:    hashAttribute,
 		HashValue:        hashValue,
 		Bucket:           bucket,

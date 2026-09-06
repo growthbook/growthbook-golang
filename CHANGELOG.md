@@ -4,6 +4,9 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Fixed:** an experiment with an empty variations list (a bare
+  `RunExperiment` call or a rule serving zero variations) no longer panics
+  indexing the variations slice; it degrades to a not-in-experiment result.
 - **Added:** `TrackingBuffer` is now an exported, caller-owned type:
   `NewTrackingBuffer()` creates one, `WithTrackingBuffer(buf)` (option and
   child-client method) attaches it, `TrackingCalls()` reads detached copies

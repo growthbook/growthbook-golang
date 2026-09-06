@@ -38,3 +38,19 @@ func TestExperimentWithMissingAttributeFails(t *testing.T) {
 	require.False(t, res.HashUsed)
 	require.Equal(t, 0, res.Value)
 }
+
+func TestExperimentWithNoVariationsDoesNotPanic(t *testing.T) {
+	exp := Experiment{
+		Key:        "my-test",
+		Variations: []FeatureValue{},
+	}
+
+	c, _ := NewClient(
+		context.TODO(),
+		WithAttributes(Attributes{"id": "user-1"}))
+
+	res := c.RunExperiment(context.TODO(), &exp)
+	require.False(t, res.InExperiment)
+	require.False(t, res.HashUsed)
+	require.Nil(t, res.Value)
+}
