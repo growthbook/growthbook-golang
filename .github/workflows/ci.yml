@@ -45,6 +45,70 @@ jobs:
           flags: unittests
           fail_ci_if_error: false
 
+  # Optional adapters live in their own Go modules so their backend drivers stay
+  # out of the SDK's dependency graph. `go test ./...` at the repo root does not
+  # descend into a nested module, so each one needs its own job or it is never
+  # built by CI. The matrix starts at 1.22 because the adapters declare that
+  # floor; the root module still supports 1.21.
+  test-adapters:
+    name: Test adapter ${{ matrix.module }} (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [ stickybucket/redis ]
+        go-version: [ '1.22', '1.23' ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Run tests
+        run: go test -v -race -timeout=15m ./...
+        working-directory: ${{ matrix.module }}
+
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+        working-directory: ${{ matrix.module }}
+
+      - name: Vet
+        run: go vet ./...
+        working-directory: ${{ matrix.module }}
+
+      # A stale go.mod or go.sum only breaks for people outside this repo, where
+      # the replace directive no longer applies, so catch it here instead.
+      - name: Check go.mod is tidy
+        run: |
+          cp go.mod go.mod.bak && cp go.sum go.sum.bak
+          go mod tidy
+          diff -u go.mod.bak go.mod && diff -u go.sum.bak go.sum
+        working-directory: ${{ matrix.module }}
+
+  lint-adapters:
+    name: Lint adapter ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [ stickybucket/redis ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+
+      - name: Install golangci-lint
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+          args: --timeout=5m
+          working-directory: ${{ matrix.module }}
+
   security:
     name: Security Scan
     runs-on: ubuntu-latest

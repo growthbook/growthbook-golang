@@ -4,6 +4,16 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- New optional module `stickybucket/redis`, a Redis-backed
+  `StickyBucketService`. The bundled `InMemoryStickyBucketService` keeps
+  assignments inside one process, so a horizontally scaled fleet buckets the
+  same user independently and every restart re-buckets everyone; storing them in
+  Redis makes a variation stable across instances and across restarts. Its keys
+  match the JS SDK's `RedisStickyBucketService`, so one Redis can be shared with
+  it. The module is versioned separately (tags `stickybucket/redis/vX.Y.Z`) and
+  requires an explicit `go get`, which keeps `go-redis` out of the dependency
+  graph of anyone who does not use it.
+
 - **Fixed:** the GrowthBook tracking plugin now speaks the ingestor's actual
   wire protocol: `POST {host}/track?client_key=...` with a bare JSON array of
   `EventPayload` objects, and built-in events use the standard
