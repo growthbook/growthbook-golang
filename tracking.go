@@ -66,6 +66,11 @@ type featureUsage struct {
 // a client with WithTrackingBuffer; every client sharing the buffer (clones
 // included) collects into it. Safe for concurrent use; the zero value is
 // ready to use.
+//
+// A TrackingBuffer must not be copied after first use: a copy would share
+// the buffered state while holding an independent mutex. Share it by
+// pointer, as WithTrackingBuffer does (`go vet`'s copylocks check flags
+// value copies).
 type TrackingBuffer struct {
 	mu   sync.Mutex
 	seen map[trackingKey]bool
