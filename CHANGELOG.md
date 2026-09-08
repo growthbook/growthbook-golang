@@ -7,7 +7,9 @@ All notable changes to this project will be documented in this file.
 - **Added:** `TrackingBuffer` is now an exported, caller-owned type:
   `NewTrackingBuffer()` creates one, `WithTrackingBuffer(buf)` (option and
   child-client method) attaches it, `TrackingCalls()` reads detached copies
-  without draining, and `Clear()` empties it. Attach one buffer per request
+  without draining, `TakeTrackingCalls()` atomically drains (returns and
+  empties in one step, so concurrent exposures are never cleared without
+  being returned), and `Clear()` empties it. Attach one buffer per request
   or user scope; clones of a client share its attached buffer by design.
   `WithDeferredTracking()` remains supported as the convenience form
   (`WithTrackingBuffer(NewTrackingBuffer())`), and

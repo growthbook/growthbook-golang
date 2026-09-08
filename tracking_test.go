@@ -757,3 +757,80 @@ func TestConcurrentSharedTrackingBuffer(t *testing.T) {
 
 	require.Len(t, buf.TrackingCalls(), 20, "one exposure per user, no cross-user dedupe")
 }
+
+func TestTakeTrackingCalls(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("drains atomically and forgets dedupe memory", func(t *testing.T) {
+		buf := NewTrackingBuffer()
+		client, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithTrackingBuffer(buf),
+		)
+		require.NoError(t, err)
+
+		client.EvalFeature(ctx, "ramped-treatment")
+		taken := buf.TakeTrackingCalls()
+		require.Len(t, taken, 1)
+		require.Empty(t, buf.TrackingCalls(), "take must empty the buffer")
+
+		client.EvalFeature(ctx, "ramped-treatment")
+		require.Len(t, buf.TakeTrackingCalls(), 1, "dedupe memory is forgotten, like Clear")
+
+		require.Empty(t, client.TakeDeferredTrackingCalls(), "an empty drain returns nothing")
+	})
+
+	t.Run("client accessor delegates", func(t *testing.T) {
+		client, _, _ := newTrackingTestClient(t)
+		client.EvalFeature(ctx, "ramped")
+		require.Len(t, client.TakeDeferredTrackingCalls(), 1)
+		require.Empty(t, client.DeferredTrackingCalls())
+	})
+
+	t.Run("nothing recorded concurrently is cleared without being returned", func(t *testing.T) {
+		base, err := NewClient(ctx, WithJsonFeatures(trackingFeaturesJSON))
+		require.NoError(t, err)
+		buf := NewTrackingBuffer()
+		one := 1.0
+
+		const producers = 8
+		const perProducer = 25
+		var wg sync.WaitGroup
+		for p := 0; p < producers; p++ {
+			wg.Add(1)
+			go func(p int) {
+				defer wg.Done()
+				for i := 0; i < perProducer; i++ {
+					child, err := base.WithAttributes(Attributes{"id": fmt.Sprintf("u-%d-%d", p, i)})
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					child, err = child.WithTrackingBuffer(buf)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					exp := Experiment{Key: "exp", Variations: []FeatureValue{"a", "b"}, Weights: []float64{1, 0}, Coverage: &one}
+					child.RunExperiment(ctx, &exp)
+				}
+			}(p)
+		}
+
+		drained := 0
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		for {
+			drained += len(buf.TakeTrackingCalls())
+			select {
+			case <-done:
+				drained += len(buf.TakeTrackingCalls())
+				require.Equal(t, producers*perProducer, drained,
+					"every exposure must be returned by exactly one drain")
+				return
+			default:
+			}
+		}
+	})
+}

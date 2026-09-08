@@ -114,6 +114,26 @@ func (b *TrackingBuffer) TrackingCalls() []TrackingData {
 	return detachTrackingData(shared, nil)
 }
 
+// TakeTrackingCalls atomically returns the buffered exposures and empties
+// the buffer — the drain form of TrackingCalls followed by Clear. Unlike
+// calling those two separately, an exposure recorded concurrently can never
+// be cleared without having been returned, so a long-lived shared buffer can
+// be drained in a loop without losing exposures. Like Clear, it forgets the
+// dedupe memory: a later identical exposure is recorded again.
+func (b *TrackingBuffer) TakeTrackingCalls() []TrackingData {
+	if b == nil {
+		return nil
+	}
+	b.mu.Lock()
+	taken := b.data
+	b.seen = nil
+	b.data = nil
+	b.mu.Unlock()
+	// Entries were proven serializable when buffered, so this detach cannot
+	// drop any; a nil logger is fine.
+	return detachTrackingData(taken, nil)
+}
+
 // Clear empties the buffer, including its dedupe memory: a subsequent
 // exposure identical to one seen before Clear is recorded again. For the
 // intended request-scoped lifecycle (one buffer per request, read once,
@@ -159,6 +179,13 @@ func detachTrackingData(data []TrackingData, logger *slog.Logger) []TrackingData
 		}
 	}
 	return out
+}
+
+// TakeDeferredTrackingCalls atomically drains the client's attached tracking
+// buffer (see TrackingBuffer.TakeTrackingCalls). Returns nil when no buffer
+// is attached.
+func (client *Client) TakeDeferredTrackingCalls() []TrackingData {
+	return client.trackingBuffer.TakeTrackingCalls()
 }
 
 // ClearDeferredTrackingCalls empties the client's attached tracking buffer

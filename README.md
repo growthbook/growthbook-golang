@@ -248,7 +248,10 @@ Good to know:
   client from the parent's.
 - Attaching one buffer to a long-lived shared client also works — the buffer
   is safe for concurrent use and entries carry their user identity — but it
-  grows without bound until cleared, so prefer one buffer per request.
+  grows without bound until drained, so prefer one buffer per request. When
+  draining a shared buffer in a loop, use `TakeTrackingCalls()` (or
+  `Client.TakeDeferredTrackingCalls()`): it returns and empties atomically,
+  so an exposure recorded mid-drain is never cleared without being returned.
 - Buffering is independent of callbacks and plugins: both always fire. The
   buffer exists to forward exposures to a client SDK that reports them
   *there*; if a server-side callback reports to the same analytics
