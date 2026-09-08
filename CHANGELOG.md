@@ -2,38 +2,21 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [v0.5.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.5.0) - 2026-09-08
 
-- **Fixed:** partial payload updates no longer wipe omitted sections. A
-  payload carrying only `contextualBandits` used to clear `features` and
-  `savedGroups`; every section now follows the same rule — absent preserves
-  the previous data, explicit empty clears it (Python `set_payload` parity).
-- Added contextual bandit support (JS parity): feature rules carrying a
+- **Added: contextual bandit support** (JS parity): feature rules carrying a
   `contextualBanditRef` now evaluate using the per-context variation weights
   from the payload's `contextualBandits` definitions (encrypted payloads
-  supported, plus a `WithContextualBandits` option and
-  `SetContextualBandits` for manual setup). The first context whose
-  condition matches the user supplies the weights; with no match, the rule's
-  aggregate weights apply under a fallback leaf. Assignments carry `leafId`,
+  supported, plus a `WithContextualBandits` option, `SetContextualBandits`
+  for runtime setup, and strict `ParseContextualBandits` for validating
+  manually supplied blobs). The first context whose condition matches the
+  user supplies the weights; with no match, the rule's aggregate weights
+  apply under a fallback leaf. Assignments carry `leafId`,
   `variationWeights`, and `banditVersion` on `ExperimentResult` — and on
   forwarded deferred-tracking data. Definitions decode leniently and never
   block the feature update they arrived with; malformed pieces degrade at
-  evaluation time instead (see the divergences entry below). An absent
-  `contextualBandits` payload section preserves the previous definitions;
-  an explicit empty one clears them; a section that fails to decrypt is
-  ignored, keeping the previous definitions. Previously bandit rules were
-  skipped and served the next rule or the default value.
-- **Bugfix (JS parity):** a feature rule of `{"force": null}` now serves
-  `null` with source `force`, as the JS SDK does. Previously a null force
-  was indistinguishable from an absent one, so the rule was skipped and the
-  next rule or default value was served.
-- **Fixed:** conditions now retain their parsed content and marshal back to
-  JSON instead of collapsing to `{}`, so feature and experiment JSON — the
-  deferred-tracking deep copies included — round-trips with targeting
-  conditions intact.
-- **Fixed:** an experiment with an empty variations list (a bare
-  `RunExperiment` call or a rule serving zero variations) no longer panics
-  indexing the variations slice; it degrades to a not-in-experiment result.
+  evaluation time instead (see the divergences entry below). Previously
+  bandit rules were skipped and served the next rule or the default value.
 - **Added:** `TrackingBuffer` is now an exported, caller-owned type:
   `NewTrackingBuffer()` creates one, `WithTrackingBuffer(buf)` (option and
   child-client method) attaches it, `TrackingCalls()` reads detached copies
@@ -46,13 +29,21 @@ All notable changes to this project will be documented in this file.
   `Client.DeferredTrackingCalls()` / `ClearDeferredTrackingCalls()` delegate
   to the attached buffer either way. Nothing breaks: existing code compiles
   and behaves identically.
+- **Fixed:** partial payload updates apply instead of being dropped or
+  destructive. A payload carrying only `contextualBandits` used to clear
+  `features` and `savedGroups`; every section now follows the same rule —
+  absent preserves the previous data, explicit empty clears it (Python
+  `set_payload` parity). `RefreshFeatures` and the polling/SSE datasources
+  used to skip responses without a features section entirely; they now apply
+  partial responses too, skipping only genuine 304 no-update responses.
+- **Fixed:** tracking snapshots are taken before subscribers are notified,
+  and snapshot copies detach the assignment's weights, ranges, and bandit
+  metadata — a subscriber or callback mutating the experiment or result it
+  receives can no longer alter what the tracking pipeline reports.
 - **Fixed:** exposure deduplication now uses a field-wise comparable key
   instead of a NUL-delimited string, so two distinct exposures whose
   attribute values contain the delimiter byte can no longer collide (a
   collision silently dropped the second exposure from the deferred buffer).
-- **Deprecated:** `TrackingData.DedupeKey()`. It is informational only — the
-  SDK no longer dedupes on its string encoding — and it keeps the collision
-  behavior described above.
 - **Fixed:** the GrowthBook tracking plugin now speaks the ingestor's actual
   wire protocol: `POST {host}/track?client_key=...` with a bare JSON array of
   `EventPayload` objects, and built-in events use the standard
@@ -61,6 +52,23 @@ All notable changes to this project will be documented in this file.
   envelope POSTed to a `/events` endpoint the ingestor does not serve).
   Events sent by earlier versions were never ingested, so there is no data
   migration — warehouse tracking simply starts working.
+- **Bugfix (JS parity):** a feature rule of `{"force": null}` now serves
+  `null` with source `force`, as the JS SDK does. Previously a null force
+  was indistinguishable from an absent one, so the rule was skipped and the
+  next rule or default value was served. Decoding JSON into a reused
+  `FeatureRule` now replaces it wholesale instead of merging with previous
+  contents.
+- **Fixed:** conditions now retain their parsed content and marshal back to
+  JSON instead of collapsing to `{}`, so feature and experiment JSON — the
+  deferred-tracking deep copies included — round-trips with targeting
+  conditions intact.
+- **Fixed:** an experiment with an empty variations list (a bare
+  `RunExperiment` call or a rule serving zero variations) no longer panics
+  indexing the variations slice; it degrades to a not-in-experiment result.
+- **Fixed:** a negative experiment `bucketVersion` saved sticky assignments
+  under a different key than reads looked up (`exp__-1` vs `exp__0`), so the
+  saved assignment was never found again. Keys now normalize negative
+  versions to 0 in one place, for reads and saves alike.
 - **Changed:** built-in experiment/feature events now flow through the
   event-logger channel, matching the JS SDK: callbacks registered with
   `WithEventLogger` and plugins implementing `EventLoggerPlugin` receive
@@ -69,27 +77,26 @@ All notable changes to this project will be documented in this file.
   events. Match on the new `EventExperimentViewed` / `EventFeatureEvaluated`
   constants to filter them. Built-in events cover everything the tracking
   pipeline records, including passthrough and prerequisite exposures.
-- `GrowthBookTrackingPlugin.OnExperimentViewed` / `OnFeatureEvaluated` are
+  `GrowthBookTrackingPlugin.OnExperimentViewed` / `OnFeatureEvaluated` are
   now no-ops; the plugin receives built-in events via `OnEvent`, which is
   how they gain the user attributes the ingestor payload requires.
-- Numeric and boolean identifier attributes (`id`, `user_id`, `device_id`,
-  `anonymous_id`, `page_id`, `session_id`) are stringified into the event
-  payload's id fields instead of being emitted as null. The JS plugin nulls
-  non-string identifiers, but Go attributes commonly carry numeric ids and
-  the SDK already stringifies them for hashing — a deliberate divergence so
-  events stay attributable.
-- Steady-state evaluations no longer call the sticky bucket service: when
-  the client's assignment cache already holds the exact assignment for the
-  primary hash attribute, the save short-circuits before taking the
-  per-document lock and re-reading the service. Previously every
+- **Changed:** numeric and boolean identifier attributes (`id`, `user_id`,
+  `device_id`, `anonymous_id`, `page_id`, `session_id`) are stringified into
+  the event payload's id fields instead of being emitted as null. The JS
+  plugin nulls non-string identifiers, but Go attributes commonly carry
+  numeric ids and the SDK already stringifies them for hashing — a
+  deliberate divergence so events stay attributable.
+- **Perf:** steady-state evaluations no longer call the sticky bucket
+  service: when the client's assignment cache already holds the exact
+  assignment for the primary hash attribute, the save short-circuits before
+  taking the per-document lock and re-reading the service. Previously every
   in-experiment evaluation performed one `GetAssignments` round-trip under
   the doc lock just to discover nothing changed — JS and Python answer this
   from memory. Fallback-to-primary doc upgrades are unaffected (the check is
   against the primary doc only).
-- Fixed: a negative experiment `bucketVersion` saved sticky assignments under
-  a different key than reads looked up (`exp__-1` vs `exp__0`), so the saved
-  assignment was never found again. Keys now normalize negative versions to
-  0 in one place, for reads and saves alike.
+- **Deprecated:** `TrackingData.DedupeKey()`. It is informational only — the
+  SDK no longer dedupes on its string encoding — and it keeps the collision
+  behavior described above.
 - Deliberate divergences from the JS SDK (shared with the Python SDK), all
   in favor of truthful bandit exposures:
   - Sticky-bucketed assignments on bandit rules carry no bandit attribution:
