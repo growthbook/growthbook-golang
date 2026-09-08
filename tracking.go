@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strconv"
 	"sync"
 )
@@ -221,6 +222,23 @@ func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
 		e.userCtx = e.client.trackingUserContext()
 	}
 	expCopy, resCopy := *exp, *res
+	// Deep-clone what describes the assignment: subscribers and callbacks
+	// receive the live experiment and result after this snapshot is taken,
+	// and the buffer's JSON detach happens later at flush — shared mutables
+	// would let third-party code alter recorded propensities or bucketing
+	// semantics. (Other experiment fields — meta, filters, conditions —
+	// remain shallow-copied, a pre-existing trade-off; they don't feed
+	// bandit training.)
+	expCopy.Weights = slices.Clone(expCopy.Weights)
+	expCopy.Ranges = slices.Clone(expCopy.Ranges)
+	if cb := expCopy.ContextualBandit; cb != nil {
+		cbCopy := *cb
+		cbCopy.VariationWeights = slices.Clone(cb.VariationWeights)
+		cbCopy.BanditVersion = clonedBanditVersion(cb.BanditVersion)
+		expCopy.ContextualBandit = &cbCopy
+	}
+	resCopy.VariationWeights = slices.Clone(resCopy.VariationWeights)
+	resCopy.BanditVersion = clonedBanditVersion(resCopy.BanditVersion)
 	e.experiments = append(e.experiments, TrackingData{Experiment: &expCopy, Result: &resCopy, User: e.userCtx})
 }
 

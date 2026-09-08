@@ -224,3 +224,55 @@ func startEtagServer(response []byte) *testServer {
 	}))
 	return &ts
 }
+
+func TestPollingAppliesPartialResponses(t *testing.T) {
+	ctx := context.TODO()
+
+	t.Run("a bandit-only response updates definitions and preserves features", func(t *testing.T) {
+		ts := startServer(http.StatusOK, []byte(`{
+			"contextualBandits": {
+				"cb-1": {"contexts": [{"leafId": 10, "condition": {}, "weights": [1, 0]}]}
+			},
+			"dateUpdated": "2030-01-02T00:00:00Z"
+		}`))
+		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelError, t)
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithJsonFeatures(`{"bandit-flag": {"defaultValue": "default", "rules": [{
+				"key": "bandit-exp", "coverage": 1, "contextualBanditRef": "cb-1",
+				"contextualVariations": ["a", "b"], "weights": [0.5, 0.5]
+			}]}}`),
+			WithAttributes(Attributes{"id": "u1"}),
+			WithPollDataSource(100*time.Millisecond),
+		)
+		require.Nil(t, err)
+		defer client.Close()
+		require.Nil(t, client.EnsureLoaded(ctx))
+
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.True(t, res.InExperiment(), "features must survive a bandit-only poll response")
+		require.Equal(t, 10, *res.ExperimentResult.LeafId, "the polled definitions must apply")
+	})
+
+	t.Run("a 304 response changes nothing", func(t *testing.T) {
+		ts := startServer(http.StatusNotModified, nil)
+		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelError, t)
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithJsonFeatures(`{"foo": {"defaultValue": "kept"}}`),
+			WithPollDataSource(100*time.Millisecond),
+		)
+		require.Nil(t, err)
+		defer client.Close()
+		require.Nil(t, client.EnsureLoaded(ctx))
+		require.Equal(t, "kept", client.EvalFeature(ctx, "foo").Value)
+	})
+}

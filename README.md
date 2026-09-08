@@ -344,6 +344,42 @@ Implement the `StickyBucketService` interface for custom storage:
 
 For more details, see the [official documentation](https://docs.growthbook.io/app/sticky-bucketing).
 
+### Contextual Bandits
+
+GrowthBook contextual bandits (an Enterprise feature) learn per-segment
+variation weights server-side — the SDK evaluates no model. A bandit rule
+references a set of targeting contexts ("leaves"); the SDK routes the user to
+the first leaf whose condition matches and buckets with that leaf's weights.
+Definitions arrive in the SDK payload alongside features (encrypted payloads
+supported), so no extra configuration is needed. For manual setups there are
+`WithContextualBandits(...)` at construction and `SetContextualBandits(...)`
+at runtime.
+
+```go
+res := client.EvalFeature(ctx, "my-bandit-feature")
+r := res.ExperimentResult
+// r.LeafId, r.VariationWeights, r.BanditVersion — log these with the
+// exposure so the bandit keeps learning.
+```
+
+Good to know:
+
+- `ExperimentResult` carries `LeafId`, `VariationWeights`, and
+  `BanditVersion` only for real hashed assignments (never for forced
+  variations, QA mode, or sticky-bucketed users). Log them in your tracking
+  callback — the bandit reweights outcomes by these propensities.
+- Weights change as the bandit learns, so a user may be re-bucketed between
+  payload refreshes. That is by design: GrowthBook disables sticky bucketing
+  on bandit rules and attributes each user to their first exposure at
+  analysis time.
+- Bandit rules carry their variations under `contextualVariations`, so older
+  SDK versions without bandit support skip the rule and serve the feature's
+  default value.
+- Malformed bandit data degrades safely — fallback leaf `-1` with the rule's
+  aggregate weights — and never blocks the feature update it arrived with.
+- Deferred tracking forwards bandit attribution too: buffered `TrackingData`
+  carries the same fields.
+
 ---
 
 ## Documentation

@@ -131,6 +131,15 @@ func (client *Client) SetFeatures(features FeatureMap) error {
 	return nil
 }
 
+// SetContextualBandits updates the shared contextual bandit definitions.
+func (client *Client) SetContextualBandits(bandits ContextualBanditDefinitions) error {
+	client.data.withLock(func(d *data) error {
+		d.contextualBandits = bandits
+		return nil
+	})
+	return nil
+}
+
 // SetJSONFeatures updates shared features from JSON
 func (client *Client) SetJSONFeatures(featuresJSON string) error {
 	var features FeatureMap
@@ -163,19 +172,54 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
 		return nil
 	}
+	// Section-presence semantics (Python setPayload parity): a partial
+	// payload — e.g. a bandit-only update — must never wipe sections it did
+	// not carry. An absent section preserves the previous data; an explicit
+	// empty section clears it. For features and savedGroups a JSON null
+	// section decodes to a nil map and counts as absent; contextualBandits
+	// additionally treats explicit null as a clear via its custom decoder.
 	var features FeatureMap
 	var err error
+	featuresPresent := false
 	if resp.EncryptedFeatures != "" {
 		features, err = client.DecryptFeatures(resp.EncryptedFeatures)
 		if err != nil {
 			return err
 		}
-	} else {
+		featuresPresent = true
+	} else if resp.Features != nil {
 		features = resp.Features
+		featuresPresent = true
+	}
+	savedGroupsPresent := resp.SavedGroups != nil
+	// Section-presence semantics: an absent contextualBandits section
+	// preserves the previous definitions, an explicit empty (or null)
+	// section clears them, and a section that fails to decrypt is ignored
+	// like an absent one — the previous coherent map stays active rather
+	// than being wiped by a broken update (Python SDK parity).
+	bandits := resp.ContextualBandits
+	banditsPresent := bandits != nil
+	if resp.EncryptedContextualBandits != "" {
+		banditsJSON, err := client.data.decrypt(resp.EncryptedContextualBandits)
+		if err == nil {
+			err = json.Unmarshal([]byte(banditsJSON), &bandits)
+		}
+		if err != nil {
+			client.logger.Warn("Ignoring undecodable encrypted contextual bandits, keeping the previous definitions", "error", err)
+		} else {
+			banditsPresent = true
+		}
 	}
 	client.data.withLock(func(d *data) error {
-		d.features = features
-		d.savedGroups = resp.SavedGroups
+		if featuresPresent {
+			d.features = features
+		}
+		if savedGroupsPresent {
+			d.savedGroups = resp.SavedGroups
+		}
+		if banditsPresent {
+			d.contextualBandits = bandits
+		}
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
@@ -212,9 +256,10 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if resp.Features == nil && resp.EncryptedFeatures == "" {
-		return nil
-	}
+	// Apply partial responses too: UpdateFromApiResponse preserves omitted
+	// sections, so a bandit-only or saved-groups-only response updates just
+	// what it carries. (An early return on absent features predated that
+	// gating and left manual-mode clients with stale bandit definitions.)
 	return client.UpdateFromApiResponse(resp)
 }
 
@@ -227,6 +272,10 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 }
 
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
+	// Copy: evaluation may adjust bandit metadata (propensity resync, strip
+	// of unused attribution) and must never mutate the caller's experiment.
+	expCopy := *exp
+	exp = &expCopy
 	e := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
 	client.fireTracking(ctx, e)
@@ -340,10 +389,11 @@ func (client *Client) Logger() *slog.Logger {
 func (client *Client) evaluator(ctx context.Context) *evaluator {
 	client.data.mu.RLock()
 	e := evaluator{
-		features:    client.data.features,
-		savedGroups: client.data.savedGroups,
-		client:      client,
-		ctx:         ctx,
+		features:          client.data.features,
+		savedGroups:       client.data.savedGroups,
+		contextualBandits: client.data.contextualBandits,
+		client:            client,
+		ctx:               ctx,
 		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
 			client.eventLogger != nil || client.trackingBuffer != nil || len(client.data.plugins) > 0,
 	}
