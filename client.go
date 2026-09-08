@@ -30,6 +30,7 @@ type Client struct {
 	featureUsageCallback FeatureUsageCallback
 	eventLogger          EventLogger
 	logger               *slog.Logger
+	pendingEncryptedFeatures string
 	extraData            any
 	// StickyBucketService for storing experiment assignments
 	stickyBucketService StickyBucketService
@@ -68,6 +69,16 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	for _, opt := range opts {
 		err := opt(client)
 		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Decrypted here rather than inside the option, so a decryption key supplied by a later option
+	// still applies.
+	if client.pendingEncryptedFeatures != "" {
+		encrypted := client.pendingEncryptedFeatures
+		client.pendingEncryptedFeatures = ""
+		if err := client.SetEncryptedJSONFeatures(encrypted); err != nil {
 			return nil, err
 		}
 	}

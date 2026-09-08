@@ -89,7 +89,8 @@ func WithJsonFeatures(featuresJson string) ClientOption {
 // WithEncryptedJsonFeatures sets features definitions from encrypted JSON string.
 func WithEncryptedJsonFeatures(featuresJson string) ClientOption {
 	return func(c *Client) error {
-		return c.SetEncryptedJSONFeatures(featuresJson)
+		c.pendingEncryptedFeatures = featuresJson
+		return nil
 	}
 }
 
