@@ -19,7 +19,7 @@ type evaluator struct {
 	userCtx            *TrackingUserContext
 	experiments        []TrackingData
 	featureUsage       []featureUsage
-	trackedExperiments map[string]bool
+	trackedExperiments map[trackingKey]bool
 	trackedFeatures    map[string]string
 }
 

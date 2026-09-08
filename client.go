@@ -41,9 +41,10 @@ type Client struct {
 	// cloned clients and mutated during evaluation, hence mutex-guarded.
 	stickyBucketAssignments *lockedStickyBucketCache
 
-	// deferredTracks buffers experiment exposures when deferred tracking is
-	// enabled. Shared by reference with cloned clients, hence mutex-guarded.
-	deferredTracks *trackingBuffer
+	// trackingBuffer collects experiment exposures when one is attached (see
+	// WithTrackingBuffer). Shared by reference with cloned clients — the
+	// attacher chose the scope — hence mutex-guarded.
+	trackingBuffer *TrackingBuffer
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
@@ -241,10 +242,10 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 // exposures. Plugin panics are recovered so plugins never interrupt
 // evaluation.
 func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
-	if client.deferredTracks != nil {
+	if client.trackingBuffer != nil {
 		// Detach before buffering: this runs on the evaluating goroutine, so
 		// nothing the caller later mutates can reach the buffer.
-		client.deferredTracks.add(client.detachTrackingData(e.experiments))
+		client.trackingBuffer.add(detachTrackingData(e.experiments, client.logger))
 	}
 	plugins := client.data.getPlugins()
 	// Built-in events flow through the event-logger channel alongside the
@@ -344,7 +345,7 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 		client:      client,
 		ctx:         ctx,
 		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
-			client.eventLogger != nil || client.deferredTracks != nil || len(client.data.plugins) > 0,
+			client.eventLogger != nil || client.trackingBuffer != nil || len(client.data.plugins) > 0,
 	}
 	client.data.mu.RUnlock()
 	return &e

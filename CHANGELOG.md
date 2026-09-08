@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Added:** `TrackingBuffer` is now an exported, caller-owned type:
+  `NewTrackingBuffer()` creates one, `WithTrackingBuffer(buf)` (option and
+  child-client method) attaches it, `TrackingCalls()` reads detached copies
+  without draining, `TakeTrackingCalls()` atomically drains (returns and
+  empties in one step, so concurrent exposures are never cleared without
+  being returned), and `Clear()` empties it. Attach one buffer per request
+  or user scope; clones of a client share its attached buffer by design.
+  `WithDeferredTracking()` remains supported as the convenience form
+  (`WithTrackingBuffer(NewTrackingBuffer())`), and
+  `Client.DeferredTrackingCalls()` / `ClearDeferredTrackingCalls()` delegate
+  to the attached buffer either way. Nothing breaks: existing code compiles
+  and behaves identically.
+- **Fixed:** exposure deduplication now uses a field-wise comparable key
+  instead of a NUL-delimited string, so two distinct exposures whose
+  attribute values contain the delimiter byte can no longer collide (a
+  collision silently dropped the second exposure from the deferred buffer).
+- **Deprecated:** `TrackingData.DedupeKey()`. It is informational only — the
+  SDK no longer dedupes on its string encoding — and it keeps the collision
+  behavior described above.
 - **Fixed:** the GrowthBook tracking plugin now speaks the ingestor's actual
   wire protocol: `POST {host}/track?client_key=...` with a bare JSON array of
   `EventPayload` objects, and built-in events use the standard
