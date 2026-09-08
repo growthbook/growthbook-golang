@@ -160,6 +160,18 @@ type ContextualBanditAssignment struct {
 
 const contextualBanditFallbackLeafId = -1
 
+// clonedBanditVersion detaches a bandit version from its owner: assignments
+// must not share the pointer with the client-wide definitions map, and
+// results must not share it with the experiment's assignment — a consumer
+// writing through one must never corrupt what another observes.
+func clonedBanditVersion(v *int) *int {
+	if v == nil {
+		return nil
+	}
+	c := *v
+	return &c
+}
+
 // buildContextualBanditExperiment applies a bandit definition to exp: the
 // first leaf whose condition passes supplies the variation weights; with no
 // matching (valid) leaf the aggregate weights stay and the exposure is
@@ -192,7 +204,7 @@ func (e *evaluator) buildContextualBanditExperiment(exp *Experiment, ref string,
 		exp.ContextualBandit = &ContextualBanditAssignment{
 			LeafId:           *leaf.LeafId,
 			VariationWeights: weights,
-			BanditVersion:    def.BanditVersion,
+			BanditVersion:    clonedBanditVersion(def.BanditVersion),
 		}
 		return
 	}
@@ -202,7 +214,7 @@ func (e *evaluator) buildContextualBanditExperiment(exp *Experiment, ref string,
 	exp.ContextualBandit = &ContextualBanditAssignment{
 		LeafId:           contextualBanditFallbackLeafId,
 		VariationWeights: slices.Clone(normalizedWeights(len(exp.Variations), exp.Weights, e.client.logger)),
-		BanditVersion:    def.BanditVersion,
+		BanditVersion:    clonedBanditVersion(def.BanditVersion),
 	}
 }
 

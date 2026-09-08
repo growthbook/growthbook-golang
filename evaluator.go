@@ -406,7 +406,7 @@ func (e *evaluator) getExperimentResult(
 		// consumers (callbacks, subscribers, the caller); one mutating its
 		// slice must not skew the propensities another observes.
 		res.VariationWeights = slices.Clone(cb.VariationWeights)
-		res.BanditVersion = cb.BanditVersion
+		res.BanditVersion = clonedBanditVersion(cb.BanditVersion)
 	}
 
 	return &res

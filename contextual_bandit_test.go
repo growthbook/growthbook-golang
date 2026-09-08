@@ -775,3 +775,27 @@ func TestInlineBanditWithoutWeightsReportsEqualWeights(t *testing.T) {
 	require.Equal(t, []float64{0.5, 0.5}, res.VariationWeights,
 		"reported propensities must be the equal weights bucketing used")
 }
+
+func TestBanditVersionPointersAreIndependent(t *testing.T) {
+	// The version reaches three independently mutable owners: the client-wide
+	// definitions map, the experiment's assignment, and the result. Writing
+	// through one must not be visible through the others.
+	ctx := context.Background()
+	defs := mustBanditDefs(t, banditDefsJSON)
+	client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+		WithContextualBandits(defs))
+
+	res := client.EvalFeature(ctx, "bandit-flag")
+	require.Equal(t, 3, *res.ExperimentResult.BanditVersion)
+
+	*res.ExperimentResult.BanditVersion = 99
+	require.Equal(t, 3, *res.Experiment.ContextualBandit.BanditVersion,
+		"result must not share the assignment's pointer")
+	def := defs["cb-1"]
+	require.Equal(t, 3, *def.BanditVersion,
+		"assignment must not share the definitions map's pointer")
+
+	again := client.EvalFeature(ctx, "bandit-flag")
+	require.Equal(t, 3, *again.ExperimentResult.BanditVersion,
+		"later evaluations must be unaffected by consumer writes")
+}
