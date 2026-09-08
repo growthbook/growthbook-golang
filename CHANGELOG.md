@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Bugfix (JS parity):** a feature rule of `{"force": null}` now serves
+  `null` with source `force`, as the JS SDK does. Previously a null force
+  was indistinguishable from an absent one, so the rule was skipped and the
+  next rule or default value was served.
+- **Fixed:** conditions now retain their parsed content and marshal back to
+  JSON instead of collapsing to `{}`, so feature and experiment JSON — the
+  deferred-tracking deep copies included — round-trips with targeting
+  conditions intact.
+- **Fixed:** an experiment with an empty variations list (a bare
+  `RunExperiment` call or a rule serving zero variations) no longer panics
+  indexing the variations slice; it degrades to a not-in-experiment result.
 - **Added:** `TrackingBuffer` is now an exported, caller-owned type:
   `NewTrackingBuffer()` creates one, `WithTrackingBuffer(buf)` (option and
   child-client method) attaches it, `TrackingCalls()` reads detached copies
