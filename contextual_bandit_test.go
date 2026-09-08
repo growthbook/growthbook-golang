@@ -970,6 +970,9 @@ func TestSubscribersCannotCorruptTrackingSnapshots(t *testing.T) {
 	client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
 		WithDeferredTracking())
 	client.Subscribe(func(_ context.Context, exp *Experiment, res *ExperimentResult) {
+		if exp.Weights != nil {
+			exp.Weights[0] = 77
+		}
 		if exp.ContextualBandit != nil {
 			exp.ContextualBandit.VariationWeights[0] = 99
 			if exp.ContextualBandit.BanditVersion != nil {
@@ -993,6 +996,8 @@ func TestSubscribersCannotCorruptTrackingSnapshots(t *testing.T) {
 	require.Equal(t, []float64{1, 0}, calls[0].Result.VariationWeights,
 		"the buffered result must carry the propensities bucketing used")
 	require.Equal(t, 3, *calls[0].Result.BanditVersion)
+	require.Equal(t, []float64{1, 0}, calls[0].Experiment.Weights,
+		"the buffered experiment weights must be the ones bucketing used")
 }
 
 func TestParseContextualBandits(t *testing.T) {
