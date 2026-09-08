@@ -264,3 +264,48 @@ func sseResponse(response string, delay time.Duration, lim int) sseResponseGen {
 		}
 	}
 }
+
+func TestSseConnectsAfterAFailedFirstLoad(t *testing.T) {
+	features := `{"feature":{"defaultValue":1}}`
+
+	var apiCalls atomic.Int32
+	stream := sseResponse(features, 10*time.Millisecond, 8)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/features/somekey":
+			if apiCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Add("x-sse-support", "enabled")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"features":%s}`, features)))
+		case "/sub/somekey":
+			stream(r.Context(), w)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.URL),
+		WithClientKey("somekey"),
+		WithSseDataSource(),
+	)
+	require.NoError(t, err, "NewClient does not surface a data source start failure")
+	require.NotNil(t, client)
+	defer func() { _ = client.Close() }()
+
+	deadline := time.Now().Add(5 * time.Second)
+
+	for time.Now().Before(deadline) {
+		if client.EvalFeature(ctx, "feature").Value != nil {
+			return
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	require.Fail(t, "the SSE stream never connected after the first load failed")
+}

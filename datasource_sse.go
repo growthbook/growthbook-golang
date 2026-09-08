@@ -67,18 +67,19 @@ func (ds *SseDataSource) Start(ctx context.Context) error {
 	ds.cancel = cancel
 
 	err := ds.loadData(ctx)
-	if err != nil {
-		return err
+
+	if err == nil {
+		ds.logger.InfoContext(ctx, "First load finished")
 	}
-	ds.logger.InfoContext(ctx, "First load finished")
 
 	ds.mu.Lock()
 	ds.ready = true
 	ds.mu.Unlock()
+
 	go ds.connect(ctx)
 	ds.logger.InfoContext(ctx, "Started")
 
-	return nil
+	return err
 }
 
 func (ds *SseDataSource) Close() error {
