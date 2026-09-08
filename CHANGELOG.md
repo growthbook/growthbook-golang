@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Fixed:** partial payload updates no longer wipe omitted sections. A
+  payload carrying only `contextualBandits` used to clear `features` and
+  `savedGroups`; every section now follows the same rule — absent preserves
+  the previous data, explicit empty clears it (Python `set_payload` parity).
 - Added contextual bandit support (JS parity): feature rules carrying a
   `contextualBanditRef` now evaluate using the per-context variation weights
   from the payload's `contextualBandits` definitions (encrypted payloads

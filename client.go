@@ -172,16 +172,26 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
 		return nil
 	}
+	// Section-presence semantics (Python setPayload parity): a partial
+	// payload — e.g. a bandit-only update — must never wipe sections it did
+	// not carry. An absent section preserves the previous data; an explicit
+	// empty section clears it. For features and savedGroups a JSON null
+	// section decodes to a nil map and counts as absent; contextualBandits
+	// additionally treats explicit null as a clear via its custom decoder.
 	var features FeatureMap
 	var err error
+	featuresPresent := false
 	if resp.EncryptedFeatures != "" {
 		features, err = client.DecryptFeatures(resp.EncryptedFeatures)
 		if err != nil {
 			return err
 		}
-	} else {
+		featuresPresent = true
+	} else if resp.Features != nil {
 		features = resp.Features
+		featuresPresent = true
 	}
+	savedGroupsPresent := resp.SavedGroups != nil
 	// Section-presence semantics: an absent contextualBandits section
 	// preserves the previous definitions, an explicit empty (or null)
 	// section clears them, and a section that fails to decrypt is ignored
@@ -201,8 +211,12 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		}
 	}
 	client.data.withLock(func(d *data) error {
-		d.features = features
-		d.savedGroups = resp.SavedGroups
+		if featuresPresent {
+			d.features = features
+		}
+		if savedGroupsPresent {
+			d.savedGroups = resp.SavedGroups
+		}
 		if banditsPresent {
 			d.contextualBandits = bandits
 		}

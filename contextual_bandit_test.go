@@ -909,3 +909,54 @@ func TestExplicitNullLeafIdDemotes(t *testing.T) {
 	require.True(t, res.InExperiment())
 	require.Equal(t, -1, *res.ExperimentResult.LeafId)
 }
+
+func TestPartialPayloadUpdatesPreserveOmittedSections(t *testing.T) {
+	// A partial payload must never wipe sections it did not carry: absent
+	// preserves, explicit empty clears — for every section.
+	ctx := context.Background()
+
+	seed := func(t *testing.T) *Client {
+		t.Helper()
+		client, err := NewClient(ctx, WithAttributes(Attributes{"id": "u1", "country": "us"}))
+		require.NoError(t, err)
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"features": {
+				"grouped": {"defaultValue": "off", "rules": [{"force": "on", "condition": {"id": {"$inGroup": "beta"}}}]}
+			},
+			"savedGroups": {"beta": ["u1"]},
+			"contextualBandits": {},
+			"dateUpdated": "2030-01-01T00:00:00Z"
+		}`))
+		require.Equal(t, "on", client.EvalFeature(ctx, "grouped").Value)
+		return client
+	}
+
+	t.Run("a bandit-only update preserves features and saved groups", func(t *testing.T) {
+		client := seed(t)
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"contextualBandits": {},
+			"dateUpdated": "2030-01-02T00:00:00Z"
+		}`))
+		res := client.EvalFeature(ctx, "grouped")
+		require.Equal(t, "on", res.Value, "features and saved groups must survive a payload that omits them")
+	})
+
+	t.Run("an explicitly empty features section clears features", func(t *testing.T) {
+		client := seed(t)
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"features": {},
+			"dateUpdated": "2030-01-02T00:00:00Z"
+		}`))
+		require.Equal(t, UnknownFeatureResultSource, client.EvalFeature(ctx, "grouped").Source)
+	})
+
+	t.Run("an explicitly empty savedGroups section clears groups", func(t *testing.T) {
+		client := seed(t)
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"savedGroups": {},
+			"dateUpdated": "2030-01-02T00:00:00Z"
+		}`))
+		require.Equal(t, "off", client.EvalFeature(ctx, "grouped").Value,
+			"the $inGroup condition no longer matches once groups are cleared")
+	})
+}
