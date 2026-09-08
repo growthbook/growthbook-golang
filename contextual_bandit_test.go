@@ -994,3 +994,20 @@ func TestSubscribersCannotCorruptTrackingSnapshots(t *testing.T) {
 		"the buffered result must carry the propensities bucketing used")
 	require.Equal(t, 3, *calls[0].Result.BanditVersion)
 }
+
+func TestParseContextualBandits(t *testing.T) {
+	t.Run("rejects a non-object top level", func(t *testing.T) {
+		_, err := ParseContextualBandits([]byte(`["entirely-wrong-shape"]`))
+		require.Error(t, err)
+	})
+
+	t.Run("parses an object with the same tolerant per-entry semantics", func(t *testing.T) {
+		defs, err := ParseContextualBandits([]byte(`{
+			"cb-1": {"contexts": [{"leafId": 10, "condition": {}, "weights": [1, 0]}]},
+			"cb-junk": 5
+		}`))
+		require.NoError(t, err)
+		require.Len(t, defs, 2)
+		require.Len(t, defs["cb-1"].Contexts, 1)
+	})
+}

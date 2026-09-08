@@ -3,6 +3,7 @@ package growthbook
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"slices"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -165,11 +166,29 @@ func (d *ContextualBanditDefinition) UnmarshalJSON(data []byte) error {
 // ContextualBanditDefinitions maps bandit refs to their definitions.
 type ContextualBanditDefinitions map[string]ContextualBanditDefinition
 
+// ParseContextualBandits strictly parses a contextual bandit definitions
+// blob for manual configuration: unlike the tolerant UnmarshalJSON — which
+// exists for the payload-ingestion boundary, where a bandit blob must never
+// block the feature update it arrived with — a top-level shape that is not a
+// JSON object is reported as an error instead of degrading to an empty map.
+// Definition- and context-level junk still degrades per entry at evaluation
+// time, exactly as payload-served definitions do.
+func ParseContextualBandits(data []byte) (ContextualBanditDefinitions, error) {
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return nil, fmt.Errorf("contextual bandit definitions must be a JSON object keyed by ref: %w", err)
+	}
+	var defs ContextualBanditDefinitions
+	_ = json.Unmarshal(data, &defs) // the tolerant decoder cannot fail on an object
+	return defs, nil
+}
+
 // UnmarshalJSON decodes leniently: a bandit blob the SDK cannot parse (e.g.
 // a future schema) must not block the feature update it arrived with.
 // Definition- and context-level junk degrades per entry at evaluation time;
 // map-level junk yields an empty map, so every ref dangles (debug-logged at
-// use).
+// use). Manual callers who want a top-level shape error instead should use
+// ParseContextualBandits.
 func (defs *ContextualBanditDefinitions) UnmarshalJSON(data []byte) error {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(data, &raw); err != nil {
