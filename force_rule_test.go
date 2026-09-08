@@ -81,3 +81,17 @@ func TestFeatureRuleForceRoundTrip(t *testing.T) {
 		require.True(t, back.forcePresent)
 	})
 }
+
+func TestFeatureRuleDecodeReplacesWholesale(t *testing.T) {
+	// Decoding into a reused rule must not merge with previous contents: a
+	// retained Force alongside a reset forcePresent would serve a stale
+	// forced value.
+	var rule FeatureRule
+	require.NoError(t, json.Unmarshal([]byte(`{"force": "stale"}`), &rule))
+	require.True(t, rule.forcePresent)
+
+	require.NoError(t, json.Unmarshal([]byte(`{"variations": ["a", "b"], "weights": [1, 0], "coverage": 1}`), &rule))
+	require.Nil(t, rule.Force, "the previous decode's force must not survive")
+	require.False(t, rule.forcePresent)
+	require.Equal(t, []FeatureValue{"a", "b"}, rule.Variations)
+}

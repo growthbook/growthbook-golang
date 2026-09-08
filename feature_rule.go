@@ -87,6 +87,10 @@ func (r FeatureRule) MarshalJSON() ([]byte, error) {
 }
 
 func (r *FeatureRule) UnmarshalJSON(data []byte) error {
+	// Reset first: decoding into a reused rule must replace it wholesale, not
+	// merge — a retained Force from a previous decode would disagree with the
+	// freshly computed forcePresent and serve a stale forced value.
+	*r = FeatureRule{}
 	type alias FeatureRule
 	if err := json.Unmarshal(data, (*alias)(r)); err != nil {
 		return err
