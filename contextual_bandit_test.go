@@ -753,3 +753,25 @@ func TestSemanticallyJunkConditionsRouteLikeJSAndPython(t *testing.T) {
 		})
 	}
 }
+
+func TestInlineBanditWithoutWeightsReportsEqualWeights(t *testing.T) {
+	// A caller-built experiment with bandit metadata but no Weights buckets
+	// on equal weights; the reported propensities must say so, not echo the
+	// caller's stale vector.
+	ctx := context.Background()
+	client, err := NewClient(ctx, WithAttributes(Attributes{"id": "u1"}))
+	require.NoError(t, err)
+
+	exp := Experiment{
+		Key:        "inline-no-weights",
+		Variations: []FeatureValue{"a", "b"},
+		ContextualBandit: &ContextualBanditAssignment{
+			LeafId:           7,
+			VariationWeights: []float64{1, 0}, // stale: bucketing uses equal weights
+		},
+	}
+	res := client.RunExperiment(ctx, &exp)
+	require.True(t, res.InExperiment)
+	require.Equal(t, []float64{0.5, 0.5}, res.VariationWeights,
+		"reported propensities must be the equal weights bucketing used")
+}

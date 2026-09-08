@@ -61,10 +61,11 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			// describe a distribution bucketing ignored. Bucketing itself is
 			// untouched (same assignment as the JS SDK).
 			exp.ContextualBandit = nil
-		} else if exp.Weights != nil {
+		} else {
 			// Resync reported propensities to the weights bucketing will
-			// actually use — a no-op for payload-built bandit experiments,
-			// defense for caller-built inline experiments.
+			// actually use — including equal weights when Weights is nil.
+			// A no-op for payload-built bandit experiments, defense for
+			// caller-built inline experiments.
 			cb := *exp.ContextualBandit
 			cb.VariationWeights = slices.Clone(normalizedWeights(len(exp.Variations), exp.Weights, e.client.logger))
 			exp.ContextualBandit = &cb
