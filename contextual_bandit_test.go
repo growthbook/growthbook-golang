@@ -704,3 +704,23 @@ func TestContextualBanditPayloadSectionSemantics(t *testing.T) {
 		require.True(t, banditAssigned(t, client), "failed decrypt must not wipe the previous map")
 	})
 }
+
+func TestBanditPropensitySlicesAreIndependent(t *testing.T) {
+	// The result and the experiment's assignment reach independent consumers
+	// (callbacks, subscribers, the caller); mutating one propensity slice
+	// must not be visible through the other.
+	ctx := context.Background()
+	client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"})
+
+	res := client.EvalFeature(ctx, "bandit-flag")
+	require.Equal(t, []float64{1, 0}, res.ExperimentResult.VariationWeights)
+	require.Equal(t, []float64{1, 0}, res.Experiment.ContextualBandit.VariationWeights)
+
+	res.ExperimentResult.VariationWeights[0] = 99
+	require.Equal(t, []float64{1, 0}, res.Experiment.ContextualBandit.VariationWeights,
+		"result and assignment must not share a backing array")
+
+	// Payload definitions are never aliased either.
+	again := client.EvalFeature(ctx, "bandit-flag")
+	require.Equal(t, []float64{1, 0}, again.ExperimentResult.VariationWeights)
+}

@@ -401,7 +401,10 @@ func (e *evaluator) getExperimentResult(
 	if cb := exp.ContextualBandit; cb != nil && hashUsed && inExperiment && !isStickyBucketUsed {
 		leafId := cb.LeafId
 		res.LeafId = &leafId
-		res.VariationWeights = cb.VariationWeights
+		// Clone: the result and the experiment's assignment go to independent
+		// consumers (callbacks, subscribers, the caller); one mutating its
+		// slice must not skew the propensities another observes.
+		res.VariationWeights = slices.Clone(cb.VariationWeights)
 		res.BanditVersion = cb.BanditVersion
 	}
 
