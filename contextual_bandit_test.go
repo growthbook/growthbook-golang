@@ -724,3 +724,32 @@ func TestBanditPropensitySlicesAreIndependent(t *testing.T) {
 	again := client.EvalFeature(ctx, "bandit-flag")
 	require.Equal(t, []float64{1, 0}, again.ExperimentResult.VariationWeights)
 }
+
+func TestSemanticallyJunkConditionsRouteLikeJSAndPython(t *testing.T) {
+	// A condition that parses but carries semantic junk evaluates false and
+	// routing continues to the next leaf — verified byte-identical against
+	// the Python SDK for all three cases (JS evaluates the same way).
+	// Aborting instead would assign the same user different variations
+	// across SDKs on the same payload.
+	ctx := context.Background()
+	for name, cond := range map[string]string{
+		"junk $in argument": `{"country": {"$in": "not-an-array"}}`,
+		"unknown operator":  `{"country": {"$frobnicate": "us"}}`,
+		"invalid regex":     `{"country": {"$regex": "([invalid"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+				WithContextualBandits(mustBanditDefs(t, `{
+					"cb-1": {"contexts": [
+						{"leafId": 1, "condition": `+cond+`, "weights": [1, 0]},
+						{"leafId": 2, "condition": {}, "weights": [0, 1]}
+					]}
+				}`)))
+			res := client.EvalFeature(ctx, "bandit-flag")
+			require.True(t, res.InExperiment())
+			require.Equal(t, 2, *res.ExperimentResult.LeafId,
+				"the junk condition evaluates false; the catch-all sibling matches")
+			require.Equal(t, []float64{0, 1}, res.ExperimentResult.VariationWeights)
+		})
+	}
+}

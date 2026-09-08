@@ -210,6 +210,13 @@ func (e *evaluator) buildContextualBanditExperiment(exp *Experiment, ref string,
 // the client's attributes. Reaching a malformed context aborts selection —
 // evaluation cannot know whether it would have matched, so later leaves must
 // not be consulted (Python SDK parity: a failed leaf lookup falls back).
+//
+// "Malformed" here means structurally unusable: a non-object context or an
+// unparseable condition. A condition that parses but carries semantic junk
+// (an unknown operator, `$in` with a non-array argument, an invalid regex)
+// deliberately evaluates false and routing continues — that is how the JS
+// and Python SDKs evaluate the same payload, and diverging here would assign
+// the same user different variations across SDKs.
 func (e *evaluator) selectContextualBanditLeaf(contexts []ContextualBanditContext, featureId string, ref string) *ContextualBanditContext {
 	for i := range contexts {
 		leaf := &contexts[i]
