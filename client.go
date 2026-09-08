@@ -256,9 +256,10 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if resp.Features == nil && resp.EncryptedFeatures == "" {
-		return nil
-	}
+	// Apply partial responses too: UpdateFromApiResponse preserves omitted
+	// sections, so a bandit-only or saved-groups-only response updates just
+	// what it carries. (An early return on absent features predated that
+	// gating and left manual-mode clients with stale bandit definitions.)
 	return client.UpdateFromApiResponse(resp)
 }
 
