@@ -960,3 +960,37 @@ func TestPartialPayloadUpdatesPreserveOmittedSections(t *testing.T) {
 			"the $inGroup condition no longer matches once groups are cleared")
 	})
 }
+
+func TestSubscribersCannotCorruptTrackingSnapshots(t *testing.T) {
+	// Subscribers run mid-evaluation on the live experiment and result. A
+	// misbehaving subscriber mutating bandit metadata must not alter what
+	// the tracking pipeline reports — corrupted propensities poison the
+	// bandit's training data.
+	ctx := context.Background()
+	client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+		WithDeferredTracking())
+	client.Subscribe(func(_ context.Context, exp *Experiment, res *ExperimentResult) {
+		if exp.ContextualBandit != nil {
+			exp.ContextualBandit.VariationWeights[0] = 99
+			if exp.ContextualBandit.BanditVersion != nil {
+				*exp.ContextualBandit.BanditVersion = 99
+			}
+		}
+		if res.VariationWeights != nil {
+			res.VariationWeights[0] = 88
+		}
+		if res.BanditVersion != nil {
+			*res.BanditVersion = 88
+		}
+	})
+
+	client.EvalFeature(ctx, "bandit-flag")
+	calls := client.DeferredTrackingCalls()
+	require.Len(t, calls, 1)
+	require.Equal(t, []float64{1, 0}, calls[0].Experiment.ContextualBandit.VariationWeights,
+		"the buffered assignment must carry the propensities bucketing used")
+	require.Equal(t, 3, *calls[0].Experiment.ContextualBandit.BanditVersion)
+	require.Equal(t, []float64{1, 0}, calls[0].Result.VariationWeights,
+		"the buffered result must carry the propensities bucketing used")
+	require.Equal(t, 3, *calls[0].Result.BanditVersion)
+}

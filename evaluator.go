@@ -312,13 +312,6 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		)
 	}
 
-	// 14. Record the assignment for reporting. Earlier returns (forced
-	// variations, overrides) are deliberately not recorded; passthrough
-	// assignments are.
-	if result.InExperiment {
-		e.recordExperiment(exp, result)
-	}
-
 	return result
 }
 
@@ -340,6 +333,15 @@ func (e *evaluator) experimentResult(
 	// experiment.contextualBandit before onExperimentEval.
 	if exp.ContextualBandit != nil && result.LeafId == nil {
 		exp.ContextualBandit = nil
+	}
+	// Record the assignment for reporting BEFORE notifying subscribers:
+	// subscriber code runs mid-evaluation on the live experiment and result,
+	// and must not be able to alter what the tracking pipeline reports.
+	// HashUsed is true only on the hashed-assignment path (step 14) — forced
+	// variations and overrides are deliberately not recorded; passthrough
+	// and sticky assignments are.
+	if result.InExperiment && result.HashUsed {
+		e.recordExperiment(exp, result)
 	}
 	if featureId != "" && e.client.data.subscribers.hasSubscribers() {
 		e.client.notifySubscribers(e.ctx, exp, result)
