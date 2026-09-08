@@ -870,3 +870,42 @@ func TestBanditDefinitionsSurviveJSONRoundTrips(t *testing.T) {
 		require.Equal(t, 3, *res.ExperimentResult.BanditVersion)
 	})
 }
+
+func TestMutatedDecodedDefinitionsSerializeCurrentFields(t *testing.T) {
+	// A caller who decodes definitions and updates fields must see those
+	// updates in serialized output — evaluation and serialization always
+	// agree on non-degenerate values.
+	ctx := context.Background()
+	defs := mustBanditDefs(t, `{"cb-1": {"banditVersion": 3, "contexts": [
+		{"leafId": 10, "condition": {"country": "us"}, "weights": [1, 0]}
+	]}}`)
+
+	def := defs["cb-1"]
+	def.Contexts[0].Weights = []float64{0, 1} // flip the leaf's weights
+	*def.BanditVersion = 4
+
+	b, err := json.Marshal(defs)
+	require.NoError(t, err)
+	var back ContextualBanditDefinitions
+	require.NoError(t, json.Unmarshal(b, &back))
+
+	client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+		WithContextualBandits(back))
+	res := client.EvalFeature(ctx, "bandit-flag")
+	require.Equal(t, "b", res.Value, "the mutated weights must govern after a round trip")
+	require.Equal(t, []float64{0, 1}, res.ExperimentResult.VariationWeights)
+	require.Equal(t, 4, *res.ExperimentResult.BanditVersion)
+}
+
+func TestExplicitNullLeafIdDemotes(t *testing.T) {
+	// json.Unmarshal("null", &int) is a successful no-op; without an explicit
+	// guard an explicit "leafId": null would attribute to leaf 0.
+	ctx := context.Background()
+	client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+		WithContextualBandits(mustBanditDefs(t, `{
+			"cb-1": {"contexts": [{"leafId": null, "condition": {}, "weights": [1, 0]}]}
+		}`)))
+	res := client.EvalFeature(ctx, "bandit-flag")
+	require.True(t, res.InExperiment())
+	require.Equal(t, -1, *res.ExperimentResult.LeafId)
+}
