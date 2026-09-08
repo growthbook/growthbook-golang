@@ -997,8 +997,10 @@ func TestSubscribersCannotCorruptTrackingSnapshots(t *testing.T) {
 
 func TestParseContextualBandits(t *testing.T) {
 	t.Run("rejects a non-object top level", func(t *testing.T) {
-		_, err := ParseContextualBandits([]byte(`["entirely-wrong-shape"]`))
-		require.Error(t, err)
+		for _, blob := range []string{`["entirely-wrong-shape"]`, `null`, `5`, `"junk"`} {
+			_, err := ParseContextualBandits([]byte(blob))
+			require.Error(t, err, blob)
+		}
 	})
 
 	t.Run("parses an object with the same tolerant per-entry semantics", func(t *testing.T) {

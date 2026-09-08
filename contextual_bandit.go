@@ -178,6 +178,10 @@ func ParseContextualBandits(data []byte) (ContextualBanditDefinitions, error) {
 	if err := json.Unmarshal(data, &probe); err != nil {
 		return nil, fmt.Errorf("contextual bandit definitions must be a JSON object keyed by ref: %w", err)
 	}
+	if probe == nil {
+		// json.Unmarshal accepts null into a map as a successful no-op.
+		return nil, fmt.Errorf("contextual bandit definitions must be a JSON object keyed by ref, got null")
+	}
 	var defs ContextualBanditDefinitions
 	_ = json.Unmarshal(data, &defs) // the tolerant decoder cannot fail on an object
 	return defs, nil
