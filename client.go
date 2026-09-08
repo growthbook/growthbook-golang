@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
@@ -153,21 +154,20 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 	return client.SetJSONFeatures(featuresJSON)
 }
 
-// UpdateFromApiResponse updates shared data from Growthbook API response
-func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, error) {
 	dataUpdated := client.data.getDateUpdated()
 	apiUpdated := resp.DateUpdated
 	if apiUpdated.Before(dataUpdated) {
 		client.logger.Warn("Api response is older then current data, refuse to update",
 			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
-		return nil
+		return false, nil
 	}
 	var features FeatureMap
 	var err error
 	if resp.EncryptedFeatures != "" {
 		features, err = client.DecryptFeatures(resp.EncryptedFeatures)
 		if err != nil {
-			return err
+			return false, err
 		}
 	} else {
 		features = resp.Features
@@ -178,7 +178,22 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
-	return nil
+	return true, nil
+}
+
+func (client *Client) applyApiResponseJSON(respJSON string) (bool, time.Time, error) {
+	var resp FeatureApiResponse
+	if err := json.Unmarshal([]byte(respJSON), &resp); err != nil {
+		return false, time.Time{}, err
+	}
+	updated, err := client.applyApiResponse(&resp)
+	return updated, resp.DateUpdated, err
+}
+
+// UpdateFromApiResponse updates shared data from Growthbook API response
+func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+	_, err := client.applyApiResponse(resp)
+	return err
 }
 
 func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
@@ -195,12 +210,8 @@ func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
 }
 
 func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
-	var resp FeatureApiResponse
-	err := json.Unmarshal([]byte(respJSON), &resp)
-	if err != nil {
-		return err
-	}
-	return client.UpdateFromApiResponse(&resp)
+	_, _, err := client.applyApiResponseJSON(respJSON)
+	return err
 }
 
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
@@ -209,12 +220,23 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 func (client *Client) RefreshFeatures(ctx context.Context) error {
 	resp, err := client.CallFeatureApi(ctx, "")
 	if err != nil {
+		client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, Error: err})
 		return err
 	}
 	if resp.Features == nil && resp.EncryptedFeatures == "" {
 		return nil
 	}
-	return client.UpdateFromApiResponse(resp)
+	updated, err := client.applyApiResponse(resp)
+	if err != nil {
+		client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, Error: err})
+		return err
+	}
+	if updated {
+		client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, Updated: true, DateUpdated: resp.DateUpdated})
+	} else {
+		client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, NotModified: true, DateUpdated: resp.DateUpdated})
+	}
+	return nil
 }
 
 // EvalFeature evaluates feature based on attributes and features map

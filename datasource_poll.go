@@ -100,6 +100,11 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 
 	resp, err := ds.client.CallFeatureApi(ctx, etag)
 	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourcePoll,
+				Error:  err})
 		return err
 	}
 
@@ -109,13 +114,45 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 		ds.mu.Unlock()
 	}
 
-	if resp.Features == nil {
+	if resp.Status == 304 {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source:      RefreshSourcePoll,
+				NotModified: true,
+				DateUpdated: ds.client.data.getDateUpdated()})
 		return nil
 	}
 
-	err = ds.client.UpdateFromApiResponse(resp)
+	if resp.Features == nil && resp.EncryptedFeatures == "" {
+		return nil
+	}
+
+	updated, err := ds.client.applyApiResponse(resp)
 	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourcePoll,
+				Error:  err})
+
 		return err
+	}
+
+	if updated {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source:      RefreshSourcePoll,
+				Updated:     updated,
+				DateUpdated: resp.DateUpdated})
+	} else {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source:      RefreshSourcePoll,
+				NotModified: true,
+				DateUpdated: resp.DateUpdated})
 	}
 
 	return nil

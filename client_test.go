@@ -221,6 +221,68 @@ func TestRefreshFeatures(t *testing.T) {
 		require.Error(t, err)
 		require.Empty(t, client.Features())
 	})
+
+	t.Run("Fires Updated event on manual refresh", func(t *testing.T) {
+		ts := startServer(http.StatusOK, featuresJSON)
+		defer ts.http.Close()
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+		)
+		require.Nil(t, err)
+		require.Nil(t, client.RefreshFeatures(ctx))
+
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.Updated && r.Source == RefreshSourceManual
+		}), "expected a manual Updated event")
+	})
+
+	t.Run("Fires Error event on failed manual refresh", func(t *testing.T) {
+		ts := startServer(http.StatusNotFound, []byte(""))
+		defer ts.http.Close()
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+		)
+		require.Nil(t, err)
+		require.Error(t, client.RefreshFeatures(ctx))
+
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.Error != nil && r.Source == RefreshSourceManual
+		}), "expected a manual Error event")
+	})
+
+	t.Run("Refusing a stale response fires NotModified", func(t *testing.T) {
+		fresh := []byte(`{"features":{"foo":{"defaultValue":"fresh"}},"experiments":[],"dateUpdated":"2030-01-01T00:00:00Z"}`)
+		stale := []byte(`{"features":{"foo":{"defaultValue":"stale"}},"experiments":[],"dateUpdated":"2000-01-01T00:00:00Z"}`)
+		ts := startVersionedServer(fresh, stale)
+		defer ts.http.Close()
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+		)
+		require.Nil(t, err)
+
+		// First refresh applies the fresh payload (dateUpdated 2030).
+		require.Nil(t, client.RefreshFeatures(ctx))
+		// Second refresh returns an older payload (2000) -> refused, reported
+		// as NotModified rather than Updated, and the stale value is ignored.
+		require.Nil(t, client.RefreshFeatures(ctx))
+
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.NotModified && r.Source == RefreshSourceManual
+		}), "expected a manual NotModified event for the stale response")
+		require.Equal(t, FeatureMap{"foo": &Feature{DefaultValue: "fresh"}}, client.Features())
+	})
 }
 
 func TestClientExperimentTracking(t *testing.T) {

@@ -113,7 +113,7 @@ func (ds *SseDataSource) connect(ctx context.Context) error {
 	buf := make([]byte, minbufsize)
 	sseConn.Buffer(buf, maxbufsize)
 	sseConn.SubscribeEvent("features", func(event sse.Event) {
-		ds.processEvent(event)
+		ds.processEvent(ctx, event)
 	})
 	sseConn.Connect()
 	return nil
@@ -128,36 +128,68 @@ func (ds *SseDataSource) onRetry(ctx context.Context) func(err error, delay time
 	}
 }
 
-func (ds *SseDataSource) processEvent(event sse.Event) {
+func (ds *SseDataSource) processEvent(ctx context.Context, event sse.Event) {
 	if event.Data == "" {
 		return
 	}
 	ds.logger.Info("Updating features")
-	err := ds.client.UpdateFromApiResponseJSON(event.Data)
+	updated, dateUpdated, err := ds.client.applyApiResponseJSON(event.Data)
 	if err != nil {
 		ds.logger.Error("Error updating features", "error", err)
+		ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, Error: err})
+		return
+	}
+
+	if updated {
+		ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, Updated: true, DateUpdated: dateUpdated})
+	} else {
+		ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, NotModified: true, DateUpdated: dateUpdated})
 	}
 }
 
 func (ds *SseDataSource) loadData(ctx context.Context) error {
 	resp, err := ds.client.CallFeatureApi(ctx, "")
 	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourceSSE,
+				Error:  err,
+			})
 		return err
 	}
 
 	if !resp.SseSupport {
-		return fmt.Errorf("sse is not supported")
-	}
-
-	if resp.Features == nil {
-		return nil
-	}
-
-	err = ds.client.UpdateFromApiResponse(resp)
-	if err != nil {
+		err := fmt.Errorf("sse is not supported")
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourceSSE,
+				Error:  err,
+			})
 		return err
 	}
 
+	if resp.Features == nil && resp.EncryptedFeatures == "" {
+		return nil
+	}
+
+	updated, err := ds.client.applyApiResponse(resp)
+	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourceSSE,
+				Error:  err,
+			})
+		return err
+	}
+
+	if updated {
+		ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, Updated: true, DateUpdated: resp.DateUpdated})
+	} else {
+		ds.client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceSSE, NotModified: true, DateUpdated: resp.DateUpdated})
+	}
 	return nil
 }
 
