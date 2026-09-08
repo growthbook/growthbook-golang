@@ -24,13 +24,30 @@ type ContextualBanditContext struct {
 	// routing cannot know whether it would have matched, so reaching it
 	// aborts leaf selection (Python SDK parity).
 	malformed bool
+	// raw is the original payload form, kept so marshaling round-trips
+	// byte-faithfully — a malformed context must stay malformed, not
+	// re-decode as a valid catch-all leaf.
+	raw json.RawMessage
+}
+
+// MarshalJSON emits the original payload form when the context was decoded
+// from JSON, so the tolerant decoder's routing state (malformed markers)
+// survives a round trip. Contexts built programmatically marshal from their
+// fields; a decoded context mutated afterwards still marshals its original
+// form.
+func (c ContextualBanditContext) MarshalJSON() ([]byte, error) {
+	if c.raw != nil {
+		return c.raw, nil
+	}
+	type alias ContextualBanditContext
+	return json.Marshal(alias(c))
 }
 
 // UnmarshalJSON never fails: field-level junk zeroes the field, and a
 // non-object context (or one with an unparseable condition) is kept as a
 // malformed marker instead of being dropped, so routing order is preserved.
 func (c *ContextualBanditContext) UnmarshalJSON(data []byte) error {
-	*c = ContextualBanditContext{}
+	*c = ContextualBanditContext{raw: append(json.RawMessage(nil), data...)}
 	var raw struct {
 		LeafId    json.RawMessage `json:"leafId"`
 		Condition json.RawMessage `json:"condition"`
@@ -72,13 +89,30 @@ type ContextualBanditDefinition struct {
 	// (dangling ref, no bandit metadata), where truthy junk takes the
 	// fallback-leaf path.
 	falsy bool
+	// raw is the original payload form, kept so marshaling round-trips
+	// byte-faithfully — a falsy definition must stay falsy (dangling ref),
+	// not re-decode as an empty fallback definition.
+	raw json.RawMessage
+}
+
+// MarshalJSON emits the original payload form when the definition was
+// decoded from JSON, so the tolerant decoder's state (falsy markers, junk
+// fields) survives a round trip. Definitions built programmatically marshal
+// from their fields; a decoded definition mutated afterwards still marshals
+// its original form.
+func (d ContextualBanditDefinition) MarshalJSON() ([]byte, error) {
+	if d.raw != nil {
+		return d.raw, nil
+	}
+	type alias ContextualBanditDefinition
+	return json.Marshal(alias(d))
 }
 
 // UnmarshalJSON never fails: a junk banditVersion is omitted without
 // dropping the definition, junk contexts decode to none, and a non-object
 // definition is kept, distinguishing JS-falsy values from truthy junk.
 func (d *ContextualBanditDefinition) UnmarshalJSON(data []byte) error {
-	*d = ContextualBanditDefinition{}
+	*d = ContextualBanditDefinition{raw: append(json.RawMessage(nil), data...)}
 	trimmed := bytes.TrimSpace(data)
 	if len(trimmed) == 0 || trimmed[0] != '{' {
 		// Not an object. JS-falsy values behave like a missing definition

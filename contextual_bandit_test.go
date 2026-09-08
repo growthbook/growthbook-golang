@@ -799,3 +799,74 @@ func TestBanditVersionPointersAreIndependent(t *testing.T) {
 	require.Equal(t, 3, *again.ExperimentResult.BanditVersion,
 		"later evaluations must be unaffected by consumer writes")
 }
+
+func TestBanditDefinitionsSurviveJSONRoundTrips(t *testing.T) {
+	// Routing depends on tolerant-decoder state (malformed contexts abort
+	// selection; falsy definitions dangle). Persisting or forwarding decoded
+	// definitions as JSON must not change routing: marshaling emits the
+	// original payload form.
+	ctx := context.Background()
+
+	roundTrip := func(t *testing.T, defs ContextualBanditDefinitions) ContextualBanditDefinitions {
+		t.Helper()
+		b, err := json.Marshal(defs)
+		require.NoError(t, err)
+		var back ContextualBanditDefinitions
+		require.NoError(t, json.Unmarshal(b, &back))
+		return back
+	}
+
+	leafOf := func(t *testing.T, defs ContextualBanditDefinitions) *int {
+		t.Helper()
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "nz"},
+			WithContextualBandits(defs))
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.True(t, res.InExperiment())
+		return res.ExperimentResult.LeafId
+	}
+
+	t.Run("a malformed context still aborts selection after a round trip", func(t *testing.T) {
+		defs := mustBanditDefs(t, `{"cb-1": {"contexts": [
+			"garbage",
+			{"leafId": 20, "condition": {"country": "nz"}, "weights": [0, 1]}
+		]}}`)
+		require.Equal(t, -1, *leafOf(t, defs))
+		require.Equal(t, -1, *leafOf(t, roundTrip(t, defs)),
+			"round trip must not launder a malformed context into a valid leaf")
+	})
+
+	t.Run("a falsy definition still dangles after a round trip", func(t *testing.T) {
+		defs := mustBanditDefs(t, `{"cb-1": null}`)
+		require.Nil(t, leafOf(t, defs))
+		require.Nil(t, leafOf(t, roundTrip(t, defs)),
+			"round trip must not turn a falsy definition into a fallback definition")
+	})
+
+	t.Run("a junk banditVersion stays omitted after a round trip", func(t *testing.T) {
+		defs := mustBanditDefs(t, `{"cb-1": {"banditVersion": "junk", "contexts": [
+			{"leafId": 20, "condition": {"country": "nz"}, "weights": [0, 1]}
+		]}}`)
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "nz"},
+			WithContextualBandits(roundTrip(t, defs)))
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.Equal(t, 20, *res.ExperimentResult.LeafId)
+		require.Nil(t, res.ExperimentResult.BanditVersion)
+	})
+
+	t.Run("programmatically built definitions marshal from their fields", func(t *testing.T) {
+		three := 3
+		ten := 10
+		defs := ContextualBanditDefinitions{
+			"cb-1": {BanditVersion: &three, Contexts: []ContextualBanditContext{
+				{LeafId: &ten, Weights: []float64{0, 1}},
+			}},
+		}
+		back := roundTrip(t, defs)
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "nz"},
+			WithContextualBandits(back))
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.Equal(t, 10, *res.ExperimentResult.LeafId, "zero condition is a catch-all")
+		require.Equal(t, []float64{0, 1}, res.ExperimentResult.VariationWeights)
+		require.Equal(t, 3, *res.ExperimentResult.BanditVersion)
+	})
+}
