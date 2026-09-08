@@ -169,9 +169,15 @@ func TestConditionMarshalRoundTrip(t *testing.T) {
 		require.False(t, again.Eval(value.New(map[string]any{"age": 10, "name": "Ann"}), nil))
 	})
 
-	t.Run("the zero value marshals as null", func(t *testing.T) {
+	t.Run("the zero value marshals as {}, its always-true Eval form", func(t *testing.T) {
 		out, err := json.Marshal(Base{})
 		require.NoError(t, err)
-		require.Equal(t, "null", string(out))
+		require.Equal(t, "{}", string(out))
+	})
+
+	t.Run("a null condition unmarshals as the always-true zero value", func(t *testing.T) {
+		var b Base
+		require.NoError(t, json.Unmarshal([]byte("null"), &b))
+		require.True(t, b.Eval(value.New(map[string]any{"x": 1}), nil))
 	})
 }

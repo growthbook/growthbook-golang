@@ -41,10 +41,12 @@ func (base *Base) UnmarshalJSON(data []byte) error {
 }
 
 // MarshalJSON emits the parsed condition in canonical form, so conditions
-// survive a marshal/unmarshal round trip instead of collapsing to {}.
+// survive a marshal/unmarshal round trip instead of collapsing to {}. A zero
+// Base marshals as {} — the always-true condition, matching its Eval — which
+// is also what it marshaled as before conditions carried their raw form.
 func (base Base) MarshalJSON() ([]byte, error) {
 	if base.raw == nil {
-		return []byte("null"), nil
+		return []byte("{}"), nil
 	}
 	return base.raw, nil
 }
