@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -47,5 +48,36 @@ func TestForceNullRule(t *testing.T) {
 		res := client.EvalFeature(ctx, "empty-rule")
 		require.Equal(t, "default", res.Value)
 		require.Equal(t, DefaultValueResultSource, res.Source)
+	})
+}
+
+func TestFeatureRuleForceRoundTrip(t *testing.T) {
+	t.Run("an absent force stays absent through a marshal round trip", func(t *testing.T) {
+		var rule FeatureRule
+		require.NoError(t, json.Unmarshal([]byte(`{"variations": ["a", "b"], "weights": [1, 0], "coverage": 1}`), &rule))
+		require.False(t, rule.forcePresent)
+
+		b, err := json.Marshal(rule)
+		require.NoError(t, err)
+		require.NotContains(t, string(b), `"force"`)
+
+		var back FeatureRule
+		require.NoError(t, json.Unmarshal(b, &back))
+		require.False(t, back.forcePresent,
+			"a round trip must not turn a variations rule into a forced-null rule")
+	})
+
+	t.Run("an explicit null force survives a marshal round trip", func(t *testing.T) {
+		var rule FeatureRule
+		require.NoError(t, json.Unmarshal([]byte(`{"force": null}`), &rule))
+		require.True(t, rule.forcePresent)
+
+		b, err := json.Marshal(rule)
+		require.NoError(t, err)
+		require.Contains(t, string(b), `"force":null`)
+
+		var back FeatureRule
+		require.NoError(t, json.Unmarshal(b, &back))
+		require.True(t, back.forcePresent)
 	})
 }
