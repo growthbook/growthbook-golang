@@ -19,18 +19,12 @@ func (client *Client) startDataSource(ctx context.Context) {
 	ds := client.data.dataSource
 
 	err := ds.Start(ctx)
-	if err != nil {
-		client.data.withLock(func(d *data) error {
-			d.dsStartErr = err
-			d.dsStarted = false
-			return nil
-		})
-		return
-	}
 
 	client.data.withLock(func(d *data) error {
+		d.dsStartErr = err
+		// Marked started even when the first load failed: a data source that has begun polling or
+		// connecting must still be reachable by Close, or its goroutine outlives the client.
 		d.dsStarted = true
-		d.dsStartErr = nil
 		return nil
 	})
 }
