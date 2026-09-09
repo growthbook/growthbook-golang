@@ -22,6 +22,10 @@ type PollDataSource struct {
 
 func WithPollDataSource(interval time.Duration) ClientOption {
 	return func(c *Client) error {
+		if interval <= 0 {
+			return fmt.Errorf("growthbook: poll interval must be positive, got %v", interval)
+		}
+
 		c.data.dataSource = newPollDataSource(c, interval)
 		return nil
 	}

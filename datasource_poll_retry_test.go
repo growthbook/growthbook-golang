@@ -131,3 +131,52 @@ func TestExhaustedRetriesKeepServingCachedFeatures(t *testing.T) {
 	require.Greater(t, made, int32(2), "the poller keeps trying after the retries are exhausted")
 	require.Less(t, made, int32(60), "and it does so on the interval rather than in a tight loop")
 }
+
+func TestANonPositivePollIntervalIsRejected(t *testing.T) {
+	for _, interval := range []time.Duration{0, -1 * time.Second} {
+		client, err := NewClient(ctx, WithClientKey("test-key"), WithPollDataSource(interval))
+
+		require.Error(t, err, "interval %v", interval)
+		require.Nil(t, client)
+	}
+}
+
+func TestRetryDelayNeverReturnsANonPositiveWait(t *testing.T) {
+	// A timer accepts a nonpositive duration and fires immediately, so a source built with one would
+	// spin. A short but valid interval must still be honoured rather than raised.
+	for _, interval := range []time.Duration{-1 * time.Second, 0} {
+		for failures := 0; failures <= maxRetryAttempts+1; failures++ {
+			require.Positive(t, retryDelay(interval, failures), "interval %v, failures %d", interval, failures)
+		}
+	}
+
+	require.Equal(t, 50*time.Millisecond, retryDelay(50*time.Millisecond, 0),
+		"a short interval is legitimate and must not be raised")
+}
+
+func TestClosingAClientWhoseFirstLoadFailedStopsThePoller(t *testing.T) {
+	var requests atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.URL),
+		WithClientKey("test-key"),
+		WithPollDataSource(20*time.Millisecond),
+	)
+	require.NoError(t, err)
+	require.Error(t, client.EnsureLoaded(ctx), "the first load failed, and the caller learns that here")
+
+	require.NoError(t, client.Close(), "Close has to reach a source that started polling despite the failure")
+
+	time.Sleep(50 * time.Millisecond)
+	settled := requests.Load()
+	time.Sleep(200 * time.Millisecond)
+
+	require.Equal(t, settled, requests.Load(),
+		"the poller kept running after Close - its goroutine outlived the client")
+}
