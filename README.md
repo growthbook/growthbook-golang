@@ -213,38 +213,50 @@ produces — including passthrough assignments and experiments inside
 prerequisite features — so you can read the buffer and forward it, instead of
 intercepting callbacks.
 
-Enable it with `WithDeferredTracking`. The usual pattern is one child client
-per user request; the child acts as the user context, so every request gets
-its own buffer:
+Create a `TrackingBuffer` and attach it with `WithTrackingBuffer`. The usual
+pattern is one buffer and one child client per user request; the child acts
+as the user context, and you hold the buffer handle:
 
 ```go
+buf := gb.NewTrackingBuffer()
 child, _ := client.WithAttributes(gb.Attributes{"id": userID})
-child, _ = child.WithDeferredTracking()
+child, _ = child.WithTrackingBuffer(buf)
 
 child.EvalFeature(ctx, "feature-a")
 child.EvalFeature(ctx, "feature-b")
 
-exposures := child.DeferredTrackingCalls() // []gb.TrackingData
+exposures := buf.TrackingCalls() // []gb.TrackingData
 ```
+
+`WithDeferredTracking()` is the convenience form — it attaches a fresh
+internal buffer, readable through `Client.DeferredTrackingCalls()` and
+cleared with `Client.ClearDeferredTrackingCalls()` (both delegate to the
+attached buffer, whichever way it was attached).
 
 Good to know:
 
 - The buffer keeps one entry per unique assignment (same user, experiment,
   and variation), in the order they were first seen. Reads return detached
-  copies, safe to retain or mutate; `ClearDeferredTrackingCalls` empties the
-  buffer.
+  copies, safe to retain or mutate, and don't drain the buffer; `Clear`
+  empties it, including its dedupe memory.
 - `TrackingData` marshals to the same JSON shape as the JS SDK's tracking
   data — including the `user` context the evaluation ran with — so a
   forwarded list can be passed directly to a JS client's
   `setDeferredTrackingCalls`.
-- Child clients cloned from an armed client share its buffer. Calling
-  `WithDeferredTracking` again gives the new client a fresh, separate buffer.
-- Arming a shared client also works — the buffer is safe for concurrent use
-  and entries carry their user identity — but you lose the per-request
-  boundary, so prefer arming per-request children.
-- Callbacks and plugins are unaffected and keep firing. If you both forward
-  the buffer and track via callbacks, you'll report exposures twice — pick
-  one channel.
+- Child clients cloned from a client with a buffer share it — the attacher
+  chooses the scope. Attaching a different buffer (or nil) detaches the new
+  client from the parent's.
+- Attaching one buffer to a long-lived shared client also works — the buffer
+  is safe for concurrent use and entries carry their user identity — but it
+  grows without bound until drained, so prefer one buffer per request. When
+  draining a shared buffer in a loop, use `TakeTrackingCalls()` (or
+  `Client.TakeDeferredTrackingCalls()`): it returns and empties atomically,
+  so an exposure recorded mid-drain is never cleared without being returned.
+- Buffering is independent of callbacks and plugins: both always fire. The
+  buffer exists to forward exposures to a client SDK that reports them
+  *there*; if a server-side callback reports to the same analytics
+  destination, that destination sees each exposure twice — route each
+  destination through one channel.
 - Feature usage is not buffered, only experiment exposures. Usage events
   describe where evaluation happened, and remote-evaluation clients report
   their own; on the server they still reach callbacks and plugins.
@@ -331,6 +343,42 @@ Implement the `StickyBucketService` interface for custom storage:
   transactional upsert)
 
 For more details, see the [official documentation](https://docs.growthbook.io/app/sticky-bucketing).
+
+### Contextual Bandits
+
+GrowthBook contextual bandits (an Enterprise feature) learn per-segment
+variation weights server-side — the SDK evaluates no model. A bandit rule
+references a set of targeting contexts ("leaves"); the SDK routes the user to
+the first leaf whose condition matches and buckets with that leaf's weights.
+Definitions arrive in the SDK payload alongside features (encrypted payloads
+supported), so no extra configuration is needed. For manual setups there are
+`WithContextualBandits(...)` at construction and `SetContextualBandits(...)`
+at runtime.
+
+```go
+res := client.EvalFeature(ctx, "my-bandit-feature")
+r := res.ExperimentResult
+// r.LeafId, r.VariationWeights, r.BanditVersion — log these with the
+// exposure so the bandit keeps learning.
+```
+
+Good to know:
+
+- `ExperimentResult` carries `LeafId`, `VariationWeights`, and
+  `BanditVersion` only for real hashed assignments (never for forced
+  variations, QA mode, or sticky-bucketed users). Log them in your tracking
+  callback — the bandit reweights outcomes by these propensities.
+- Weights change as the bandit learns, so a user may be re-bucketed between
+  payload refreshes. That is by design: GrowthBook disables sticky bucketing
+  on bandit rules and attributes each user to their first exposure at
+  analysis time.
+- Bandit rules carry their variations under `contextualVariations`, so older
+  SDK versions without bandit support skip the rule and serve the feature's
+  default value.
+- Malformed bandit data degrades safely — fallback leaf `-1` with the rule's
+  aggregate weights — and never blocks the feature update it arrived with.
+- Deferred tracking forwards bandit attribution too: buffered `TrackingData`
+  carries the same fields.
 
 ---
 

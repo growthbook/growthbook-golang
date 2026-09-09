@@ -12,13 +12,15 @@ import (
 )
 
 type FeatureApiResponse struct {
-	Status            int                   `json:"status"`
-	Features          FeatureMap            `json:"features"`
-	DateUpdated       time.Time             `json:"dateUpdated"`
-	SavedGroups       condition.SavedGroups `json:"savedGroups"`
-	EncryptedFeatures string                `json:"encryptedFeatures"`
-	SseSupport        bool
-	Etag              string
+	Status                     int                         `json:"status"`
+	Features                   FeatureMap                  `json:"features"`
+	DateUpdated                time.Time                   `json:"dateUpdated"`
+	SavedGroups                condition.SavedGroups       `json:"savedGroups"`
+	EncryptedFeatures          string                      `json:"encryptedFeatures"`
+	ContextualBandits          ContextualBanditDefinitions `json:"contextualBandits"`
+	EncryptedContextualBandits string                      `json:"encryptedContextualBandits"`
+	SseSupport                 bool
+	Etag                       string
 }
 
 const userAgent = "Growhthbook Go SDK client"

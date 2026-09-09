@@ -207,6 +207,32 @@ func TestRefreshFeatures(t *testing.T) {
 		require.Equal(t, expectedFeatures, client.Features())
 	})
 
+	t.Run("A bandit-only response updates definitions and preserves features", func(t *testing.T) {
+		ts := startServer(http.StatusOK, []byte(`{
+			"contextualBandits": {
+				"cb-1": {"contexts": [{"leafId": 10, "condition": {}, "weights": [1, 0]}]}
+			},
+			"dateUpdated": "2030-01-02T00:00:00Z"
+		}`))
+		defer ts.http.Close()
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithJsonFeatures(`{"bandit-flag": {"defaultValue": "default", "rules": [{
+				"key": "bandit-exp", "coverage": 1, "contextualBanditRef": "cb-1",
+				"contextualVariations": ["a", "b"], "weights": [0.5, 0.5]
+			}]}}`),
+			WithAttributes(Attributes{"id": "u1"}),
+		)
+		require.Nil(t, err)
+
+		require.Nil(t, client.RefreshFeatures(ctx))
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.True(t, res.InExperiment(), "features must survive a bandit-only refresh")
+		require.Equal(t, 10, *res.ExperimentResult.LeafId, "the refreshed definitions must apply")
+	})
+
 	t.Run("Returns error on non-200 response", func(t *testing.T) {
 		ts := startServer(http.StatusNotFound, []byte(""))
 		defer ts.http.Close()

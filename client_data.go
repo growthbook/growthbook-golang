@@ -12,6 +12,7 @@ type data struct {
 	mu                 sync.RWMutex
 	features           FeatureMap
 	savedGroups        condition.SavedGroups
+	contextualBandits  ContextualBanditDefinitions
 	dateUpdated        time.Time
 	apiHost            string
 	clientKey          string
