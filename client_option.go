@@ -75,6 +75,7 @@ func WithUrl(rawUrl string) ClientOption {
 // WithFeatures sets features definitions (usually pulled from an API or cache).
 func WithFeatures(features FeatureMap) ClientOption {
 	return func(c *Client) error {
+		c.pendingEncryptedFeatures = nil
 		return c.SetFeatures(features)
 	}
 }
@@ -82,14 +83,20 @@ func WithFeatures(features FeatureMap) ClientOption {
 // WithJsonFeatures sets features definitions from JSON string.
 func WithJsonFeatures(featuresJson string) ClientOption {
 	return func(c *Client) error {
+		c.pendingEncryptedFeatures = nil
 		return c.SetJSONFeatures(featuresJson)
 	}
 }
 
 // WithEncryptedJsonFeatures sets features definitions from encrypted JSON string.
+//
+// Decryption is deferred until every option has run, so a decryption key given by a later option still
+// applies. A later plain feature option discards the payload, keeping the last feature option the one
+// that wins, and every deferred payload is still decrypted, so an invalid one fails construction even
+// if a valid one follows it.
 func WithEncryptedJsonFeatures(featuresJson string) ClientOption {
 	return func(c *Client) error {
-		c.pendingEncryptedFeatures = featuresJson
+		c.pendingEncryptedFeatures = append(c.pendingEncryptedFeatures, featuresJson)
 		return nil
 	}
 }
