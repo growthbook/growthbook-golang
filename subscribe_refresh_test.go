@@ -212,3 +212,71 @@ func TestFeatureRefreshSubscribersAreCalledFromThePollingDataSource(t *testing.T
 	require.GreaterOrEqual(t, recorder.count(), 1,
 		"a payload fetched by the data source has to reach subscribers too, not just a direct update")
 }
+
+func TestASubscriberMutatingTheResponseCannotChangeEvaluation(t *testing.T) {
+	client, err := NewClient(ctx)
+	require.NoError(t, err)
+
+	unsubscribe := client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
+		resp.Features["injected"] = &Feature{DefaultValue: "from the subscriber"}
+		delete(resp.Features, "feature")
+	})
+	defer unsubscribe()
+
+	require.NoError(t, client.UpdateFromApiResponseJSON(refreshPayload))
+
+	require.Equal(t, 1.0, client.EvalFeature(ctx, "feature").Value,
+		"a subscriber deleting from the response must not remove a feature from the client")
+	require.Nil(t, client.EvalFeature(ctx, "injected").Value,
+		"nor must it be able to add one")
+}
+
+func TestASubscriberMutatingTheResponseCannotReachAnother(t *testing.T) {
+	client, err := NewClient(ctx)
+	require.NoError(t, err)
+
+	first := client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
+		resp.Features["injected"] = &Feature{DefaultValue: true}
+	})
+	defer first()
+
+	var seenByTheSecond FeatureMap
+
+	second := client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
+		seenByTheSecond = resp.Features
+	})
+	defer second()
+
+	require.NoError(t, client.UpdateFromApiResponseJSON(refreshPayload))
+
+	require.NotContains(t, seenByTheSecond, "injected",
+		"each subscriber gets its own response - one must not be able to rewrite what another sees")
+}
+
+func TestASubscriberMutatingSavedGroupsCannotChangeEvaluation(t *testing.T) {
+	const payload = `{
+    "features": {"feature": {"defaultValue": 1}},
+    "savedGroups": {"admins": ["user-1"]},
+    "dateUpdated": "2026-01-01T00:00:00Z"
+  }`
+
+	client, err := NewClient(ctx)
+	require.NoError(t, err)
+
+	unsubscribe := client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
+		delete(resp.SavedGroups, "admins")
+	})
+	defer unsubscribe()
+
+	require.NoError(t, client.UpdateFromApiResponseJSON(payload))
+
+	var seen bool
+
+	check := client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
+		_, seen = resp.SavedGroups["admins"]
+	})
+	defer check()
+
+	require.NoError(t, client.UpdateFromApiResponseJSON(payload))
+	require.True(t, seen, "the earlier subscriber's delete must not have reached the client's saved groups")
+}
