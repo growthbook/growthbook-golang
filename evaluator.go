@@ -17,12 +17,16 @@ type evaluator struct {
 	client            *Client
 	ctx               context.Context
 
-	recording          bool // false when no callbacks, plugins, or buffer consume tracking
-	userCtx            *TrackingUserContext
-	experiments        []TrackingData
-	featureUsage       []featureUsage
-	trackedExperiments map[trackingKey]bool
-	trackedFeatures    map[string]string
+	// recordingExperiments / recordingFeatureUsage are false when nothing
+	// consumes exposures / feature-usage reports, so evaluation skips that
+	// bookkeeping.
+	recordingExperiments  bool
+	recordingFeatureUsage bool
+	userCtx               *TrackingUserContext
+	experiments           []TrackingData
+	featureUsage          []featureUsage
+	trackedExperiments    map[trackingKey]bool
+	trackedFeatures       map[string]trackedValue
 }
 
 func (e *evaluator) evalFeature(key string) *FeatureResult {

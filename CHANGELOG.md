@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- **Fixed:** `EvalFeature` no longer JSON-encodes every evaluated feature
+  value (the requested key and each prerequisite parent) on every call once
+  any tracking consumer is attached. Feature-usage bookkeeping is skipped
+  entirely when only exposure consumers (`ExperimentCallback`,
+  `TrackingBuffer`) are present, and when a `FeatureUsageCallback`, plugin
+  or event logger is present a value is encoded only if its key repeats
+  within the evaluation. Object-valued features were paying a `json.Marshal`
+  per evaluation; what is reported to callbacks, plugins and the event
+  logger is unchanged.
+
 ## [v0.5.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.5.0) - 2026-09-08
 
 - **Added: contextual bandit support** (JS parity): feature rules carrying a
