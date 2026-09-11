@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [v0.5.1](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.5.1) - 2026-09-10
 
 - **Fixed:** `EvalFeature` no longer JSON-encodes every evaluated feature
   value (the requested key and each prerequisite parent) on every call once
