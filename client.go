@@ -394,9 +394,13 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 		contextualBandits: client.data.contextualBandits,
 		client:            client,
 		ctx:               ctx,
-		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
-			client.eventLogger != nil || client.trackingBuffer != nil || len(client.data.plugins) > 0,
 	}
+	// Plugins and the event logger consume both exposures and feature usage;
+	// the tracking buffer and ExperimentCallback only exposures, and
+	// FeatureUsageCallback only feature usage (see fireTracking).
+	both := client.eventLogger != nil || len(client.data.plugins) > 0
+	e.recordingExperiments = both || client.experimentCallback != nil || client.trackingBuffer != nil
+	e.recordingFeatureUsage = both || client.featureUsageCallback != nil
 	client.data.mu.RUnlock()
 	return &e
 }
