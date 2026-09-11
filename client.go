@@ -19,18 +19,19 @@ var (
 
 // Client is a GrowthBook SDK client.
 type Client struct {
-	data                 *data
-	enabled              bool
-	attributes           value.ObjValue
-	url                  *url.URL
-	forcedVariations     ForcedVariationsMap
-	groups               map[string]bool
-	qaMode               bool
-	experimentCallback   ExperimentCallback
-	featureUsageCallback FeatureUsageCallback
-	eventLogger          EventLogger
-	logger               *slog.Logger
-	extraData            any
+	data                     *data
+	enabled                  bool
+	attributes               value.ObjValue
+	url                      *url.URL
+	forcedVariations         ForcedVariationsMap
+	groups                   map[string]bool
+	qaMode                   bool
+	experimentCallback       ExperimentCallback
+	featureUsageCallback     FeatureUsageCallback
+	eventLogger              EventLogger
+	logger                   *slog.Logger
+	pendingEncryptedFeatures []string
+	extraData                any
 	// StickyBucketService for storing experiment assignments
 	stickyBucketService StickyBucketService
 
@@ -69,6 +70,18 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	for _, opt := range opts {
 		err := opt(client)
 		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Decrypted here rather than inside the option, so a decryption key supplied by a later option
+	// still applies. Payloads a later plain feature option superseded were dropped by that option, so
+	// what remains is in order and every one of it is validated.
+	pending := client.pendingEncryptedFeatures
+	client.pendingEncryptedFeatures = nil
+
+	for _, encrypted := range pending {
+		if err := client.SetEncryptedJSONFeatures(encrypted); err != nil {
 			return nil, err
 		}
 	}
