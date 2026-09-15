@@ -84,7 +84,12 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	}
 
 	if client.data.dataSource != nil {
-		go client.startDataSource(ctx)
+		// The data source runs under a context the client owns, so Close can stop it even while
+		// Start is still in flight - at which point dsStarted is not yet set and Close cannot
+		// reach the source itself.
+		dsCtx, cancel := context.WithCancel(ctx)
+		client.data.dsCancel = cancel
+		go client.startDataSource(dsCtx)
 	}
 
 	return client, nil
@@ -102,9 +107,17 @@ func (client *Client) Close() error {
 	}
 
 	ds := client.data.dataSource
-	if ds != nil && client.data.getDsStarted() {
-		if err := ds.Close(); err != nil {
-			errs = append(errs, err)
+	if ds != nil {
+		// Cancelled first: a Start that has not returned yet leaves dsStarted false, so the
+		// Close below would skip it and its goroutines would outlive the client.
+		if cancel := client.data.getDsCancel(); cancel != nil {
+			cancel()
+		}
+
+		if client.data.getDsStarted() {
+			if err := ds.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 

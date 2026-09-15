@@ -14,6 +14,7 @@ type PollDataSource struct {
 	client   *Client
 	logger   *slog.Logger
 	interval time.Duration
+	failures int
 	cancel   context.CancelFunc
 	ready    bool
 	etag     string
@@ -22,6 +23,10 @@ type PollDataSource struct {
 
 func WithPollDataSource(interval time.Duration) ClientOption {
 	return func(c *Client) error {
+		if interval <= 0 {
+			return fmt.Errorf("growthbook: poll interval must be positive, got %v", interval)
+		}
+
 		c.data.dataSource = newPollDataSource(c, interval)
 		return nil
 	}
@@ -42,18 +47,21 @@ func (ds *PollDataSource) Start(ctx context.Context) error {
 	ds.cancel = cancel
 
 	err := ds.loadData(ctx)
-	if err != nil {
-		return err
+
+	if err == nil {
+		ds.logger.InfoContext(ctx, "First load finished")
+	} else {
+		ds.recordOutcome(ctx, false)
 	}
-	ds.logger.InfoContext(ctx, "First load finished")
 
 	ds.mu.Lock()
 	ds.ready = true
 	ds.mu.Unlock()
+
 	go ds.startPolling(ctx)
 	ds.logger.InfoContext(ctx, "Started")
 
-	return nil
+	return err
 }
 
 func (ds *PollDataSource) Close() error {
@@ -70,8 +78,8 @@ func (ds *PollDataSource) Close() error {
 }
 
 func (ds *PollDataSource) startPolling(ctx context.Context) {
-	ticker := time.NewTicker(ds.interval)
-	defer ticker.Stop()
+	timer := time.NewTimer(ds.nextWait())
+	defer timer.Stop()
 
 	for {
 		select {
@@ -81,7 +89,7 @@ func (ds *PollDataSource) startPolling(ctx context.Context) {
 			ds.mu.Unlock()
 			ds.logger.InfoContext(ctx, "Finished polling due to context")
 			return
-		case <-ticker.C:
+		case <-timer.C:
 			err := ds.loadData(ctx)
 			if err != nil {
 				ds.logger.ErrorContext(ctx, "Error loading features", "error", err)
@@ -90,8 +98,33 @@ func (ds *PollDataSource) startPolling(ctx context.Context) {
 				ds.logger.InfoContext(ctx, "Finished polling due to context")
 				return
 			}
+
+			ds.recordOutcome(ctx, err == nil)
+			timer.Reset(ds.nextWait())
 		}
 	}
+}
+
+func (ds *PollDataSource) recordOutcome(ctx context.Context, succeeded bool) {
+	ds.mu.Lock()
+	defer ds.mu.Unlock()
+
+	if succeeded {
+		ds.failures = 0
+		return
+	}
+
+	ds.failures++
+	wait := retryDelay(ds.interval, ds.failures)
+	ds.logger.WarnContext(ctx, "Feature fetch failed",
+		"attempt", ds.failures, "maxAttempts", maxRetryAttempts, "nextAttemptIn", wait)
+}
+
+func (ds *PollDataSource) nextWait() time.Duration {
+	ds.mu.RLock()
+	defer ds.mu.RUnlock()
+
+	return retryDelay(ds.interval, ds.failures)
 }
 
 func (ds *PollDataSource) loadData(ctx context.Context) error {
