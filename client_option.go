@@ -36,7 +36,8 @@ func WithClientKey(clientKey string) ClientOption {
 	}
 }
 
-// WithDecryptionKey sets key used to decrypt encrypted features from the API.
+// WithDecryptionKey sets the key used to decrypt encrypted payload sections,
+// including features, saved groups, and contextual bandits.
 func WithDecryptionKey(decryptionKey string) ClientOption {
 	return func(c *Client) error {
 		c.data.decryptionKey = decryptionKey

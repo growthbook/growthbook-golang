@@ -15,7 +15,7 @@ func NewExistsCond(arg any) ExistsCond {
 	return ExistsCond{expected}
 }
 
-func (op ExistsCond) Eval(actual value.Value, _ SavedGroups) bool {
+func (op ExistsCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
 	if op.expected {
 		return !value.IsNull(actual)
 	} else {

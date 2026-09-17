@@ -9,9 +9,10 @@ import (
 )
 
 var (
-	ErrCryptoInvalidEncryptedFormat = errors.New("Crypto: encrypted data is in invalid format")
-	ErrCryptoInvalidIVLength        = errors.New("Crypto: invalid IV length")
-	ErrCryptoInvalidPadding         = errors.New("Crypto: invalid padding")
+	ErrCryptoInvalidEncryptedFormat  = errors.New("Crypto: encrypted data is in invalid format")
+	ErrCryptoInvalidIVLength         = errors.New("Crypto: invalid IV length")
+	ErrCryptoInvalidCiphertextLength = errors.New("Crypto: invalid ciphertext length")
+	ErrCryptoInvalidPadding          = errors.New("Crypto: invalid padding")
 )
 
 func decrypt(encrypted string, encKey string) (string, error) {
@@ -42,6 +43,9 @@ func decrypt(encrypted string, encKey string) (string, error) {
 
 	if len(iv) != block.BlockSize() {
 		return "", ErrCryptoInvalidIVLength
+	}
+	if len(cipherText) == 0 || len(cipherText)%block.BlockSize() != 0 {
+		return "", ErrCryptoInvalidCiphertextLength
 	}
 
 	mode := cipher.NewCBCDecrypter(block, iv)

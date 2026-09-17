@@ -13,7 +13,7 @@ func NewValueCond(arg any) ValueCond {
 	return ValueCond{value.New(arg)}
 }
 
-func (c ValueCond) Eval(actual value.Value, _ SavedGroups) bool {
+func (c ValueCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
 	return valueCompare(actual, c.expected)
 }
 
@@ -26,6 +26,6 @@ func NewValueCondCaseInsensitive(arg any) ValueCondCaseInsensitive {
 	return ValueCondCaseInsensitive{value.New(arg)}
 }
 
-func (c ValueCondCaseInsensitive) Eval(actual value.Value, _ SavedGroups) bool {
+func (c ValueCondCaseInsensitive) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
 	return equalCaseInsensitive(actual, c.expected)
 }

@@ -12,12 +12,11 @@ func NewInGroupCond(group string) InGroupCond {
 }
 
 func NewNotInGroupCond(group string) Condition {
-	cond := NewInGroupCond(group)
-	return NotCond{cond}
+	return notInGroupCond{group: group}
 }
 
-func (c InGroupCond) Eval(actual value.Value, groups SavedGroups) bool {
-	if arr, ok := groups[c.group]; ok {
+func (c InGroupCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
+	if arr, ok := groups[c.group].(value.ArrValue); ok {
 		for _, v := range arr {
 			if value.Equal(actual, v) {
 				return true
@@ -25,4 +24,17 @@ func (c InGroupCond) Eval(actual value.Value, groups SavedGroups) bool {
 		}
 	}
 	return false
+}
+
+type notInGroupCond struct {
+	group string
+}
+
+func (c notInGroupCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
+	if entry, present := groups[c.group]; present {
+		if _, legacy := entry.(value.ArrValue); !legacy {
+			return false
+		}
+	}
+	return !NewInGroupCond(c.group).Eval(actual, groups, visited)
 }

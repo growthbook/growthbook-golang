@@ -9,7 +9,7 @@ import (
 
 type Const value.BoolValue
 
-func (c Const) Eval(_ value.Value, _ SavedGroups) bool {
+func (c Const) Eval(_ value.Value, _ SavedGroups, _ visitedGroups) bool {
 	return value.BoolValue(c) == value.True()
 }
 
@@ -20,38 +20,38 @@ var (
 
 func TestOr(t *testing.T) {
 	empty := OrConds{}
-	require.True(t, empty.Eval(value.Null(), nil))
+	require.True(t, empty.Eval(value.Null(), nil, nil))
 
 	c1 := OrConds{ct, cf}
-	require.True(t, c1.Eval(value.Null(), nil))
+	require.True(t, c1.Eval(value.Null(), nil, nil))
 
 	c2 := OrConds{cf, cf}
-	require.False(t, c2.Eval(value.Null(), nil))
+	require.False(t, c2.Eval(value.Null(), nil, nil))
 }
 
 func TestAnd(t *testing.T) {
 	empty := AndConds{}
-	require.True(t, empty.Eval(value.Null(), nil))
+	require.True(t, empty.Eval(value.Null(), nil, nil))
 
 	c1 := AndConds{ct, cf}
-	require.False(t, c1.Eval(value.Null(), nil))
+	require.False(t, c1.Eval(value.Null(), nil, nil))
 
 	c2 := AndConds{ct, ct}
-	require.True(t, c2.Eval(value.Null(), nil))
+	require.True(t, c2.Eval(value.Null(), nil, nil))
 }
 
 func TestNot(t *testing.T) {
 	c := NotCond{ct}
-	require.False(t, c.Eval(value.Null(), nil))
+	require.False(t, c.Eval(value.Null(), nil, nil))
 }
 
 func TestNor(t *testing.T) {
 	empty := NorConds{}
-	require.False(t, empty.Eval(value.Null(), nil))
+	require.False(t, empty.Eval(value.Null(), nil, nil))
 
 	c1 := NorConds{ct, cf}
-	require.False(t, c1.Eval(value.Null(), nil))
+	require.False(t, c1.Eval(value.Null(), nil, nil))
 
 	c2 := NorConds{cf, cf}
-	require.True(t, c2.Eval(value.Null(), nil))
+	require.True(t, c2.Eval(value.Null(), nil, nil))
 }

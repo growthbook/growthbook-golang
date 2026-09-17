@@ -6,23 +6,23 @@ import "github.com/growthbook/growthbook-golang/internal/value"
 // one array element.
 type AllConds []Condition
 
-func (cs AllConds) Eval(actual value.Value, groups SavedGroups) bool {
+func (cs AllConds) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
 	arr, ok := actual.(value.ArrValue)
 	if !ok {
 		return false
 	}
 
 	for _, c := range cs {
-		if !check(c, arr, groups) {
+		if !check(c, arr, groups, visited) {
 			return false
 		}
 	}
 	return true
 }
 
-func check(c Condition, arr value.ArrValue, groups SavedGroups) bool {
+func check(c Condition, arr value.ArrValue, groups SavedGroups, visited visitedGroups) bool {
 	for _, v := range arr {
-		if c.Eval(v, groups) {
+		if c.Eval(v, groups, visited) {
 			return true
 		}
 	}
@@ -33,23 +33,23 @@ func check(c Condition, arr value.ArrValue, groups SavedGroups) bool {
 // one array element (case-insensitive for strings).
 type AlliConds []Condition
 
-func (cs AlliConds) Eval(actual value.Value, groups SavedGroups) bool {
+func (cs AlliConds) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
 	arr, ok := actual.(value.ArrValue)
 	if !ok {
 		return false
 	}
 
 	for _, c := range cs {
-		if !checkCaseInsensitive(c, arr, groups) {
+		if !checkCaseInsensitive(c, arr, groups, visited) {
 			return false
 		}
 	}
 	return true
 }
 
-func checkCaseInsensitive(c Condition, arr value.ArrValue, groups SavedGroups) bool {
+func checkCaseInsensitive(c Condition, arr value.ArrValue, groups SavedGroups, visited visitedGroups) bool {
 	for _, v := range arr {
-		if c.Eval(v, groups) {
+		if c.Eval(v, groups, visited) {
 			return true
 		}
 	}

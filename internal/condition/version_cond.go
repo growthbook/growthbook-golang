@@ -18,7 +18,7 @@ func NewVersionCond(op Operator, arg any) VersionCond {
 	return VersionCond{op, version}
 }
 
-func (c VersionCond) Eval(actual value.Value, _ SavedGroups) bool {
+func (c VersionCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
 	switch c.op {
 	case veqOp:
 		return paddedVersionString(actual) == c.version

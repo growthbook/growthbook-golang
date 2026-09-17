@@ -70,6 +70,9 @@ KEYS_TO_DIFF = (
     "getEqualWeights",
     "stickyBucket",
     "contextualBandit",
+    "savedGroupReferencesV2.evalCondition",
+    "savedGroupReferencesV2.feature",
+    "savedGroupReferencesV2.run",
 )
 
 
@@ -157,8 +160,11 @@ def _diff(
     drift_skip = skip.get("drift", {})
 
     for key in KEYS_TO_DIFF:
-        js_list = js_cases.get(key, [])
-        local_list = local_cases.get(key, [])
+        js_list = js_cases
+        local_list = local_cases
+        for part in key.split("."):
+            js_list = js_list.get(part, []) if isinstance(js_list, dict) else []
+            local_list = local_list.get(part, []) if isinstance(local_list, dict) else []
         if not isinstance(js_list, list) or not isinstance(local_list, list):
             continue
 
