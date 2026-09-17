@@ -3,6 +3,7 @@ package condition
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -12,6 +13,31 @@ import (
 // entries are retained so legacy exclusion operators can distinguish them from
 // an absent group. Definitions are compiled once when loading the payload.
 type SavedGroups map[string]any
+
+// Normalize compiles native Go definitions using the JSON loading rules without
+// changing the caller's map. Already-parsed entries are reused, not recompiled.
+func (sg SavedGroups) Normalize() (SavedGroups, error) {
+	if sg == nil {
+		return nil, nil
+	}
+	parsed := make(SavedGroups, len(sg))
+	for id, group := range sg {
+		switch group.(type) {
+		case savedGroup, value.ArrValue:
+			parsed[id] = group
+		default:
+			raw, err := json.Marshal(group)
+			if err != nil {
+				return nil, fmt.Errorf("saved group %q: %w", id, err)
+			}
+			parsed[id], err = parseSavedGroupEntry(raw)
+			if err != nil {
+				return nil, fmt.Errorf("saved group %q: %w", id, err)
+			}
+		}
+	}
+	return parsed, nil
+}
 
 type savedGroup struct {
 	raw  json.RawMessage
@@ -31,18 +57,25 @@ func (sg *SavedGroups) UnmarshalJSON(data []byte) error {
 	}
 	parsed := make(SavedGroups, len(groups))
 	for id, raw := range groups {
-		if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
-			var values []any
-			if err := json.Unmarshal(raw, &values); err != nil {
-				return err
-			}
-			parsed[id] = value.New(values)
-		} else {
-			parsed[id] = savedGroup{raw: raw, cond: parseSavedGroup(raw)}
+		group, err := parseSavedGroupEntry(raw)
+		if err != nil {
+			return err
 		}
+		parsed[id] = group
 	}
 	*sg = parsed
 	return nil
+}
+
+func parseSavedGroupEntry(raw json.RawMessage) (any, error) {
+	if bytes.HasPrefix(bytes.TrimSpace(raw), []byte("[")) {
+		var values []any
+		if err := json.Unmarshal(raw, &values); err != nil {
+			return nil, err
+		}
+		return value.New(values), nil
+	}
+	return savedGroup{raw: raw, cond: parseSavedGroup(raw)}, nil
 }
 
 func parseSavedGroup(raw json.RawMessage) Condition {

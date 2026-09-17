@@ -209,6 +209,11 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 			savedGroups = decrypted
 		}
 	}
+	// Direct callers may supply native Go definitions instead of decoded JSON.
+	savedGroups, err = savedGroups.Normalize()
+	if err != nil {
+		return err
+	}
 	savedGroupsPresent := savedGroups != nil
 	// Section-presence semantics: an absent contextualBandits section
 	// preserves the previous definitions, an explicit empty (or null)

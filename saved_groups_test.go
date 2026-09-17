@@ -7,17 +7,101 @@ import (
 	"crypto/cipher"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/growthbook/growthbook-golang/internal/condition"
+	"github.com/growthbook/growthbook-golang/internal/value"
 	"github.com/stretchr/testify/require"
 	"github.com/tmaxmax/go-sse"
 )
 
 const savedGroupsTestKey = "Zvwv/+uhpFDznZ6SX28Yjg=="
+
+// TestProgrammaticSavedGroups checks that native Go definitions behave like JSON
+// payloads through both the client option and direct API-response updates.
+func TestProgrammaticSavedGroups(t *testing.T) {
+	groups := map[string]any{
+		"legacy":    []string{"u1"},
+		"list":      map[string]any{"type": "list", "attributeKey": "id", "values": []string{"u1"}},
+		"condition": map[string]any{"type": "condition", "condition": map[string]any{"$savedGroup": "list"}},
+		"cycle":     map[string]any{"type": "condition", "condition": map[string]any{"$savedGroup": "cycle"}},
+		"malformed": map[string]any{"type": "list", "attributeKey": "id"},
+	}
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name, cond string
+		matches    bool
+	}{
+		{"legacy", `{"id":{"$inGroup":"legacy"}}`, true},
+		{"list", `{"$savedGroup":"list"}`, true},
+		{"condition", `{"$savedGroup":"condition"}`, true},
+		{"cycle", `{"$savedGroup":"cycle"}`, false},
+		{"malformed", `{"$savedGroup":"malformed"}`, false},
+	} {
+		for _, path := range []string{"option", "response", "json"} {
+			t.Run(tc.name+"/"+path, func(t *testing.T) {
+				features := fmt.Sprintf(`{"flag":{"defaultValue":false,"rules":[{"condition":%s,"force":true}]}}`, tc.cond)
+				opts := []ClientOption{WithJsonFeatures(features)}
+				if path == "option" {
+					opts = append(opts, WithSavedGroups(groups))
+				}
+				client, err := NewClient(ctx, opts...)
+				require.NoError(t, err)
+				if path == "response" {
+					require.NoError(t, client.UpdateFromApiResponse(&FeatureApiResponse{SavedGroups: groups}))
+				} else if path == "json" {
+					payload, err := json.Marshal(map[string]any{"savedGroups": groups})
+					require.NoError(t, err)
+					require.NoError(t, client.UpdateFromApiResponseJSON(string(payload)))
+				}
+				for _, id := range []string{"u1", "u2"} {
+					child, err := client.WithAttributes(Attributes{"id": id})
+					require.NoError(t, err)
+					require.Equal(t, tc.matches && id == "u1", child.EvalFeature(ctx, "flag").Value)
+				}
+			})
+		}
+	}
+	// Loading must not replace entries in the caller's map.
+	require.IsType(t, map[string]any{}, groups["list"])
+}
+
+// TestWithSavedGroupsParsedDefinitions preserves legacy values and v2 groups
+// that have already been decoded, including the distinction between nil and empty.
+func TestWithSavedGroupsParsedDefinitions(t *testing.T) {
+	var parsed condition.SavedGroups
+	require.NoError(t, json.Unmarshal([]byte(`{"g":{"type":"condition","condition":{}}}`), &parsed))
+	for _, groups := range []condition.SavedGroups{nil, {}, {"legacy": value.Arr("u1")}, parsed} {
+		client, err := NewClient(context.Background(), WithSavedGroups(groups))
+		require.NoError(t, err)
+		require.Equal(t, groups, client.data.savedGroups)
+	}
+}
+
+// TestProgrammaticSavedGroupsInvalidEncoding rejects values that cannot be JSON
+// encoded without replacing previously loaded groups or partially applying updates.
+func TestProgrammaticSavedGroupsInvalidEncoding(t *testing.T) {
+	ctx := context.Background()
+	invalid := map[string]any{"bad": make(chan int)}
+	_, err := NewClient(ctx, WithSavedGroups(invalid))
+	var unsupported *json.UnsupportedTypeError
+	require.ErrorAs(t, err, &unsupported)
+	client, err := NewClient(ctx, WithSavedGroups(map[string]any{"legacy": []string{"u1"}}))
+	require.NoError(t, err)
+	previous := client.data.savedGroups
+	err = client.UpdateFromApiResponse(&FeatureApiResponse{
+		SavedGroups: invalid,
+		Features:    FeatureMap{"new": &Feature{DefaultValue: true}},
+	})
+	require.ErrorAs(t, err, &unsupported)
+	require.Equal(t, previous, client.data.savedGroups)
+	require.NotContains(t, client.data.features, "new")
+}
 
 func encryptSavedGroupsTestJSON(t *testing.T, plaintext string) string {
 	t.Helper()

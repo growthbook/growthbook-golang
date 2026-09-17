@@ -65,7 +65,11 @@ func WithContextualBandits(bandits ContextualBanditDefinitions) ClientOption {
 // WithSavedGroups sets saved groups used to target the same group of users across multiple features and experiments.
 func WithSavedGroups(savedGroups condition.SavedGroups) ClientOption {
 	return func(c *Client) error {
-		c.data.savedGroups = savedGroups
+		parsed, err := savedGroups.Normalize()
+		if err != nil {
+			return err
+		}
+		c.data.savedGroups = parsed
 		return nil
 	}
 }
