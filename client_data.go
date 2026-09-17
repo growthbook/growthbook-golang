@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"context"
 	"net/http"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ type data struct {
 	dsStarted         bool
 	dsStartWait       chan struct{}
 	dsStartErr        error
+	dsCancel          context.CancelFunc
 	plugins           []Plugin
 	subscribers       subscriberRegistry
 }
@@ -68,6 +70,12 @@ func (d *data) getDsStarted() bool {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.dsStarted
+}
+
+func (d *data) getDsCancel() context.CancelFunc {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.dsCancel
 }
 
 func (d *data) getPlugins() []Plugin {

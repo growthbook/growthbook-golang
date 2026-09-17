@@ -264,3 +264,199 @@ func sseResponse(response string, delay time.Duration, lim int) sseResponseGen {
 		}
 	}
 }
+
+// silentSseStream holds a successful connection open without ever sending an event, the way a real
+// stream behaves while no flag changes. Nothing but a reload can fill the client data here.
+func silentSseStream(connected *atomic.Int32) sseResponseGen {
+	return func(ctx context.Context, w http.ResponseWriter) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.WriteHeader(http.StatusOK)
+		w.(http.Flusher).Flush()
+		connected.Add(1)
+
+		<-ctx.Done()
+	}
+}
+
+func TestSseRetryDelayGrowsTowardsTheCap(t *testing.T) {
+	const max = 30 * time.Second
+
+	require.Equal(t, 1*time.Second, sseRetryDelay(max, 1))
+	require.Equal(t, 2*time.Second, sseRetryDelay(max, 2))
+	require.Equal(t, 4*time.Second, sseRetryDelay(max, 3))
+	require.Equal(t, 8*time.Second, sseRetryDelay(max, 4))
+	require.Equal(t, 16*time.Second, sseRetryDelay(max, 5))
+
+	require.Equal(t, max, sseRetryDelay(max, 6), "the wait settles at the cap")
+	require.Equal(t, max, sseRetryDelay(max, 1000), "and stays there rather than overflowing")
+
+	require.Equal(t, 500*time.Millisecond, sseRetryDelay(500*time.Millisecond, 1),
+		"a cap below the first step is a ceiling, not a floor")
+	require.Equal(t, 4*time.Second, sseRetryDelay(0, 3), "a nonpositive cap falls back to the default ceiling")
+	require.Equal(t, defaultMaxRetryInterval, sseRetryDelay(0, 99), "and settles there")
+	require.Equal(t, 1*time.Second, sseRetryDelay(max, 0), "a nonpositive attempt counts as the first")
+}
+
+func TestSseKeepsTheFeaturesOfAHostThatDoesNotServeTheStream(t *testing.T) {
+	var apiCalls, connections atomic.Int32
+	stream := silentSseStream(&connections)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/features/somekey":
+			apiCalls.Add(1)
+			// No x-sse-support header, as a proxy that strips it would leave things.
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"features":{"feature":{"defaultValue":1}}}`))
+		case "/sub/somekey":
+			stream(r.Context(), w)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.URL),
+		WithClientKey("somekey"),
+		WithSseDataSource(WithSseMaxRetryInterval(20*time.Millisecond)),
+	)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	require.Error(t, client.EnsureLoaded(ctx), "the host does not serve the stream, and the caller learns that")
+	require.NotNil(t, client.EvalFeature(ctx, "feature").Value,
+		"the payload was valid and has to survive the missing header")
+
+	settled := apiCalls.Load()
+	time.Sleep(200 * time.Millisecond)
+
+	require.Equal(t, settled, apiCalls.Load(),
+		"nothing was left to retry once the load delivered its features")
+}
+
+func TestSseStopsRetryingTheInitialLoadOnARejectedKey(t *testing.T) {
+	var apiCalls, connections atomic.Int32
+	stream := silentSseStream(&connections)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/features/somekey":
+			apiCalls.Add(1)
+			w.WriteHeader(http.StatusUnauthorized)
+		case "/sub/somekey":
+			stream(r.Context(), w)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.URL),
+		WithClientKey("somekey"),
+		WithSseDataSource(WithSseMaxRetryInterval(20*time.Millisecond)),
+	)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	require.Error(t, client.EnsureLoaded(ctx))
+
+	time.Sleep(200 * time.Millisecond)
+	settled := apiCalls.Load()
+	time.Sleep(300 * time.Millisecond)
+
+	require.Equal(t, settled, apiCalls.Load(),
+		"a rejected key does not become valid by asking again - the retry has to give up")
+}
+
+func TestSseRetriesTheInitialLoadWhileTheStreamStaysSilent(t *testing.T) {
+	features := `{"feature":{"defaultValue":1}}`
+
+	var apiCalls, connections atomic.Int32
+	stream := silentSseStream(&connections)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/features/somekey":
+			if apiCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Add("x-sse-support", "enabled")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"features":%s}`, features)))
+		case "/sub/somekey":
+			stream(r.Context(), w)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.URL),
+		WithClientKey("somekey"),
+		WithSseDataSource(WithSseMaxRetryInterval(20*time.Millisecond)),
+	)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	require.Error(t, client.EnsureLoaded(ctx), "the first load failed, and the caller learns that here")
+
+	deadline := time.Now().Add(5 * time.Second)
+
+	for time.Now().Before(deadline) {
+		if client.EvalFeature(ctx, "feature").Value != nil {
+			require.Positive(t, connections.Load(),
+				"the stream has to be connected, or this passes for the wrong reason")
+			return
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	require.Fail(t, "the initial load was never retried, so the client stayed empty")
+}
+
+func TestSseConnectsAfterAFailedFirstLoad(t *testing.T) {
+	features := `{"feature":{"defaultValue":1}}`
+
+	var apiCalls atomic.Int32
+	stream := sseResponse(features, 10*time.Millisecond, 8)
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/features/somekey":
+			if apiCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Add("x-sse-support", "enabled")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(fmt.Sprintf(`{"features":%s}`, features)))
+		case "/sub/somekey":
+			stream(r.Context(), w)
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.URL),
+		WithClientKey("somekey"),
+		WithSseDataSource(),
+	)
+	require.NoError(t, err, "NewClient does not surface a data source start failure")
+	require.NotNil(t, client)
+	defer func() { _ = client.Close() }()
+
+	deadline := time.Now().Add(5 * time.Second)
+
+	for time.Now().Before(deadline) {
+		if client.EvalFeature(ctx, "feature").Value != nil {
+			return
+		}
+
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	require.Fail(t, "the SSE stream never connected after the first load failed")
+}
