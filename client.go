@@ -164,7 +164,12 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 }
 
 // UpdateFromApiResponse updates shared data from Growthbook API response
+// UpdateFromApiResponse applies a feature payload to the client.
 func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+	return client.updateFromApiResponse(context.Background(), resp)
+}
+
+func (client *Client) updateFromApiResponse(ctx context.Context, resp *FeatureApiResponse) error {
 	dataUpdated := client.data.getDateUpdated()
 	apiUpdated := resp.DateUpdated
 	if apiUpdated.Before(dataUpdated) {
@@ -223,6 +228,9 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
+
+	client.notifyFeatureRefreshSubscribers(ctx, resp)
+
 	return nil
 }
 
@@ -239,13 +247,18 @@ func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
 	return features, err
 }
 
+// UpdateFromApiResponseJSON applies a feature payload, given as the raw API response JSON.
 func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
+	return client.updateFromApiResponseJSON(context.Background(), respJSON)
+}
+
+func (client *Client) updateFromApiResponseJSON(ctx context.Context, respJSON string) error {
 	var resp FeatureApiResponse
 	err := json.Unmarshal([]byte(respJSON), &resp)
 	if err != nil {
 		return err
 	}
-	return client.UpdateFromApiResponse(&resp)
+	return client.updateFromApiResponse(ctx, &resp)
 }
 
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
