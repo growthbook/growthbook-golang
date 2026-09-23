@@ -40,8 +40,9 @@ func (sg SavedGroups) Normalize() (SavedGroups, error) {
 }
 
 type savedGroup struct {
-	raw  json.RawMessage
-	cond Condition
+	raw        json.RawMessage
+	cond       Condition
+	membership *InCond
 }
 
 func (g savedGroup) MarshalJSON() ([]byte, error) { return g.raw, nil }
@@ -75,48 +76,51 @@ func parseSavedGroupEntry(raw json.RawMessage) (any, error) {
 		}
 		return value.New(values), nil
 	}
-	return savedGroup{raw: raw, cond: parseSavedGroup(raw)}, nil
+	return parseSavedGroup(raw), nil
 }
 
-func parseSavedGroup(raw json.RawMessage) Condition {
+func parseSavedGroup(raw json.RawMessage) savedGroup {
+	group := savedGroup{raw: raw, cond: False{}}
 	var entry map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &entry); err != nil {
-		return False{}
+		return group
 	}
 	var kind string
 	if err := json.Unmarshal(entry["type"], &kind); err != nil {
-		return False{}
+		return group
 	}
 	// Select the evaluator at load time: list membership or a parsed condition.
 	switch kind {
 	case "list":
-		var attributeKey *string
-		if err := json.Unmarshal(entry["attributeKey"], &attributeKey); err != nil || attributeKey == nil {
-			return False{}
-		}
 		if !bytes.HasPrefix(bytes.TrimSpace(entry["values"]), []byte("[")) {
-			return False{}
+			return group
 		}
 		var values []any
 		if err := json.Unmarshal(entry["values"], &values); err != nil {
-			return False{}
+			return group
 		}
-		return savedGroupListCond{
+		// Legacy operators only need values; $savedGroup also needs an attribute.
+		membership := NewInCond(value.New(values).(value.ArrValue))
+		group.membership = &membership
+		var attributeKey *string
+		if err := json.Unmarshal(entry["attributeKey"], &attributeKey); err != nil || attributeKey == nil {
+			return group
+		}
+		group.cond = savedGroupListCond{
 			path:       strings.Split(*attributeKey, "."),
-			membership: NewInCond(value.New(values).(value.ArrValue)),
+			membership: membership,
 		}
 	case "condition":
 		if !bytes.HasPrefix(bytes.TrimSpace(entry["condition"]), []byte("{")) {
-			return False{}
+			return group
 		}
 		var cond Base
 		if err := json.Unmarshal(entry["condition"], &cond); err != nil {
-			return False{}
+			return group
 		}
 		// Reuse the compiled condition, not Base.Eval, which starts a new
 		// evaluation and would discard the caller's cycle guard.
-		return cond.cond
-	default:
-		return False{}
+		group.cond = cond.cond
 	}
+	return group
 }

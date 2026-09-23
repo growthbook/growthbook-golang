@@ -16,14 +16,8 @@ func NewNotInGroupCond(group string) Condition {
 }
 
 func (c InGroupCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
-	if arr, ok := groups[c.group].(value.ArrValue); ok {
-		for _, v := range arr {
-			if value.Equal(actual, v) {
-				return true
-			}
-		}
-	}
-	return false
+	membership, ok := savedGroupMembership(groups, c.group)
+	return ok && membership.Eval(actual, groups, visited)
 }
 
 type notInGroupCond struct {
@@ -31,10 +25,23 @@ type notInGroupCond struct {
 }
 
 func (c notInGroupCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
-	if entry, present := groups[c.group]; present {
-		if _, legacy := entry.(value.ArrValue); !legacy {
-			return false
+	membership, ok := savedGroupMembership(groups, c.group)
+	return ok && !membership.Eval(actual, groups, visited)
+}
+
+func savedGroupMembership(groups SavedGroups, id string) (InCond, bool) {
+	entry, present := groups[id]
+	if !present {
+		// Only missing IDs behave as empty lists; malformed entries fail closed.
+		return InCond{}, true
+	}
+	switch group := entry.(type) {
+	case value.ArrValue:
+		return InCond{expected: group}, true
+	case savedGroup:
+		if group.membership != nil {
+			return *group.membership, true
 		}
 	}
-	return !NewInGroupCond(c.group).Eval(actual, groups, visited)
+	return InCond{}, false
 }

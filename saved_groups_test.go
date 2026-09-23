@@ -28,8 +28,9 @@ func TestProgrammaticSavedGroups(t *testing.T) {
 	groups := map[string]any{
 		"legacy":    []string{"u1"},
 		"list":      map[string]any{"type": "list", "attributeKey": "id", "values": []string{"u1"}},
-		"condition": map[string]any{"type": "condition", "condition": map[string]any{"$savedGroup": "list"}},
-		"cycle":     map[string]any{"type": "condition", "condition": map[string]any{"$savedGroup": "cycle"}},
+		"other":     map[string]any{"type": "list", "attributeKey": "other_id", "values": []string{"u1"}},
+		"condition": map[string]any{"type": "condition", "condition": map[string]any{"$savedGroup": map[string]any{"id": "list"}}},
+		"cycle":     map[string]any{"type": "condition", "condition": map[string]any{"$savedGroup": map[string]any{"id": "cycle"}}},
 		"malformed": map[string]any{"type": "list", "attributeKey": "id"},
 	}
 	ctx := context.Background()
@@ -38,10 +39,12 @@ func TestProgrammaticSavedGroups(t *testing.T) {
 		matches    bool
 	}{
 		{"legacy", `{"id":{"$inGroup":"legacy"}}`, true},
-		{"list", `{"$savedGroup":"list"}`, true},
-		{"condition", `{"$savedGroup":"condition"}`, true},
-		{"cycle", `{"$savedGroup":"cycle"}`, false},
-		{"malformed", `{"$savedGroup":"malformed"}`, false},
+		{"typed list via legacy operator", `{"id":{"$inGroup":"list"}}`, true},
+		{"list", `{"$savedGroup":{"id":"list"}}`, true},
+		{"list override", `{"$savedGroup":{"id":"other","attributeKey":"id"}}`, true},
+		{"condition", `{"$savedGroup":{"id":"condition"}}`, true},
+		{"cycle", `{"$savedGroup":{"id":"cycle"}}`, false},
+		{"malformed", `{"$savedGroup":{"id":"malformed"}}`, false},
 	} {
 		for _, path := range []string{"option", "response", "json"} {
 			t.Run(tc.name+"/"+path, func(t *testing.T) {
@@ -125,7 +128,11 @@ func TestEncryptedSavedGroupsLoadingPaths(t *testing.T) {
 		// Legacy arrays remain usable through the attribute-level $inGroup operator.
 		{"legacy", `{"beta":["u1"]}`, `{"id":{"$inGroup":"beta"}}`},
 		// A v2 condition group references a list group through top-level $savedGroup.
-		{"v2", `{"beta":{"type":"list","attributeKey":"id","values":["u1"]},"eligible":{"type":"condition","condition":{"$savedGroup":"beta"}}}`, `{"$savedGroup":"eligible"}`},
+		{"v2", `{"beta":{"type":"list","attributeKey":"id","values":["u1"]},"eligible":{"type":"condition","condition":{"$savedGroup":{"id":"beta"}}}}`, `{"$savedGroup":{"id":"eligible"}}`},
+		{"v2 override", `{"beta":{"type":"list","attributeKey":"other_id","values":["u1"]}}`, `{"$savedGroup":{"id":"beta","attributeKey":"id"}}`},
+		// Legacy operators can survive in a v2 payload and still read typed lists.
+		{"v2 inGroup", `{"beta":{"type":"list","attributeKey":"id","values":["u1"]}}`, `{"id":{"$inGroup":"beta"}}`},
+		{"v2 notInGroup", `{"beta":{"type":"list","attributeKey":"id","values":["u2"]}}`, `{"id":{"$notInGroup":"beta"}}`},
 	} {
 		// Each loading path must match plaintext evaluation for members and nonmembers.
 		for _, transport := range []string{"manual", "refresh", "poll", "sse"} {
@@ -175,7 +182,7 @@ func TestEncryptedSavedGroupsLoadingPaths(t *testing.T) {
 // and failure handling across updates, including shared child state and stale data.
 func TestEncryptedSavedGroupsUpdates(t *testing.T) {
 	ctx := context.Background()
-	initial := `{"features":{"flag":{"defaultValue":false,"rules":[{"condition":{"$savedGroup":"g"},"force":true}]}},"savedGroups":{"g":{"type":"list","attributeKey":"id","values":["u1"]}}}`
+	initial := `{"features":{"flag":{"defaultValue":false,"rules":[{"condition":{"$savedGroup":{"id":"g"}},"force":true}]}},"savedGroups":{"g":{"type":"list","attributeKey":"id","values":["u1"]}}}`
 	for _, tc := range []struct {
 		name, key, plaintext, encrypted string
 		want                            bool
@@ -239,7 +246,7 @@ func TestSavedGroupsConcurrentUpdates(t *testing.T) {
 	// Repeated sibling references and concurrent child evaluations must not share
 	// cycle-tracking state, even while the shared group definitions are replaced.
 	ctx := context.Background()
-	client, err := NewClient(ctx, WithDecryptionKey(savedGroupsTestKey), WithAttributes(Attributes{"id": "u1"}), WithJsonFeatures(`{"flag":{"defaultValue":false,"rules":[{"condition":{"$and":[{"$savedGroup":"g"},{"$savedGroup":"g"}]},"force":true}]}}`))
+	client, err := NewClient(ctx, WithDecryptionKey(savedGroupsTestKey), WithAttributes(Attributes{"id": "u1"}), WithJsonFeatures(`{"flag":{"defaultValue":false,"rules":[{"condition":{"$and":[{"$savedGroup":{"id":"g"}},{"$savedGroup":{"id":"g"}}]},"force":true}]}}`))
 	require.NoError(t, err)
 	response := FeatureApiResponse{EncryptedSavedGroups: encryptSavedGroupsTestJSON(t, `{"g":{"type":"condition","condition":{"id":"u1"}}}`)}
 	require.NoError(t, client.UpdateFromApiResponse(&response))

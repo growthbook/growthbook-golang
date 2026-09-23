@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
@@ -95,11 +96,23 @@ func orderedConditionKeys(obj value.ObjValue) []string {
 func buildLogicCond(op string, arg value.Value) (Condition, error) {
 	switch Operator(op) {
 	case savedGroupOp:
-		id, ok := arg.(value.StrValue)
+		reference, ok := arg.(value.ObjValue)
 		if !ok {
 			return False{}, nil
 		}
-		return savedGroupCond{id: string(id)}, nil
+		id, ok := reference["id"].(value.StrValue)
+		if !ok {
+			return False{}, nil
+		}
+		cond := savedGroupCond{id: string(id)}
+		if key, present := reference["attributeKey"]; present {
+			attributeKey, ok := key.(value.StrValue)
+			if !ok {
+				return False{}, nil
+			}
+			cond.overridePath = strings.Split(string(attributeKey), ".")
+		}
+		return cond, nil
 	case "$savedGroups":
 		// The plural operator is authoring-only and never valid on the wire.
 		return False{}, nil

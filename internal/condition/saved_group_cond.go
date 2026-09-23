@@ -11,7 +11,8 @@ import (
 type visitedGroups map[string]struct{}
 
 type savedGroupCond struct {
-	id string
+	id           string
+	overridePath []string // nil uses the entry's attribute; [""] targets an empty key.
 }
 
 func (c savedGroupCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
@@ -28,6 +29,10 @@ func (c savedGroupCond) Eval(actual value.Value, groups SavedGroups, visited vis
 		next[id] = struct{}{}
 	}
 	next[c.id] = struct{}{}
+	// Overrides apply only to lists, without modifying the shared definition.
+	if c.overridePath != nil && group.membership != nil {
+		return (savedGroupListCond{path: c.overridePath, membership: *group.membership}).Eval(actual, groups, next)
+	}
 	// The group's list/condition evaluator was selected when the payload loaded.
 	return group.cond.Eval(actual, groups, next)
 }
