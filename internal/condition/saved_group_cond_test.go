@@ -219,7 +219,11 @@ func TestSavedGroupLongAcyclicChain(t *testing.T) {
 func TestSavedGroupsJSONRoundTrip(t *testing.T) {
 	raw := `{"legacy":["u1",2],"list":{"type":"list","attributeKey":"id","values":["u1"]},"condition":{"type":"condition","condition":{"$savedGroup":{"id":"list"}}},"future":{"type":"future","extra":true},"invalid":null}`
 	var groups SavedGroups
-	require.NoError(t, json.Unmarshal([]byte(raw), &groups))
+	input := []byte(raw)
+	require.NoError(t, json.Unmarshal(input, &groups))
+	for i := range input {
+		input[i] = 'x'
+	}
 	encoded, err := json.Marshal(groups)
 	require.NoError(t, err)
 	require.JSONEq(t, raw, string(encoded))
