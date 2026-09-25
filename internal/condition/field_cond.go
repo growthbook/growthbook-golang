@@ -11,13 +11,13 @@ type FieldCond struct {
 	cond Condition
 }
 
-func (c FieldCond) Eval(actual value.Value, groups SavedGroups) bool {
+func (c FieldCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
 	obj, ok := actual.(value.ObjValue)
 	if !ok {
 		return false
 	}
 	fieldValue := obj.Path(c.path...)
-	return c.cond.Eval(fieldValue, groups)
+	return c.cond.Eval(fieldValue, groups, visited)
 }
 
 func NewFieldCond(pathStr string, cond Condition) FieldCond {

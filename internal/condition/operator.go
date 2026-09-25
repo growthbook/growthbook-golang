@@ -3,10 +3,11 @@ package condition
 type Operator string
 
 const (
-	andOp Operator = "$and"
-	orOp  Operator = "$or"
-	norOp Operator = "$nor"
-	notOp Operator = "$not"
+	andOp        Operator = "$and"
+	orOp         Operator = "$or"
+	norOp        Operator = "$nor"
+	notOp        Operator = "$not"
+	savedGroupOp Operator = "$savedGroup"
 
 	eqOp  Operator = "$eq"
 	neOp  Operator = "$ne"
@@ -29,9 +30,9 @@ const (
 	iniOp        Operator = "$ini"
 	niniOp       Operator = "$nini"
 
-	regexOp  Operator = "$regex"
-	regexiOp Operator = "$regexi"
-	sizeOp   Operator = "$size"
+	regexOp     Operator = "$regex"
+	regexiOp    Operator = "$regexi"
+	sizeOp      Operator = "$size"
 	elemMatchOp Operator = "$elemMatch"
 	allOp       Operator = "$all"
 	alliOp      Operator = "$alli"

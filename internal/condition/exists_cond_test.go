@@ -20,6 +20,6 @@ func TestExistsCond(t *testing.T) {
 	}
 	for _, tt := range tests {
 		cond := NewExistsCond(tt.expected)
-		require.Equal(t, tt.res, cond.Eval(value.New(tt.value), nil))
+		require.Equal(t, tt.res, cond.Eval(value.New(tt.value), nil, nil))
 	}
 }

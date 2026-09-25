@@ -27,7 +27,7 @@ func TestTypeCond(t *testing.T) {
 	}
 	for _, tt := range tests {
 		var c Condition = NewTypeCond(tt.t)
-		require.Equal(t, tt.r, c.Eval(tt.v, nil), "%v not of type %v", tt.v, tt.t)
+		require.Equal(t, tt.r, c.Eval(tt.v, nil, nil), "%v not of type %v", tt.v, tt.t)
 	}
 
 }

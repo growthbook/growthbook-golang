@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
@@ -191,7 +192,29 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		features = resp.Features
 		featuresPresent = true
 	}
-	savedGroupsPresent := resp.SavedGroups != nil
+	savedGroups := resp.SavedGroups
+	if resp.EncryptedSavedGroups != "" {
+		// Like DecryptFeatures, decrypt with the client's key, then parse JSON;
+		// this section decodes into SavedGroups instead of FeatureMap.
+		groupsJSON, err := client.data.decrypt(resp.EncryptedSavedGroups)
+		var decrypted condition.SavedGroups
+		if err == nil {
+			err = json.Unmarshal([]byte(groupsJSON), &decrypted)
+		}
+		if err != nil {
+			// Match the reference SDK: ignore a failed encrypted section and
+			// retain any plaintext fallback or previously loaded groups.
+			client.logger.Warn("Ignoring undecodable encrypted saved groups", "error", err)
+		} else {
+			savedGroups = decrypted
+		}
+	}
+	// Direct callers may supply native Go definitions instead of decoded JSON.
+	savedGroups, err = savedGroups.Normalize()
+	if err != nil {
+		return err
+	}
+	savedGroupsPresent := savedGroups != nil
 	// Section-presence semantics: an absent contextualBandits section
 	// preserves the previous definitions, an explicit empty (or null)
 	// section clears them, and a section that fails to decrypt is ignored
@@ -215,7 +238,7 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 			d.features = features
 		}
 		if savedGroupsPresent {
-			d.savedGroups = resp.SavedGroups
+			d.savedGroups = savedGroups
 		}
 		if banditsPresent {
 			d.contextualBandits = bandits
