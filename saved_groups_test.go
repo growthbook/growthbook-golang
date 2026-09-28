@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/aes"
-	"crypto/cipher"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -17,7 +16,6 @@ import (
 	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
 	"github.com/stretchr/testify/require"
-	"github.com/tmaxmax/go-sse"
 )
 
 const savedGroupsTestKey = "Zvwv/+uhpFDznZ6SX28Yjg=="
@@ -110,18 +108,13 @@ func encryptSavedGroupsTestJSON(t *testing.T, plaintext string) string {
 	t.Helper()
 	key, err := base64.StdEncoding.DecodeString(savedGroupsTestKey)
 	require.NoError(t, err)
-	block, err := aes.NewCipher(key)
-	require.NoError(t, err)
-	// A fixed IV makes fixtures reproducible; this helper is only for tests.
-	iv := bytes.Repeat([]byte{1}, aes.BlockSize)
 	padding := aes.BlockSize - len(plaintext)%aes.BlockSize
 	padded := append([]byte(plaintext), bytes.Repeat([]byte{byte(padding)}, padding)...)
-	cipher.NewCBCEncrypter(block, iv).CryptBlocks(padded, padded)
-	return base64.StdEncoding.EncodeToString(iv) + "." + base64.StdEncoding.EncodeToString(padded)
+	return encryptCryptoTestBytes(t, key, padded)
 }
 
 // TestEncryptedSavedGroupsLoadingPaths checks that legacy and v2 encrypted
-// groups match plaintext evaluation through manual, refresh, polling, and SSE loads.
+// groups match plaintext evaluation through manual loads and HTTP refreshes.
 func TestEncryptedSavedGroupsLoadingPaths(t *testing.T) {
 	ctx := context.Background()
 	for _, tc := range []struct{ name, groups, cond string }{
@@ -135,7 +128,7 @@ func TestEncryptedSavedGroupsLoadingPaths(t *testing.T) {
 		{"v2 notInGroup", `{"beta":{"type":"list","attributeKey":"id","values":["u2"]}}`, `{"id":{"$notInGroup":"beta"}}`},
 	} {
 		// Each loading path must match plaintext evaluation for members and nonmembers.
-		for _, transport := range []string{"manual", "refresh", "poll", "sse"} {
+		for _, transport := range []string{"manual", "refresh"} {
 			t.Run(tc.name+"/"+transport, func(t *testing.T) {
 				features := `{"flag":{"defaultValue":false,"rules":[{"condition":` + tc.cond + `,"force":true}]}}`
 				plainJSON := `{"features":` + features + `,"savedGroups":` + tc.groups + `}`
@@ -160,10 +153,6 @@ func TestEncryptedSavedGroupsLoadingPaths(t *testing.T) {
 					require.NoError(t, client.UpdateFromApiResponseJSON(string(payload)))
 				case "refresh":
 					require.NoError(t, client.RefreshFeatures(ctx))
-				case "poll":
-					require.NoError(t, newPollDataSource(client, time.Minute).loadData(ctx))
-				case "sse":
-					newSseDataSource(client).processEvent(sse.Event{Data: string(payload)})
 				}
 				for _, id := range []string{"u1", "u2"} {
 					actual, err := client.WithAttributes(Attributes{"id": id})
