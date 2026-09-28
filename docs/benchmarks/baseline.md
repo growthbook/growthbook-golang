@@ -96,127 +96,60 @@ BenchmarkIsURLTargeted_Regex-10     	  462918	      4962 ns/op	    8211 B/op	   
 
 ---
 
-## 2026-09-17 - Saved group references v2 and encrypted saved groups
+## 2026-09-25 - Saved group references v2 (PR #98)
 
-- Base commit: `453db2f3b377abbc8f8d6e02c5bec0cd3f20948e`; after measurements
-  include the uncommitted saved-group changes.
-- Go: `go1.27.1 darwin/arm64`
-- CPU: Apple M5 Pro
-- Command: `go test -bench=. -benchmem -run=^$ -benchtime=2s .`
-- Note: Thread required branch-local cycle state through condition evaluation, compile
-  v2 groups at payload load, decrypt saved groups during updates, and guard
-  missing keys in object comparison. These existing benchmarks measure the
-  effect on evaluation without v2 references.
+- Base: `453db2f3b377abbc8f8d6e02c5bec0cd3f20948e`.
+- Measured PR commit: `c15a0a6e63e205ed48a7f814c01861a26776f671`; subsequent
+  commit `d39ef8e` adds tests only.
+- Go: `go1.27.1 darwin/arm64`; CPU: Apple M5 Pro; GOMAXPROCS: 18.
+- Scope: v2 list/condition references, attribute overrides, branch-local cycle
+  tracking, legacy membership compatibility, and encrypted saved-group loading.
+- Method: six samples per version, run sequentially with alternating base/PR
+  order. Values below are medians, not formal statistical significance estimates.
 
-Before:
+Existing root benchmarks used compiled test binaries with
+`-test.run='^$' -test.bench=. -test.benchmem -test.benchtime=300ms`.
+The condition package used the same flags with `-test.benchtime=200ms`.
 
-```text
-BenchmarkEvalFeature_Cold-18                              31332271       78.22 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_Warm-18                              28481265       83.55 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_ExperimentCallback-18    40926152       59.98 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_FeatureUsageCallback-18   14469081       165.1 ns/op     808 B/op     6 allocs/op
-BenchmarkRunExperiment-18                                 11960678       201.7 ns/op     856 B/op     5 allocs/op
-BenchmarkEvalFeature_Parallel-18                          12136455       207.7 ns/op     256 B/op     3 allocs/op
-BenchmarkIsURLTargeted_Simple-18                            597475        4015 ns/op   12079 B/op   123 allocs/op
-BenchmarkIsURLTargeted_Regex-18                             911192        2533 ns/op    8183 B/op    93 allocs/op
-```
+| Benchmark | Base ns/op | PR ns/op | Change | Allocs/op (unchanged) |
+| --- | ---: | ---: | ---: | ---: |
+| EvalFeature_Cold | 85.94 | 84.89 | -1.2% | 3 |
+| EvalFeature_Warm | 92.10 | 94.11 | +2.2% | 3 |
+| EvalFeature_ObjectValue_ExperimentCallback | 67.45 | 67.76 | +0.5% | 3 |
+| EvalFeature_ObjectValue_FeatureUsageCallback | 184.30 | 184.15 | -0.1% | 6 |
+| RunExperiment | 218.95 | 221.40 | +1.1% | 5 |
+| EvalFeature_Parallel | 214.65 | 213.10 | -0.7% | 3 |
+| IsURLTargeted_Simple | 4471.50 | 4501.00 | +0.7% | 123 |
+| IsURLTargeted_Regex | 2829.50 | 2824.00 | -0.2% | 93 |
 
-After:
+These benchmarks do not exercise saved-group lookup. Existing condition
+benchmarks remained allocation-free, with median differences from -7.2% to
++4.9% (at most 1.20 ns).
 
-```text
-BenchmarkEvalFeature_Cold-18                              31595667       74.10 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_Warm-18                              30383031       83.56 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_ExperimentCallback-18    37638447       61.63 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_FeatureUsageCallback-18   15523171       157.6 ns/op     808 B/op     6 allocs/op
-BenchmarkRunExperiment-18                                 12538068       197.1 ns/op     856 B/op     5 allocs/op
-BenchmarkEvalFeature_Parallel-18                          11649919       205.5 ns/op     256 B/op     3 allocs/op
-BenchmarkIsURLTargeted_Simple-18                            577120        3948 ns/op   12089 B/op   123 allocs/op
-BenchmarkIsURLTargeted_Regex-18                             981750        2496 ns/op    8183 B/op    93 allocs/op
-```
+### Focused saved-group measurements
 
-No added allocations in these paths. Single-run timing differences are small
-and should not be interpreted as a demonstrated speedup or regression.
+Temporary review benchmarks (not checked into the repository) exercised
+last-element hits and misses in lists of 1, 100, and 10,000 strings, targeting
+conditions, and JSON payload updates. Evaluation used 300 ms samples; loading
+was confirmed with six alternating 1 s samples per version.
 
----
+| Operation | Base | PR | Change |
+| --- | ---: | ---: | ---: |
+| Targeting with multiple conditions | 137.10 ns | 140.95 ns | +2.8% |
+| Legacy group, 10,000 strings, last-element hit | 51.29 us | 50.47 us | -1.6% |
+| Load legacy group, 10,000 strings | 1.257 ms | 1.375 ms | +9.4% |
 
-## 2026-09-18 - Legacy operators reading v2 list groups
+Legacy evaluation retained 256 B and 3 allocations per call. Loading the
+10,000-member group increased from 2,096,615 to 2,219,627 B/op (+5.9%) and
+40,106 to 40,110 allocations. The loader now stages raw JSON, decodes entries
+separately, and copies the group map during normalization. This cost occurs
+during payload updates, not each evaluation.
 
-- Base commit: `40fa400e01bc7ac7935517b5af944223f1fea9d0`; after measurements
-  include the uncommitted typed-list membership changes.
-- Go: `go1.27.1 darwin/arm64`
-- CPU: Apple M5 Pro
-- Command: `go test -bench=. -benchmem -run=^$ -benchtime=2s .`
-- Note: `$inGroup` and `$notInGroup` share `$in` membership evaluation for
-  legacy arrays and typed lists. Typed-list membership is compiled at load time.
-  These existing benchmarks cover general evaluation, not saved-group lookup.
+New v2 string-list evaluation measured 161–200 ns across these list sizes,
+with 512 B and 5 allocations per call. A condition group referencing the same
+list twice measured 375 ns, 1,024 B, and 9 allocations. These are costs of the
+new capability, not comparisons against a previous v2 implementation.
 
-Before:
-
-```text
-BenchmarkEvalFeature_Cold-18                              26250964       76.63 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_Warm-18                              29780076       82.24 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_ExperimentCallback-18    40538714       60.27 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_FeatureUsageCallback-18   15117300       160.6 ns/op     808 B/op     6 allocs/op
-BenchmarkRunExperiment-18                                 12181900       198.4 ns/op     856 B/op     5 allocs/op
-BenchmarkEvalFeature_Parallel-18                          11527704       207.7 ns/op     256 B/op     3 allocs/op
-BenchmarkIsURLTargeted_Simple-18                            560497        4112 ns/op   12077 B/op   123 allocs/op
-BenchmarkIsURLTargeted_Regex-18                             853286        2591 ns/op    8183 B/op    93 allocs/op
-```
-
-After:
-
-```text
-BenchmarkEvalFeature_Cold-18                              31403380       77.67 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_Warm-18                              29562642       81.55 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_ExperimentCallback-18    41084546       59.84 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_FeatureUsageCallback-18   14558306       161.1 ns/op     808 B/op     6 allocs/op
-BenchmarkRunExperiment-18                                 12498462       196.5 ns/op     856 B/op     5 allocs/op
-BenchmarkEvalFeature_Parallel-18                          11612832       206.4 ns/op     256 B/op     3 allocs/op
-BenchmarkIsURLTargeted_Simple-18                            569654        3956 ns/op   12086 B/op   123 allocs/op
-BenchmarkIsURLTargeted_Regex-18                             924614        2600 ns/op    8183 B/op    93 allocs/op
-```
-
-Allocation counts are unchanged. Single-run timings do not establish a speedup
-or regression.
-
----
-
-## 2026-09-23 - Object saved-group references and attribute overrides
-
-- Base commit: `40fa400e01bc7ac7935517b5af944223f1fea9d0`; both measurements
-  include the September 18 local changes. After also includes object references
-  and per-reference attribute overrides.
-- Go: `go1.27.1 darwin/arm64`
-- CPU: Apple M5 Pro
-- Command: `go test -bench=. -benchmem -run=^$ -benchtime=2s .`
-- Note: Reference objects and override paths are parsed at load time. These
-  existing benchmarks cover general evaluation, not saved-group lookup.
-
-Before:
-
-```text
-BenchmarkEvalFeature_Cold-18                              31123442       76.79 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_Warm-18                              29028614       83.39 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_ExperimentCallback-18    40088416       59.91 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_FeatureUsageCallback-18   15093211       165.3 ns/op     808 B/op     6 allocs/op
-BenchmarkRunExperiment-18                                 12362053       199.4 ns/op     856 B/op     5 allocs/op
-BenchmarkEvalFeature_Parallel-18                          11852841       207.3 ns/op     256 B/op     3 allocs/op
-BenchmarkIsURLTargeted_Simple-18                            576253        4017 ns/op   12086 B/op   123 allocs/op
-BenchmarkIsURLTargeted_Regex-18                             830262        2577 ns/op    8183 B/op    93 allocs/op
-```
-
-After:
-
-```text
-BenchmarkEvalFeature_Cold-18                              31403156       76.84 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_Warm-18                              29363739       83.58 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_ExperimentCallback-18    39311502       67.36 ns/op     256 B/op     3 allocs/op
-BenchmarkEvalFeature_ObjectValue_FeatureUsageCallback-18   15364158       161.7 ns/op     808 B/op     6 allocs/op
-BenchmarkRunExperiment-18                                 12252484       197.6 ns/op     856 B/op     5 allocs/op
-BenchmarkEvalFeature_Parallel-18                          11594487       206.2 ns/op     256 B/op     3 allocs/op
-BenchmarkIsURLTargeted_Simple-18                            582244        4030 ns/op   12080 B/op   123 allocs/op
-BenchmarkIsURLTargeted_Regex-18                             919930        2571 ns/op    8183 B/op    93 allocs/op
-```
-
-Allocation counts are unchanged. Single-run timings do not establish a speedup
-or regression.
+A follow-up per-entry decoder experiment reduced legacy loading memory by
+5.5% but did not improve speed, so it was reverted. The results above describe
+the retained implementation; no further implementation changes were recommended.
