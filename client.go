@@ -204,7 +204,7 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		if err != nil {
 			// Match the reference SDK: ignore a failed encrypted section and
 			// retain any plaintext fallback or previously loaded groups.
-			client.logger.Warn("Ignoring undecodable encrypted saved groups", "error", err)
+			client.logger.Error("Ignoring undecodable encrypted saved groups; using plaintext fallback or previous groups without blocking feature updates", "error", err)
 		} else {
 			savedGroups = decrypted
 		}

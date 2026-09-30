@@ -6,7 +6,7 @@ import (
 
 // Condition evaluates a conditional expression. Every recursive evaluation must
 // forward visited to retain the branch's cycle guard. Base.Eval starts a new
-// evaluation with an empty set.
+// evaluation with an empty path.
 type Condition interface {
 	Eval(value.Value, SavedGroups, visitedGroups) bool
 }

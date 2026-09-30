@@ -1,14 +1,10 @@
 package condition
 
-import (
-	"strconv"
-
-	"github.com/growthbook/growthbook-golang/internal/value"
-)
+import "github.com/growthbook/growthbook-golang/internal/value"
 
 // visitedGroups tracks saved-group IDs on the current evaluation branch to stop
 // recursive reference cycles. It is never stored in the shared payload.
-type visitedGroups map[string]struct{}
+type visitedGroups []string
 
 type savedGroupCond struct {
 	id           string
@@ -20,15 +16,13 @@ func (c savedGroupCond) Eval(actual value.Value, groups SavedGroups, visited vis
 	if !ok || group.cond == nil {
 		return false
 	}
-	if _, cycle := visited[c.id]; cycle {
-		return false
+	for _, id := range visited {
+		if id == c.id {
+			return false
+		}
 	}
-	// Copy before descending so siblings can independently resolve the same ID.
-	next := make(visitedGroups, len(visited)+1)
-	for id := range visited {
-		next[id] = struct{}{}
-	}
-	next[c.id] = struct{}{}
+	// Each caller retains its slice length, so siblings do not inherit this ID.
+	next := append(visited, c.id)
 	// Overrides apply only to lists, without modifying the shared definition.
 	if c.overridePath != nil && group.membership != nil {
 		return (savedGroupListCond{path: c.overridePath, membership: *group.membership}).Eval(actual, groups, next)
@@ -45,28 +39,5 @@ type savedGroupListCond struct {
 }
 
 func (c savedGroupListCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
-	for _, part := range c.path {
-		switch current := actual.(type) {
-		case value.ObjValue:
-			actual = current[part]
-		case value.ArrValue:
-			if part == "length" {
-				actual = value.Num(len(current))
-				continue
-			}
-			index, err := strconv.Atoi(part)
-			if err != nil || index < 0 || index >= len(current) || strconv.Itoa(index) != part {
-				actual = nil
-			} else {
-				actual = current[index]
-			}
-		default:
-			actual = nil
-		}
-		if actual == nil {
-			actual = value.Null()
-			break
-		}
-	}
-	return c.membership.Eval(actual, groups, visited)
+	return c.membership.Eval(value.Path(actual, c.path...), groups, visited)
 }

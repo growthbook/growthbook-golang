@@ -144,14 +144,28 @@ func TestSavedGroupAttributePaths(t *testing.T) {
 		{"nested", "user.id", map[string]any{"user": map[string]any{"id": "u1"}}, true},
 		{"array intersection", "user.tags", map[string]any{"user": map[string]any{"tags": []any{"u0", "u1"}}}, true},
 		{"array index", "users.0.id", map[string]any{"users": []any{map[string]any{"id": "u1"}}}, true},
+		{"array length", "tags.length", map[string]any{"tags": []any{"x", "y"}}, true},
+		{"out of bounds", "tags.2", map[string]any{"tags": []any{"u0", "u1"}}, false},
+		{"noncanonical index", "tags.01", map[string]any{"tags": []any{"u0", "u1"}}, false},
 		{"missing path", "user.id", map[string]any{}, false},
 		{"scalar intermediate", "user.id", map[string]any{"user": "u1"}, false},
+		{"null intermediate", "user.id", map[string]any{"user": nil}, false},
 		{"empty key", "", map[string]any{"": "u1"}, true},
 		{"strict membership", "id", map[string]any{"id": 1}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			groups := fmt.Sprintf(`{"g":{"type":"list","attributeKey":%q,"values":["u1","1"]}}`, tc.path)
-			require.Equal(t, tc.want, evalSavedGroupJSON(t, `{"$savedGroup":{"id":"g"}}`, groups, tc.attrs))
+			groups := fmt.Sprintf(`{"g":{"type":"list","attributeKey":%q,"values":["u1","1",2]},"legacy":["u1","1",2]}`, tc.path)
+			for _, cond := range []string{
+				`{"$savedGroup":{"id":"g"}}`,
+				fmt.Sprintf(`{"$savedGroup":{"id":"g","attributeKey":%q}}`, tc.path),
+				fmt.Sprintf(`{%q:{"$in":["u1","1",2]}}`, tc.path),
+				fmt.Sprintf(`{%q:{"$inGroup":"legacy"}}`, tc.path),
+				fmt.Sprintf(`{%q:{"$inGroup":"g"}}`, tc.path),
+			} {
+				t.Run(cond, func(t *testing.T) {
+					require.Equal(t, tc.want, evalSavedGroupJSON(t, cond, groups, tc.attrs))
+				})
+			}
 		})
 	}
 }
@@ -202,7 +216,7 @@ func TestSavedGroupVisitedThroughNestedValues(t *testing.T) {
 	// $size cannot contain a top-level reference in valid wire JSON, but its
 	// nested condition must still forward the evaluation's guard.
 	groups := SavedGroups{"g": savedGroup{cond: True{}}}
-	seen := visitedGroups{"g": {}}
+	seen := visitedGroups{"g"}
 	require.False(t, NewSizeCond(savedGroupCond{id: "g"}).Eval(value.Arr(1), groups, seen))
 	require.False(t, (NotCond{NotCond{savedGroupCond{id: "g"}}}).Eval(value.Null(), groups, seen))
 }
@@ -214,6 +228,26 @@ func TestSavedGroupLongAcyclicChain(t *testing.T) {
 	}
 	groups["150"] = savedGroup{cond: True{}}
 	require.True(t, (savedGroupCond{id: "0"}).Eval(value.Null(), groups, nil))
+}
+
+// TestSavedGroupSiblingPathReuse checks that reusing a slice's backing array
+// does not leak visited IDs between sibling branches or overwrite ancestors.
+func TestSavedGroupSiblingPathReuse(t *testing.T) {
+	groups := SavedGroups{
+		"leaf": savedGroup{cond: True{}},
+		"parent": savedGroup{cond: AndConds{
+			savedGroupCond{id: "leaf"},
+			NotCond{savedGroupCond{id: "ancestor"}},
+			savedGroupCond{id: "leaf"},
+		}},
+		"ancestor": savedGroup{cond: True{}},
+	}
+	visited := make(visitedGroups, 1, 4)
+	visited[0] = "ancestor"
+	for i := 0; i < 2; i++ {
+		require.True(t, (savedGroupCond{id: "parent"}).Eval(value.Null(), groups, visited))
+		require.Equal(t, visitedGroups{"ancestor"}, visited)
+	}
 }
 
 func TestSavedGroupsJSONRoundTrip(t *testing.T) {

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -222,10 +223,15 @@ func TestEncryptedSavedGroupsUpdates(t *testing.T) {
 		require.True(t, client.EvalFeature(ctx, "flag").Value.(bool))
 	})
 	t.Run("invalid groups do not block features", func(t *testing.T) {
-		client, err := NewClient(ctx, WithDecryptionKey(savedGroupsTestKey))
+		logger, logs := testLogger(slog.LevelWarn, t)
+		client, err := NewClient(ctx, WithDecryptionKey(savedGroupsTestKey), WithLogger(logger))
 		require.NoError(t, err)
 		require.NoError(t, client.UpdateFromApiResponseJSON(`{"features":{"new":{"defaultValue":true}},"encryptedSavedGroups":"bad-blob"}`))
 		require.Equal(t, true, client.EvalFeature(ctx, "new").Value)
+		require.Equal(t, []logEntry{{
+			Level:   "ERROR",
+			Message: "Ignoring undecodable encrypted saved groups; using plaintext fallback or previous groups without blocking feature updates",
+		}}, *logs)
 	})
 }
 
