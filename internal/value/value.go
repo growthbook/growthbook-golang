@@ -87,7 +87,8 @@ func Equal(v1, v2 Value) bool {
 			return false
 		}
 		for k, v := range o1 {
-			if !Equal(v, o2[k]) {
+			other, ok := o2[k]
+			if !ok || !Equal(v, other) {
 				return false
 			}
 		}

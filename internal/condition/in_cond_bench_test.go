@@ -18,8 +18,8 @@ func benchInCondEval(b *testing.B, n int) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = c.Eval(hit, nil)
-		_ = c.Eval(miss, nil)
+		_ = c.Eval(hit, nil, nil)
+		_ = c.Eval(miss, nil, nil)
 	}
 }
 
@@ -34,8 +34,8 @@ func benchIniCondEval(b *testing.B, n int) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = c.Eval(hit, nil)
-		_ = c.Eval(miss, nil)
+		_ = c.Eval(hit, nil, nil)
+		_ = c.Eval(miss, nil, nil)
 	}
 }
 

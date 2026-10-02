@@ -224,12 +224,54 @@ comments anchored to the code they were written about.
 
 Maintainers handle releases. `CHANGELOG.md` is updated at release time, and
 pushing a `v*` tag triggers `.github/workflows/release.yml`, which re-runs the
-tests and publishes a GitHub release:
+tests and publishes a GitHub release.
+
+Pushing the tag makes the version available to Go tooling; there is no separate
+package upload. The GitHub release workflow does not gate downloads, so run
+`go test -race ./...` before tagging. Go's public module proxy fetches and caches
+the tagged source when requested.
+
+After merging the release changes and changelog into `main`, check out the
+intended release commit and create an annotated tag. Annotated tags record the
+tagger, date, and release message. For example, to release the latest `main`
+commit as `v0.6.0`:
 
 ```sh
-git tag v0.5.2
-git push origin v0.5.2
+git switch main
+git pull --ff-only origin main
+git log -1 # Confirm this is the intended release commit.
+git tag -a v0.6.0 -m "Release v0.6.0"
+git push origin v0.6.0
 ```
+
+After pushing, request the version through the public proxy to verify that it
+is available. The proxy may take time to pick up a new tag:
+
+```sh
+GOPROXY=https://proxy.golang.org go list -m github.com/growthbook/growthbook-golang@v0.6.0
+```
+
+For every SDK release, also update
+`packages/shared/src/sdk-versioning/sdk-versions/go.json` in the main GrowthBook
+repo. Before release, register the planned version with `"prerelease": true`,
+for example:
+
+```json
+{ "version": "0.6.0", "prerelease": true, "capabilities": ["savedGroupReferencesV2"] }
+```
+
+Only include `capabilities` when adding new ones; earlier capabilities are
+inherited. This metadata registers the version with GrowthBook, not with Go's
+module proxy.
+
+This allows testing by manually selecting that version on an SDK Connection,
+without listing it in version dropdowns or using it as the default. Once the
+Go release is published, remove `"prerelease": true` and run
+`pnpm --filter shared generate-sdk-report` in the main repo to regenerate
+`CAPABILITIES.md`. Submit those metadata and generated-doc changes in a PR to
+the main GrowthBook repo. Removing the prerelease flag means deleting the JSON
+property, not deleting or changing the Git tag. Never add a new capability to
+an already released version.
 
 Go modules are served straight from the Git tag, so a published version is
 immutable — which is why breaking changes get the scrutiny they do.

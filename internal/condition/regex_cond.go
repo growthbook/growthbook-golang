@@ -15,7 +15,7 @@ func NewRegexCond(rx *regexp.Regexp) RegexCond {
 	return RegexCond{rx}
 }
 
-func (c RegexCond) Eval(actual value.Value, _ SavedGroups) bool {
+func (c RegexCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
 	if s, ok := actual.(value.StrValue); ok {
 		return c.rx.MatchString(string(s))
 	}
@@ -31,7 +31,7 @@ func NewRegexiCond(rx *regexp.Regexp) RegexiCond {
 	return RegexiCond{rx}
 }
 
-func (c RegexiCond) Eval(actual value.Value, _ SavedGroups) bool {
+func (c RegexiCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
 	if s, ok := actual.(value.StrValue); ok {
 		return c.rx.MatchString(string(s))
 	}

@@ -101,6 +101,32 @@ To stop background updates, call `client.Close()` on the main client instance wh
 
 ---
 
+### Saved groups and encrypted payloads
+
+The SDK loads saved groups from API responses for feature and experiment
+targeting, including prerequisite conditions. `$inGroup` / `$notInGroup` accept
+legacy value arrays and v2 list entries, using the condition's attribute.
+The top-level `$savedGroup` operator accepts an object reference, such as
+`{"$savedGroup":{"id":"beta"}}`, to a v2 list or condition group. A reference
+can override a list's attribute with `{"id":"beta","attributeKey":"backup_id"}`;
+condition groups ignore valid overrides. Bare-string references and non-string
+overrides do not match; unrecognized keys in the reference are ignored.
+Nested references are supported. Missing, malformed, unknown, or cyclic
+references evaluate to false. Surrounding
+boolean operators still apply normally, including `$not`.
+
+When payload encryption is enabled on the SDK connection, configure
+`gb.WithDecryptionKey("your-base64-decryption-key")`. The SDK decrypts
+`encryptedFeatures` and `encryptedSavedGroups` using that same key. This works
+with polling, streaming, manual refresh, and `UpdateFromApiResponseJSON`.
+
+An omitted saved-group section preserves the current definitions; an empty
+map clears them. If encrypted saved groups cannot be decrypted or decoded,
+the SDK logs a warning and uses any plaintext `savedGroups` in that response,
+or retains the previous definitions if none were supplied.
+
+---
+
 ### Tracking
 
 #### Built-in GrowthBook Tracking Plugin
