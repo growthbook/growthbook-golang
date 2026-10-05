@@ -2,6 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
+## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
+
+- **Added: saved-group references v2** (JS parity): `$savedGroup` supports
+  list and condition groups, nested references, and list attribute overrides.
+  Cycle detection prevents recursive references from looping indefinitely.
+  Legacy saved-group arrays remain supported.
+- **Added:** `encryptedSavedGroups` payloads are decrypted with
+  `WithDecryptionKey` across polling, streaming, and manual updates. Decode
+  failures log an error and use plaintext fallback or previously loaded groups
+  without blocking feature updates.
+- **Changed (targeting compatibility):** dotted paths now use the same resolver
+  for ordinary conditions, `$inGroup`, and `$savedGroup`, matching JS. Array
+  indexes and `length` are supported; a scalar encountered before the end of a
+  path resolves to null instead of that scalar. For example, `profile.id` is
+  missing when `profile` is a string. Existing rules relying on the previous
+  behavior can target different users after upgrading.
+- **Changed:** `$inGroup` and `$notInGroup` accept v2 list groups and use `$in`
+  membership semantics, including intersection with array-valued attributes.
+  Both operators return false for malformed or non-list group definitions.
+- **Fixed:** invalid ciphertext lengths return
+  `ErrCryptoInvalidCiphertextLength` instead of reaching the AES decrypter;
+  non-block-aligned ciphertext no longer panics.
+- **Fixed:** comparing objects with different keys returns false instead of
+  panicking when the objects have the same number of keys.
+
 ## [v0.5.1](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.5.1) - 2026-09-10
 
 - **Fixed:** `EvalFeature` no longer JSON-encodes every evaluated feature
