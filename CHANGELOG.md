@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - Unreleased
+## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
 
 - **Added: saved-group references v2** (JS parity): `$savedGroup` supports
   list and condition groups, nested references, and list attribute overrides.
