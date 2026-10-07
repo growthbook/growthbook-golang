@@ -79,9 +79,9 @@ fields or constructor arguments, both of which break callers.
 
 GrowthBook's SDKs must make identical decisions given identical inputs, and the
 JavaScript SDK is the reference implementation. Match it. When you deliberately
-diverge, say so in the PR and record it in `CHANGELOG.md` — see the "Deliberate
-divergences" entries under v0.5.0 for the expected level of detail. Silent
-divergence is the thing to avoid.
+diverge, say so in the PR and include it in the release PR's `CHANGELOG.md` —
+see the "Deliberate divergences" entries under v0.5.0 for the expected level of
+detail. Silent divergence is the thing to avoid.
 
 ### Concurrency
 
@@ -203,9 +203,10 @@ For a typo or an obvious fix, just open the PR.
    go build ./...
    go test -race ./...
    ```
-4. Commit and push. Messages are plain imperative summaries ("Fix data race on
-   shared sticky bucket assignments cache"); conventional-commit prefixes like
-   `fix:` appear too and are fine, but nothing is enforced.
+4. Commit and push. Use a [Conventional Commit](https://www.conventionalcommits.org/)
+   PR title, such as `fix: avoid a race in shared sticky bucket assignments`.
+   Single-commit PRs must also have a conventional commit subject, since GitHub
+   uses that subject as the default squash-merge title.
 5. Open the PR against `main` and fill in the template: what changed,
    dependencies, how to test, and any issues it closes. Delete the Screenshots
    section — it comes from the main GrowthBook repo and rarely applies to an
@@ -220,36 +221,68 @@ locally.
 Push follow-up commits rather than force-pushing where you can; it keeps review
 comments anchored to the code they were written about.
 
+### Conventional commits
+
+Use **Squash and merge**, and check the final commit's type and summary before
+merging. Release-please reads commits on `main`, not just PR titles. Intermediate
+commits in a multi-commit PR do not need conventional messages when squashed.
+The `Conventional PR title` check validates PR titles and single-commit subjects.
+
+- `fix:`, `perf:`, and `revert:` produce a patch release.
+- `feat:` produces a minor release.
+- Add `!` for a breaking change, for example `feat!: change targeting behavior`.
+  Before `1.0.0`, breaking changes produce a minor release; afterward, a major.
+- `docs:`, `test:`, `ci:`, `build:`, `chore:`, `refactor:`, and `style:`
+  are accepted. Without a breaking-change marker, they do not trigger a release
+  on their own.
+
+Scopes are optional (`fix(cache): ...`). Describe compatibility changes in the
+PR so maintainers can expand the generated release notes before merging.
+
 ## Releasing
 
-Maintainers handle releases. `CHANGELOG.md` is updated at release time, and
-pushing a `v*` tag triggers `.github/workflows/release.yml`, which re-runs the
-tests and publishes a GitHub release.
+Maintainers release through [release-please](https://github.com/googleapis/release-please).
+After changes land on `main`, `.github/workflows/release-please.yml` runs the
+race-enabled tests and creates or updates a release PR when there are releasable
+commits. That PR updates `CHANGELOG.md` and `.release-please-manifest.json`.
+The initial manifest and bootstrap commit start after the existing `v0.6.0`
+release; adopting automation does not republish it.
 
-Pushing the tag makes the version available to Go tooling; there is no separate
-package upload. The GitHub release workflow does not gate downloads, so run
-`go test -race ./...` before tagging. Go's public module proxy fetches and caches
-the tagged source when requested.
+1. Review the proposed version and changelog, including compatibility notes.
+   Expand the release PR's changelog when needed; do not manually bump the
+   manifest or tag a normal release.
+2. Wait for the release PR's required checks and review, then squash-merge it.
+3. The push to `main` runs tests again. If they pass, release-please creates the
+   `vX.Y.Z` tag and GitHub release. If the workflow fails, fix the failure and
+   rerun it; it can also be dispatched manually on `main`.
+4. Confirm the GitHub release exists and request the new version through the
+   public Go proxy (replace the example version with the released version):
 
-After merging the release changes and changelog into `main`, check out the
-intended release commit and create an annotated tag. Annotated tags record the
-tagger, date, and release message. For example, to release the latest `main`
-commit as `v0.6.0`:
+   ```sh
+   GOPROXY=https://proxy.golang.org go list -m github.com/growthbook/growthbook-golang@v0.6.1
+   ```
 
-```sh
-git switch main
-git pull --ff-only origin main
-git log -1 # Confirm this is the intended release commit.
-git tag -a v0.6.0 -m "Release v0.6.0"
-git push origin v0.6.0
-```
+There is no separate package upload: Go's public module proxy fetches and caches
+the tagged source on request. The tag makes the version downloadable, so tests
+run **before** release creation. Tags and releases are created in the same
+workflow; no follow-up tag-triggered workflow is needed. Published versions are
+immutable; never move or replace a released tag.
 
-After pushing, request the version through the public proxy to verify that it
-is available. The proxy may take time to pick up a new tag:
+### GitHub setup
 
-```sh
-GOPROXY=https://proxy.golang.org go list -m github.com/growthbook/growthbook-golang@v0.6.0
-```
+Enable **Allow GitHub Actions to create and approve pull requests** under
+Settings → Actions → General. Add `Conventional PR title` to the required checks
+on `main`. Use squash merges; disable rebase merges to prevent unchecked
+intermediate commit messages from becoming release inputs. These repository
+settings are separate from the workflow files.
+
+By default, release-please uses `GITHUB_TOKEN`. GitHub requires a maintainer to
+select **Approve workflows to run** on bot-created or updated release PRs before
+their CI runs. For automatic CI, add a repository secret `RELEASE_PLEASE_TOKEN`
+containing a fine-grained PAT with Contents, Issues, and Pull requests write
+permissions for this repo. See [GitHub's workflow-trigger rules](https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow).
+
+### GrowthBook SDK metadata
 
 For every SDK release, also update
 `packages/shared/src/sdk-versioning/sdk-versions/go.json` in the main GrowthBook
@@ -257,7 +290,7 @@ repo. Before release, register the planned version with `"prerelease": true`,
 for example:
 
 ```json
-{ "version": "0.6.0", "prerelease": true, "capabilities": ["savedGroupReferencesV2"] }
+{ "version": "0.7.0", "prerelease": true }
 ```
 
 Only include `capabilities` when adding new ones; earlier capabilities are
@@ -273,11 +306,9 @@ the main GrowthBook repo. Removing the prerelease flag means deleting the JSON
 property, not deleting or changing the Git tag. Never add a new capability to
 an already released version.
 
-Go modules are served straight from the Git tag, so a published version is
-immutable — which is why breaking changes get the scrutiny they do.
-Contributors don't need to touch `CHANGELOG.md` or version numbers; what helps
-is a PR description a maintainer can turn into a changelog entry without
-guessing.
+Contributors don't need to touch version numbers or the changelog in feature
+PRs. Use conventional titles and describe user-visible changes clearly; review
+the generated notes in the release PR before publishing.
 
 ## Getting help
 
