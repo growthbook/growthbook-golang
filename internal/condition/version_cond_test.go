@@ -18,6 +18,8 @@ func TestVersionCond(t *testing.T) {
 		{vneOp, "1.2", "1.2.0", true},
 		{vgtOp, "1.2.3", "1.2.3-rc", true},
 		{vgteOp, "1.2.3", "1.2.4", false},
+		{vgteOp, "1.02.3", "1.2.4", false},
+		{veqOp, "1.02.3", "1.2.3", true},
 		{vltOp, "1.2.3-rc", "1.2.3", true},
 		{vlteOp, "1", 1, true},
 	}
