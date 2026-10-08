@@ -118,7 +118,7 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 		return nil
 	}
 
-	err = ds.client.UpdateFromApiResponse(resp)
+	err = ds.client.updateFromApiResponse(ctx, resp)
 	if err != nil {
 		return err
 	}

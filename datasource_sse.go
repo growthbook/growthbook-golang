@@ -113,7 +113,7 @@ func (ds *SseDataSource) connect(ctx context.Context) error {
 	buf := make([]byte, minbufsize)
 	sseConn.Buffer(buf, maxbufsize)
 	sseConn.SubscribeEvent("features", func(event sse.Event) {
-		ds.processEvent(event)
+		ds.processEvent(ctx, event)
 	})
 	sseConn.Connect()
 	return nil
@@ -128,12 +128,12 @@ func (ds *SseDataSource) onRetry(ctx context.Context) func(err error, delay time
 	}
 }
 
-func (ds *SseDataSource) processEvent(event sse.Event) {
+func (ds *SseDataSource) processEvent(ctx context.Context, event sse.Event) {
 	if event.Data == "" {
 		return
 	}
 	ds.logger.Info("Updating features")
-	err := ds.client.UpdateFromApiResponseJSON(event.Data)
+	err := ds.client.updateFromApiResponseJSON(ctx, event.Data)
 	if err != nil {
 		ds.logger.Error("Error updating features", "error", err)
 	}
