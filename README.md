@@ -127,6 +127,49 @@ or retains the previous definitions if none were supplied.
 
 ---
 
+### Feature Refresh Handler
+
+To observe the feature refresh lifecycle, set a handler with `WithFeaturesRefreshHandler`. It is invoked after every refresh attempt — from the polling and SSE datasources, from a manual `RefreshFeatures` call, and on the initial load. This is useful for emitting metrics on failures, tracking data freshness, or invalidating derived state when features change.
+
+```go
+client, err := gb.NewClient(
+    context.Background(),
+    gb.WithClientKey("sdk-XXXX"),
+    gb.WithPollDataSource(60*time.Second),
+    gb.WithFeaturesRefreshHandler(func(ctx context.Context, r gb.RefreshResult) {
+        switch {
+        case r.Error != nil:
+            // Refresh failed — emit a metric / alert / fall back.
+            metrics.Inc("growthbook.refresh.error")
+        case r.NotModified:
+            // Nothing was replaced: HTTP 304, or a payload refused as stale.
+            metrics.SetLastValidated(r.DateUpdated)
+        case r.Updated:
+            // New feature definitions were applied — invalidate derived caches.
+            myCache.Invalidate()
+        }
+    }),
+)
+```
+
+Exactly one of the following describes each event:
+
+| Field | Meaning |
+|-------|---------|
+| `Updated` | A payload was fetched and applied to at least one section (features, saved groups, or contextual bandits) |
+| `NotModified` | Nothing was replaced — HTTP 304, a payload refused as older than the current data, or a payload carrying no section to apply. The stored definitions remain in effect |
+| `Error` | The refresh attempt failed (network error, non-2xx/304 status, or decode/decrypt failure) |
+| `Source` | Which mechanism produced the event: `RefreshSourcePoll`, `RefreshSourceSSE`, or `RefreshSourceManual` |
+| `DateUpdated` | The `dateUpdated` the client holds after the attempt — never one it refused. The payload's own value when the payload was processed, the currently stored value on a 304 or a stale refusal, and the zero time on `Error` |
+
+A payload that carries nothing to apply — such as an SSE event that omits
+`features` — leaves the stored definitions untouched and is reported as
+`NotModified`, never as an update.
+
+The handler is shared with child clients — register it once on the root client. Implementations should return quickly and must not block the datasource; any panics are recovered and logged.
+
+---
+
 ### Tracking
 
 #### Built-in GrowthBook Tracking Plugin

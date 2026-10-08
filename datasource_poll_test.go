@@ -190,6 +190,188 @@ func TestPollingDataSource(t *testing.T) {
 		err = client.Close()
 		require.Nil(t, err)
 	})
+
+	t.Run("304 fires NotModified", func(t *testing.T) {
+		ts := startEtagServer(featuresJSON)
+		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelError, t)
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+			WithPollDataSource(10*time.Millisecond),
+		)
+
+		require.Nil(t, err)
+		require.Nil(t, client.EnsureLoaded(ctx))
+		time.Sleep(100 * time.Millisecond)
+		require.Nil(t, client.Close())
+		stored := time.Date(2000, 5, 1, 0, 0, 12, 0, time.UTC)
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.NotModified && r.Source == RefreshSourcePoll && r.DateUpdated.Equal(stored)
+		}), "expected a NotModified event carrying the stored timestamp, got %+v", c.all())
+	})
+
+	// A 200 payload older than the stored data is refused by applyApiResponse.
+	// The event must report what the client kept, not the timestamp it refused,
+	// and must not claim an update.
+	t.Run("stale response fires NotModified with the stored timestamp", func(t *testing.T) {
+		staleJSON := []byte(`{
+      "features": {
+        "foo": {
+          "defaultValue": "stale"
+        }
+      },
+      "dateUpdated": "1999-01-01T00:00:00Z"
+    }`)
+		var ts testServer
+		ts.http = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			// First response seeds the client, every later one is stale.
+			if ts.count.Add(1) == 1 {
+				_, _ = w.Write(featuresJSON)
+				return
+			}
+			_, _ = w.Write(staleJSON)
+		}))
+		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelError, t)
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+			WithPollDataSource(10*time.Millisecond),
+		)
+		require.Nil(t, err)
+		require.Nil(t, client.EnsureLoaded(ctx))
+		time.Sleep(100 * time.Millisecond)
+		require.Nil(t, client.Close())
+
+		stored := time.Date(2000, 5, 1, 0, 0, 12, 0, time.UTC)
+		require.Equal(t, features, client.Features(), "a stale payload must not be applied")
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.NotModified && r.Source == RefreshSourcePoll && r.DateUpdated.Equal(stored)
+		}), "expected NotModified with the stored timestamp, got %+v", c.all())
+		require.False(t, c.has(func(r RefreshResult) bool {
+			return r.DateUpdated.Equal(time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC))
+		}), "the refused timestamp must never be published")
+	})
+
+	t.Run("200 fires Updated", func(t *testing.T) {
+		ts := startServer(http.StatusOK, featuresJSON)
+		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelError, t)
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+			WithPollDataSource(10*time.Millisecond),
+		)
+
+		require.Nil(t, err)
+		require.Nil(t, client.EnsureLoaded(ctx))
+		time.Sleep(100 * time.Millisecond)
+		require.Nil(t, client.Close())
+		var got bool
+		for _, r := range c.all() {
+			if r.Updated {
+				got = true
+			}
+		}
+		require.True(t, got, "expected at least one Updated event")
+	})
+
+	t.Run("error fires Error", func(t *testing.T) {
+		ts := startServer(http.StatusNotFound, []byte(""))
+		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelError, t)
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+			WithPollDataSource(10*time.Millisecond),
+		)
+
+		require.Nil(t, err)
+		require.NotNil(t, client.EnsureLoaded(ctx))
+		time.Sleep(100 * time.Millisecond)
+		require.Nil(t, client.Close())
+		var got bool
+		for _, r := range c.all() {
+			if r.Error != nil {
+				got = true
+			}
+		}
+		require.True(t, got, "expected at least one Error event")
+	})
+
+	t.Run("panicking handler does not break polling", func(t *testing.T) {
+		ts := startServer(http.StatusOK, featuresJSON)
+		defer ts.http.Close()
+		panicHandler := func(ctx context.Context, r RefreshResult) { panic("boom") }
+		logger, _ := testLogger(slog.LevelError, t)
+		client, _ := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(panicHandler),
+			WithPollDataSource(10*time.Millisecond),
+		)
+
+		require.Nil(t, client.EnsureLoaded(ctx))
+		time.Sleep(50 * time.Millisecond)
+		n := ts.count.Load()
+		time.Sleep(50 * time.Millisecond)
+		require.Greater(t, ts.count.Load(), n)
+		require.Nil(t, client.Close())
+	})
+}
+
+// refreshCollector safely gathers RefreshResult events produced by the
+// datasource goroutine so the test goroutine can inspect them without a race.
+type refreshCollector struct {
+	mu      sync.Mutex
+	results []RefreshResult
+}
+
+// handler returns a FeaturesRefreshHandler that appends every event under lock.
+func (c *refreshCollector) handler() FeaturesRefreshHandler {
+	return func(ctx context.Context, r RefreshResult) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.results = append(c.results, r)
+	}
+}
+
+// all returns a copy of the collected events, so the caller can iterate
+// without holding the lock (and without racing the datasource goroutine).
+func (c *refreshCollector) all() []RefreshResult {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]RefreshResult(nil), c.results...)
+}
+
+// has reports whether any collected event matches pred.
+func (c *refreshCollector) has(pred func(RefreshResult) bool) bool {
+	for _, r := range c.all() {
+		if pred(r) {
+			return true
+		}
+	}
+	return false
 }
 
 type testServer struct {

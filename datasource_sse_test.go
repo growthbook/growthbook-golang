@@ -168,6 +168,122 @@ func TestSseDataSource(t *testing.T) {
 			ts.http.Close()
 		}
 	})
+
+	t.Run("Fires Updated events for initial load and streamed update", func(t *testing.T) {
+		ts := startSseServer(featuresJSON, sseResponse(features2JSON, 10*time.Millisecond, 0))
+		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelWarn, t)
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+			WithSseDataSource(),
+		)
+		require.Nil(t, err)
+		require.Nil(t, client.EnsureLoaded(ctx))
+		time.Sleep(100 * time.Millisecond) // let the stream deliver the features event
+		require.Nil(t, client.Close())
+
+		// One Updated event from the initial load (loadData), one from the
+		// streamed features event (processEvent).
+		var updated int
+		for _, r := range c.all() {
+			if r.Updated && r.Source == RefreshSourceSSE {
+				updated++
+			}
+		}
+		require.GreaterOrEqual(t, updated, 2, "expected Updated events from both initial load and stream")
+	})
+
+	// A streamed event that omits "features" carries nothing to apply. It must
+	// leave the loaded features in place (issue #70) and report NotModified,
+	// not Updated - the stream path reaches applyApiResponse directly, so this
+	// is the path where a payload-shaped no-op used to look like a refresh.
+	t.Run("Streamed event with no payload keeps features and reports NotModified", func(t *testing.T) {
+		emptyEvent := `{"dateUpdated": "2000-05-03T00:00:12Z"}`
+		ts := startSseServer(featuresJSON, sseResponse(emptyEvent, 10*time.Millisecond, 0))
+		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelWarn, t)
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+			WithSseDataSource(),
+		)
+		require.Nil(t, err)
+		require.Nil(t, client.EnsureLoaded(ctx))
+		time.Sleep(100 * time.Millisecond) // let the stream deliver the empty event
+		require.Nil(t, client.Close())
+
+		require.Equal(t, features, client.Features(), "an empty event must not wipe the loaded features")
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.NotModified && r.Source == RefreshSourceSSE &&
+				r.DateUpdated.Equal(time.Date(2000, 5, 3, 0, 0, 12, 0, time.UTC))
+		}), "expected a NotModified event carrying the stored timestamp, got %+v", c.all())
+		require.False(t, c.has(func(r RefreshResult) bool {
+			return r.Updated && r.DateUpdated.Equal(time.Date(2000, 5, 3, 0, 0, 12, 0, time.UTC))
+		}), "a payload with nothing to apply must not be reported as Updated")
+	})
+
+	// A streamed event older than the stored data is refused. The handler must
+	// report the timestamp the client kept, not the one it rejected.
+	t.Run("Stale streamed event reports the stored timestamp", func(t *testing.T) {
+		staleEvent := `{"features": {"foo": {"defaultValue": "stale"}}, "dateUpdated": "1999-01-01T00:00:00Z"}`
+		ts := startSseServer(featuresJSON, sseResponse(staleEvent, 10*time.Millisecond, 0))
+		defer ts.http.Close()
+		logger, _ := testLogger(slog.LevelWarn, t)
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+			WithSseDataSource(),
+		)
+		require.Nil(t, err)
+		require.Nil(t, client.EnsureLoaded(ctx))
+		time.Sleep(100 * time.Millisecond)
+		require.Nil(t, client.Close())
+
+		stored := time.Date(2000, 5, 1, 0, 0, 12, 0, time.UTC)
+		require.Equal(t, features, client.Features())
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.NotModified && r.Source == RefreshSourceSSE && r.DateUpdated.Equal(stored)
+		}), "expected NotModified with the stored timestamp, got %+v", c.all())
+		require.False(t, c.has(func(r RefreshResult) bool {
+			return r.DateUpdated.Equal(time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC))
+		}), "the refused timestamp must never be published")
+	})
+
+	t.Run("Fires Error event when initial load fails", func(t *testing.T) {
+		ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusInternalServerError)
+		}))
+		defer ts.Close()
+		logger, _ := testLogger(slog.LevelError, t)
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithLogger(logger),
+			WithHttpClient(ts.Client()),
+			WithApiHost(ts.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+			WithSseDataSource(),
+		)
+		require.Nil(t, err)
+		require.Error(t, client.EnsureLoaded(ctx))
+
+		require.True(t, c.has(func(r RefreshResult) bool {
+			return r.Error != nil && r.Source == RefreshSourceSSE
+		}), "expected an SSE Error event")
+	})
 }
 
 func TestSseDataSourceRetryInterval(t *testing.T) {
