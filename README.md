@@ -97,7 +97,7 @@ res := child.EvalFeature(context.Background(), "main-button-color")
 
 Additional options, such as `WithLogger`, `WithUrl`, and `WithAttributesOverrides`, can also be used to customize child clients. Since child clients share data with the main client instance, they will automatically receive feature updates.
 
-To stop background updates, call `client.Close()` on the main client instance when it is no longer needed.
+To stop background updates and flush tracking events, call `client.Close()` on the main client instance when it is no longer needed. Calling `Close()` on a child client does nothing; shared resources remain active until the main client is closed.
 
 ---
 
