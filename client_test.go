@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -262,9 +263,9 @@ func TestRefreshFeatures(t *testing.T) {
 		require.Nil(t, err)
 		require.Nil(t, client.RefreshFeatures(ctx))
 
-		require.True(t, c.has(func(r RefreshResult) bool {
-			return r.Updated && r.Source == RefreshSourceManual
-		}), "expected a manual Updated event")
+		requireEvents(t, c.all(),
+			RefreshResult{Source: RefreshSourceManual, Updated: true, DateUpdated: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)},
+		)
 	})
 
 	// Manual refresh classifies a refused payload exactly like polling and SSE:
@@ -288,12 +289,9 @@ func TestRefreshFeatures(t *testing.T) {
 		require.Nil(t, client.RefreshFeatures(ctx))
 
 		require.Equal(t, FeatureValue("current"), client.Features()["foo"].DefaultValue)
-		require.True(t, c.has(func(r RefreshResult) bool {
-			return r.NotModified && r.Source == RefreshSourceManual && r.DateUpdated.Equal(stored)
-		}), "expected NotModified with the stored timestamp, got %+v", c.all())
-		require.False(t, c.has(func(r RefreshResult) bool {
-			return r.DateUpdated.Equal(time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC))
-		}), "the refused timestamp must never be published")
+		requireEvents(t, c.all(),
+			RefreshResult{Source: RefreshSourceManual, NotModified: true, DateUpdated: stored},
+		)
 	})
 
 	// Every refresh attempt produces exactly one event, on every path: a
@@ -311,10 +309,9 @@ func TestRefreshFeatures(t *testing.T) {
 		require.Nil(t, err)
 		require.Nil(t, client.RefreshFeatures(ctx))
 
-		events := c.all()
-		require.Len(t, events, 1, "expected exactly one event per refresh attempt")
-		require.True(t, events[0].NotModified, "a payload with nothing to apply is not an update: %+v", events[0])
-		require.Equal(t, RefreshSourceManual, events[0].Source)
+		requireEvents(t, c.all(),
+			RefreshResult{Source: RefreshSourceManual, NotModified: true, DateUpdated: time.Date(2000, 5, 1, 0, 0, 12, 0, time.UTC)},
+		)
 	})
 
 	t.Run("Fires Error event on failed manual refresh", func(t *testing.T) {
@@ -330,9 +327,9 @@ func TestRefreshFeatures(t *testing.T) {
 		require.Nil(t, err)
 		require.Error(t, client.RefreshFeatures(ctx))
 
-		require.True(t, c.has(func(r RefreshResult) bool {
-			return r.Error != nil && r.Source == RefreshSourceManual
-		}), "expected a manual Error event")
+		requireEvents(t, c.all(),
+			RefreshResult{Source: RefreshSourceManual, Error: errors.New("any")},
+		)
 	})
 }
 

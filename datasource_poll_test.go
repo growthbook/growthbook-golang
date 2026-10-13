@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -102,6 +103,9 @@ func TestPollingDataSource(t *testing.T) {
 		require.Equal(t, features, client.Features())
 		require.True(t, ts.count.Load() > 2)
 		require.Equal(t, ts.count.Load()-1, ts.etagCount.Load())
+		// Without Close the poller outlives the test and keeps hitting this
+		// port, which a later test's server may be assigned.
+		require.Nil(t, client.Close())
 	})
 
 	t.Run("Concurrent Close calls during active polling - data race test", func(t *testing.T) {
@@ -192,7 +196,10 @@ func TestPollingDataSource(t *testing.T) {
 	})
 
 	t.Run("304 fires NotModified", func(t *testing.T) {
-		ts := startEtagServer(featuresJSON)
+		ts := startSequenceServer(
+			sequenceResponse{http.StatusOK, featuresJSON},
+			sequenceResponse{http.StatusNotModified, nil},
+		)
 		defer ts.http.Close()
 		logger, _ := testLogger(slog.LevelError, t)
 		var c refreshCollector
@@ -200,19 +207,20 @@ func TestPollingDataSource(t *testing.T) {
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
-			WithClientKey("somekey"),
+			WithClientKey(sequenceClientKey),
 			WithFeaturesRefreshHandler(c.handler()),
 			WithPollDataSource(10*time.Millisecond),
 		)
-
 		require.Nil(t, err)
+		defer client.Close()
 		require.Nil(t, client.EnsureLoaded(ctx))
-		time.Sleep(100 * time.Millisecond)
-		require.Nil(t, client.Close())
+		events := ts.waitForAttempts(t, &c, 2)
+
 		stored := time.Date(2000, 5, 1, 0, 0, 12, 0, time.UTC)
-		require.True(t, c.has(func(r RefreshResult) bool {
-			return r.NotModified && r.Source == RefreshSourcePoll && r.DateUpdated.Equal(stored)
-		}), "expected a NotModified event carrying the stored timestamp, got %+v", c.all())
+		requireEvents(t, events,
+			RefreshResult{Source: RefreshSourcePoll, Updated: true, DateUpdated: stored},
+			RefreshResult{Source: RefreshSourcePoll, NotModified: true, DateUpdated: stored},
+		)
 	})
 
 	// A 200 payload older than the stored data is refused by applyApiResponse.
@@ -227,16 +235,11 @@ func TestPollingDataSource(t *testing.T) {
       },
       "dateUpdated": "1999-01-01T00:00:00Z"
     }`)
-		var ts testServer
-		ts.http = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			// First response seeds the client, every later one is stale.
-			if ts.count.Add(1) == 1 {
-				_, _ = w.Write(featuresJSON)
-				return
-			}
-			_, _ = w.Write(staleJSON)
-		}))
+		ts := startSequenceServer(
+			sequenceResponse{http.StatusOK, featuresJSON},
+			sequenceResponse{http.StatusOK, staleJSON},
+			sequenceResponse{http.StatusOK, staleJSON},
+		)
 		defer ts.http.Close()
 		logger, _ := testLogger(slog.LevelError, t)
 		var c refreshCollector
@@ -244,27 +247,30 @@ func TestPollingDataSource(t *testing.T) {
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
-			WithClientKey("somekey"),
+			WithClientKey(sequenceClientKey),
 			WithFeaturesRefreshHandler(c.handler()),
 			WithPollDataSource(10*time.Millisecond),
 		)
 		require.Nil(t, err)
+		defer client.Close()
 		require.Nil(t, client.EnsureLoaded(ctx))
-		time.Sleep(100 * time.Millisecond)
-		require.Nil(t, client.Close())
+		events := ts.waitForAttempts(t, &c, 3)
 
 		stored := time.Date(2000, 5, 1, 0, 0, 12, 0, time.UTC)
 		require.Equal(t, features, client.Features(), "a stale payload must not be applied")
-		require.True(t, c.has(func(r RefreshResult) bool {
-			return r.NotModified && r.Source == RefreshSourcePoll && r.DateUpdated.Equal(stored)
-		}), "expected NotModified with the stored timestamp, got %+v", c.all())
-		require.False(t, c.has(func(r RefreshResult) bool {
-			return r.DateUpdated.Equal(time.Date(1999, 1, 1, 0, 0, 0, 0, time.UTC))
-		}), "the refused timestamp must never be published")
+		requireEvents(t, events,
+			RefreshResult{Source: RefreshSourcePoll, Updated: true, DateUpdated: stored},
+			RefreshResult{Source: RefreshSourcePoll, NotModified: true, DateUpdated: stored},
+			RefreshResult{Source: RefreshSourcePoll, NotModified: true, DateUpdated: stored},
+		)
 	})
 
 	t.Run("200 fires Updated", func(t *testing.T) {
-		ts := startServer(http.StatusOK, featuresJSON)
+		features2JSON := []byte(`{"features": {"foo": {"defaultValue": "poll"}}, "dateUpdated": "2000-05-02T00:00:12Z"}`)
+		ts := startSequenceServer(
+			sequenceResponse{http.StatusOK, featuresJSON},
+			sequenceResponse{http.StatusOK, features2JSON},
+		)
 		defer ts.http.Close()
 		logger, _ := testLogger(slog.LevelError, t)
 		var c refreshCollector
@@ -272,24 +278,23 @@ func TestPollingDataSource(t *testing.T) {
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
-			WithClientKey("somekey"),
+			WithClientKey(sequenceClientKey),
 			WithFeaturesRefreshHandler(c.handler()),
 			WithPollDataSource(10*time.Millisecond),
 		)
-
 		require.Nil(t, err)
+		defer client.Close()
 		require.Nil(t, client.EnsureLoaded(ctx))
-		time.Sleep(100 * time.Millisecond)
-		require.Nil(t, client.Close())
-		var got bool
-		for _, r := range c.all() {
-			if r.Updated {
-				got = true
-			}
-		}
-		require.True(t, got, "expected at least one Updated event")
+		events := ts.waitForAttempts(t, &c, 2)
+
+		requireEvents(t, events,
+			RefreshResult{Source: RefreshSourcePoll, Updated: true, DateUpdated: time.Date(2000, 5, 1, 0, 0, 12, 0, time.UTC)},
+			RefreshResult{Source: RefreshSourcePoll, Updated: true, DateUpdated: time.Date(2000, 5, 2, 0, 0, 12, 0, time.UTC)},
+		)
 	})
 
+	// A failed initial load aborts Start, so polling never begins: the single
+	// attempt must produce exactly one Error event.
 	t.Run("error fires Error", func(t *testing.T) {
 		ts := startServer(http.StatusNotFound, []byte(""))
 		defer ts.http.Close()
@@ -303,18 +308,12 @@ func TestPollingDataSource(t *testing.T) {
 			WithFeaturesRefreshHandler(c.handler()),
 			WithPollDataSource(10*time.Millisecond),
 		)
-
 		require.Nil(t, err)
 		require.NotNil(t, client.EnsureLoaded(ctx))
-		time.Sleep(100 * time.Millisecond)
-		require.Nil(t, client.Close())
-		var got bool
-		for _, r := range c.all() {
-			if r.Error != nil {
-				got = true
-			}
-		}
-		require.True(t, got, "expected at least one Error event")
+
+		requireEvents(t, c.all(),
+			RefreshResult{Source: RefreshSourcePoll, Error: errors.New("any")},
+		)
 	})
 
 	t.Run("panicking handler does not break polling", func(t *testing.T) {
@@ -322,7 +321,7 @@ func TestPollingDataSource(t *testing.T) {
 		defer ts.http.Close()
 		panicHandler := func(ctx context.Context, r RefreshResult) { panic("boom") }
 		logger, _ := testLogger(slog.LevelError, t)
-		client, _ := NewClient(ctx,
+		client, err := NewClient(ctx,
 			WithLogger(logger),
 			WithHttpClient(ts.http.Client()),
 			WithApiHost(ts.http.URL),
@@ -330,12 +329,11 @@ func TestPollingDataSource(t *testing.T) {
 			WithFeaturesRefreshHandler(panicHandler),
 			WithPollDataSource(10*time.Millisecond),
 		)
-
+		require.Nil(t, err)
 		require.Nil(t, client.EnsureLoaded(ctx))
-		time.Sleep(50 * time.Millisecond)
-		n := ts.count.Load()
-		time.Sleep(50 * time.Millisecond)
-		require.Greater(t, ts.count.Load(), n)
+		// The handler panics on every attempt; polling must keep going.
+		require.Eventually(t, func() bool { return ts.count.Load() >= 3 },
+			2*time.Second, time.Millisecond, "polling stopped after a handler panic")
 		require.Nil(t, client.Close())
 	})
 }
@@ -364,14 +362,37 @@ func (c *refreshCollector) all() []RefreshResult {
 	return append([]RefreshResult(nil), c.results...)
 }
 
-// has reports whether any collected event matches pred.
-func (c *refreshCollector) has(pred func(RefreshResult) bool) bool {
-	for _, r := range c.all() {
-		if pred(r) {
-			return true
+// waitFor blocks until pred matches a collected event, failing the test after
+// a timeout, and returns every event collected up to that point.
+func (c *refreshCollector) waitFor(t *testing.T, pred func(RefreshResult) bool) []RefreshResult {
+	t.Helper()
+	var events []RefreshResult
+	require.Eventually(t, func() bool {
+		events = c.all()
+		for _, r := range events {
+			if pred(r) {
+				return true
+			}
 		}
+		return false
+	}, 2*time.Second, time.Millisecond, "the expected refresh event never arrived")
+	return events
+}
+
+// requireEvents asserts the exact sequence of refresh events, field by field.
+// Error is compared by presence only; DateUpdated with Equal, since time.Time
+// values must not be compared with ==.
+func requireEvents(t *testing.T, got []RefreshResult, want ...RefreshResult) {
+	t.Helper()
+	require.Len(t, got, len(want), "expected exactly one event per attempt, got %+v", got)
+	for i := range want {
+		require.Equal(t, want[i].Source, got[i].Source, "event %d: Source", i)
+		require.Equal(t, want[i].Updated, got[i].Updated, "event %d: Updated", i)
+		require.Equal(t, want[i].NotModified, got[i].NotModified, "event %d: NotModified", i)
+		require.Equal(t, want[i].Error != nil, got[i].Error != nil, "event %d: Error = %v", i, got[i].Error)
+		require.True(t, want[i].DateUpdated.Equal(got[i].DateUpdated),
+			"event %d: DateUpdated want %v, got %v", i, want[i].DateUpdated, got[i].DateUpdated)
 	}
-	return false
 }
 
 type testServer struct {
@@ -388,6 +409,50 @@ func startServer(code int, response []byte) *testServer {
 		_, _ = w.Write(response)
 	}))
 	return &ts
+}
+
+type sequenceResponse struct {
+	status int
+	body   []byte
+}
+
+// sequenceClientKey is the only client key startSequenceServer answers.
+const sequenceClientKey = "sequencekey"
+
+// startSequenceServer answers the i-th request with responses[i] and holds
+// every later request open until the client cancels it, so the test fixes the
+// number of refresh attempts instead of racing a sleep against the poller.
+// Requests for any other client key are rejected without being counted: a
+// poller leaked by another test may hit a reused port, and must neither consume
+// a response nor be held open (which would block the server's Close).
+func startSequenceServer(responses ...sequenceResponse) *testServer {
+	var ts testServer
+	ts.http = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/features/"+sequenceClientKey {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		i := int(ts.count.Add(1)) - 1
+		if i >= len(responses) {
+			<-r.Context().Done()
+			return
+		}
+		w.WriteHeader(responses[i].status)
+		_, _ = w.Write(responses[i].body)
+	}))
+	return &ts
+}
+
+// waitForAttempts waits until the poller has issued the request after the
+// n-th one and returns the events collected so far. Polling is sequential and
+// the handler runs before the next request, so once request n+1 arrives every
+// event of attempts 1..n has been delivered - including any duplicate - and the
+// held request n+1 cannot have produced one yet.
+func (ts *testServer) waitForAttempts(t *testing.T, c *refreshCollector, n int) []RefreshResult {
+	t.Helper()
+	require.Eventually(t, func() bool { return int(ts.count.Load()) > n },
+		2*time.Second, time.Millisecond, "expected %d poll attempts", n+1)
+	return c.all()
 }
 
 func startEtagServer(response []byte) *testServer {
