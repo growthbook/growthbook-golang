@@ -158,7 +158,7 @@ Exactly one of the following describes each event:
 |-------|---------|
 | `Updated` | A payload was fetched and applied to at least one section (features, saved groups, or contextual bandits) |
 | `NotModified` | Nothing was replaced — HTTP 304, a payload refused as older than the current data, or a payload carrying no section to apply. The stored definitions remain in effect |
-| `Error` | The refresh attempt failed (network error, non-2xx/304 status, or decode/decrypt failure) |
+| `Error` | The refresh attempt failed — network error, non-2xx/304 status, an undecodable response, a features payload that fails to decrypt, or invalid saved groups. Failures to decrypt `encryptedSavedGroups` or `encryptedContextualBandits` are logged and ignored (the plaintext fallback or previous definitions stay in effect) and do not produce `Error` |
 | `Source` | Which mechanism produced the event: `RefreshSourcePoll`, `RefreshSourceSSE`, or `RefreshSourceManual` |
 | `DateUpdated` | The `dateUpdated` the client holds after the attempt — never one it refused. The payload's own value when the payload was processed, the currently stored value on a 304 or a stale refusal, and the zero time on `Error` |
 
@@ -167,6 +167,8 @@ A payload that carries nothing to apply — such as an SSE event that omits
 `NotModified`, never as an update.
 
 The handler is shared with child clients — register it once on the root client. Implementations should return quickly and must not block the datasource; any panics are recovered and logged.
+
+The initial-load event is delivered before the client becomes ready — `EnsureLoaded` returns only after the handler does. Do not call `EnsureLoaded` from the handler: startup and the handler would wait on each other.
 
 ---
 

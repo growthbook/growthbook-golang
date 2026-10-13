@@ -31,8 +31,13 @@ type RefreshResult struct {
 	// the payload carried no section to apply. The stored definitions remain
 	// in effect in all three cases.
 	NotModified bool
-	// Error is non-nil when the refresh attempt failed (network error,
-	// non-2xx/304 status, or decode/decrypt failure).
+	// Error is non-nil when the refresh attempt failed: network error,
+	// non-2xx/304 status, an undecodable response, a features payload that
+	// fails to decrypt, or invalid saved groups. A failure to decrypt
+	// EncryptedSavedGroups or EncryptedContextualBandits is not reported here:
+	// that section is logged and ignored (the plaintext fallback or the
+	// previous definitions stay in effect), and the attempt is classified by
+	// the remaining sections as Updated or NotModified.
 	Error error
 	// DateUpdated is the dateUpdated the client holds after the attempt, never
 	// a timestamp it refused: the payload's own value when the payload was
@@ -48,6 +53,12 @@ type RefreshResult struct {
 // quickly and must not block the datasource; panics are recovered and logged.
 // The handler is shared across child clients created via With* methods -
 // register it once on the root client.
+//
+// The initial-load event runs before the client becomes ready: EnsureLoaded
+// does not return until the handler does. The handler must therefore not call
+// EnsureLoaded, or anything that waits on it, since startup and the handler
+// would wait on each other. The handler is invoked without the client's data
+// lock held, but that does not make this call safe.
 type FeaturesRefreshHandler func(ctx context.Context, result RefreshResult)
 
 // notifyRefresh safely invokes the configured handler. It reads the handler
