@@ -28,6 +28,6 @@ func typeFromName(arg string) value.ValueType {
 	}
 }
 
-func (c TypeCond) Eval(actual value.Value, _ SavedGroups) bool {
+func (c TypeCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
 	return actual.Type() == c.t
 }

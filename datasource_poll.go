@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"sync"
 	"time"
 )
@@ -109,7 +110,11 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 		ds.mu.Unlock()
 	}
 
-	if resp.Features == nil {
+	// Skip only genuine no-update responses. A 200 payload always applies:
+	// UpdateFromApiResponse preserves omitted sections, so a bandit-only or
+	// saved-groups-only response updates just what it carries (a features-only
+	// guard here used to drop those updates entirely).
+	if resp.Status == http.StatusNotModified {
 		return nil
 	}
 
