@@ -93,6 +93,47 @@ func TestWriteThroughPreservesEtagWhenUpdateHasNone(t *testing.T) {
 	require.Equal(t, "etag-1", entry.Etag)
 }
 
+// A response without features (bandit-only, or "features": null) is not a
+// complete snapshot: caching it would leave clients seeded from the cache
+// with no features at all.
+func TestPartialUpdateDoesNotOverwriteCache(t *testing.T) {
+	full := `{"features":{"feat":{"defaultValue":"cached"}},"dateUpdated":"2020-01-01T00:00:00Z"}`
+
+	tests := []struct {
+		name    string
+		partial string
+	}{
+		{"bandit-only", `{"contextualBandits":{},"dateUpdated":"2020-01-02T00:00:00Z"}`},
+		{"null features", `{"features":null,"dateUpdated":"2020-01-02T00:00:00Z"}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cache := NewInMemoryFeatureCache()
+			client, err := NewClient(ctx,
+				WithApiHost("https://example.com"),
+				WithClientKey("k"),
+				WithFeatureCache(cache))
+			require.NoError(t, err)
+
+			require.NoError(t, client.UpdateFromApiResponseJSON(full))
+			require.NoError(t, client.UpdateFromApiResponseJSON(tt.partial))
+
+			entry, ok, err := cache.Get(ctx, "https://example.com::k")
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.JSONEq(t, full, string(entry.Payload))
+
+			seeded, err := NewClient(ctx,
+				WithApiHost("https://example.com"),
+				WithClientKey("k"),
+				WithFeatureCache(cache))
+			require.NoError(t, err)
+			require.Equal(t, "cached", seeded.EvalFeature(ctx, "feat").Value)
+		})
+	}
+}
+
 func TestInlineFeaturesNotOverwrittenByCache(t *testing.T) {
 	cache := NewInMemoryFeatureCache()
 	cache.Set(ctx, "https://example.com::k", &FeatureCacheEntry{
