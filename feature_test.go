@@ -516,6 +516,36 @@ func TestForcedFeatureWorksForUnknownFeature(t *testing.T) {
 	require.Equal(t, OverrideResultSource, result.Source)
 }
 
+func TestForcedFeatureFalsyValuesTurnFeatureOff(t *testing.T) {
+	featuresJson := `{"feature": {"defaultValue": true}}`
+
+	tests := []struct {
+		name  string
+		value FeatureValue
+	}{
+		{"false", false},
+		{"nil", nil},
+		{"zero", 0},
+		{"empty string", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, _ := NewClient(ctx,
+				WithJsonFeatures(featuresJson),
+				WithForcedFeatures(ForcedFeaturesMap{"feature": tt.value}))
+
+			// A falsy override must win over the truthy default, not be
+			// mistaken for a missing override.
+			result := client.EvalFeature(ctx, "feature")
+			require.Equal(t, tt.value, result.Value)
+			require.Equal(t, OverrideResultSource, result.Source)
+			require.False(t, result.On)
+			require.True(t, result.Off)
+		})
+	}
+}
+
 // featureUsageSpyPlugin counts OnFeatureEvaluated calls for tests.
 type featureUsageSpyPlugin struct{ featureEvaluated int }
 
