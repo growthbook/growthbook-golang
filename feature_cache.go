@@ -16,7 +16,9 @@ import (
 // marshal back to JSON, so storing them would silently drop targeting rules.
 // Storing the raw payload also avoids aliasing the client's live feature map.
 type FeatureCacheEntry struct {
-	// Payload is the raw feature API response JSON (may contain encrypted features).
+	// Payload is feature API response JSON (may contain encrypted sections). It
+	// merges the sections of every update the client accepted, so a partial
+	// response never drops a section an earlier one supplied.
 	Payload json.RawMessage
 	// Etag is the HTTP ETag for the payload, enabling conditional requests after a restart.
 	Etag string
@@ -40,6 +42,10 @@ type FeatureCacheEntry struct {
 // distinct from a cache miss. The SDK never fails evaluation on a cache error:
 // a failed Get on startup is logged and the client continues without a seed,
 // and a failed Set is logged.
+//
+// A client writes its updates in order, but clients sharing one backend each
+// write their own snapshot, so the last writer wins; the SDK does not
+// coordinate writers across instances.
 type FeatureCache interface {
 	// Get returns the cached entry for key. found is false on a miss; a non-nil
 	// error signals a backend failure (distinct from a miss).
@@ -86,4 +92,58 @@ func cloneFeatureCacheEntry(entry *FeatureCacheEntry) *FeatureCacheEntry {
 	clone := *entry
 	clone.Payload = slices.Clone(entry.Payload)
 	return &clone
+}
+
+// cacheSections pairs each payload section's plaintext and encrypted keys. The
+// two are alternative encodings of one section, so they are replaced together.
+var cacheSections = [...]struct{ plain, encrypted string }{
+	{"features", "encryptedFeatures"},
+	{"savedGroups", "encryptedSavedGroups"},
+	{"contextualBandits", "encryptedContextualBandits"},
+}
+
+// appliedSections reports which payload sections an update applied.
+type appliedSections struct {
+	features, savedGroups, bandits bool
+}
+
+// mergeCacheSnapshot overlays the sections an update applied onto snapshot,
+// mirroring how the client applied them: an applied section replaces both of
+// its keys with those in fields, and an unapplied one keeps the snapshot's.
+// A nil fields means the update had no raw payload; its applied sections are
+// dropped, since the snapshot can no longer reproduce them.
+func mergeCacheSnapshot(snapshot, fields map[string]json.RawMessage, applied appliedSections) map[string]json.RawMessage {
+	if snapshot == nil {
+		snapshot = make(map[string]json.RawMessage)
+	}
+	flags := [...]bool{applied.features, applied.savedGroups, applied.bandits}
+	for i, s := range cacheSections {
+		if !flags[i] {
+			continue
+		}
+		for _, key := range [...]string{s.plain, s.encrypted} {
+			if v, ok := fields[key]; ok {
+				snapshot[key] = v
+			} else {
+				delete(snapshot, key)
+			}
+		}
+	}
+	if fields != nil {
+		if v, ok := fields["dateUpdated"]; ok {
+			snapshot["dateUpdated"] = v
+		} else {
+			delete(snapshot, "dateUpdated")
+		}
+	}
+	return snapshot
+}
+
+// snapshotHasFeatures reports whether snapshot holds a features section. A
+// snapshot without one is not written: a client seeded from it would start
+// with no features at all.
+func snapshotHasFeatures(snapshot map[string]json.RawMessage) bool {
+	_, plain := snapshot["features"]
+	_, encrypted := snapshot["encryptedFeatures"]
+	return plain || encrypted
 }

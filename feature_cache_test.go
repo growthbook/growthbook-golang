@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,18 +116,37 @@ func TestWriteThroughPreservesEtagWhenUpdateHasNone(t *testing.T) {
 	require.Equal(t, "etag-1", entry.Etag)
 }
 
-// A response without features (bandit-only, or "features": null) is not a
-// complete snapshot: caching it would leave clients seeded from the cache
-// with no features at all.
-func TestPartialUpdateDoesNotOverwriteCache(t *testing.T) {
-	full := `{"features":{"feat":{"defaultValue":"cached"}},"dateUpdated":"2020-01-01T00:00:00Z"}`
+// A partial response updates only the sections it carries, so the cache merges
+// it into what earlier responses supplied instead of replacing them: clients
+// seeded from the cache then match the live client.
+func TestPartialUpdatesMergeIntoCache(t *testing.T) {
+	full := `{"features":{"feat":{"defaultValue":"cached"}},"savedGroups":{"beta":["u1"]},"dateUpdated":"2020-01-01T00:00:00Z"}`
 
 	tests := []struct {
 		name    string
 		partial string
+		want    string
 	}{
-		{"bandit-only", `{"contextualBandits":{},"dateUpdated":"2020-01-02T00:00:00Z"}`},
-		{"null features", `{"features":null,"dateUpdated":"2020-01-02T00:00:00Z"}`},
+		{
+			"bandit-only keeps features and groups",
+			`{"contextualBandits":{},"dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":"cached"}},"savedGroups":{"beta":["u1"]},"contextualBandits":{},"dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
+		{
+			"null features keeps features",
+			`{"features":null,"dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":"cached"}},"savedGroups":{"beta":["u1"]},"dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
+		{
+			"features-only keeps groups",
+			`{"features":{"feat":{"defaultValue":"new"}},"dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":"new"}},"savedGroups":{"beta":["u1"]},"dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
+		{
+			"groups-only reaches the cache",
+			`{"savedGroups":{"beta":["u2"]},"dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":"cached"}},"savedGroups":{"beta":["u2"]},"dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
 	}
 
 	for _, tt := range tests {
@@ -144,16 +164,167 @@ func TestPartialUpdateDoesNotOverwriteCache(t *testing.T) {
 			entry, ok, err := cache.Get(ctx, "https://example.com::k")
 			require.NoError(t, err)
 			require.True(t, ok)
-			require.JSONEq(t, full, string(entry.Payload))
+			require.JSONEq(t, tt.want, string(entry.Payload))
 
+			// A client seeded from the cache sees what the live client sees.
 			seeded, err := NewClient(ctx,
 				WithApiHost("https://example.com"),
 				WithClientKey("k"),
 				WithFeatureCache(cache))
 			require.NoError(t, err)
-			require.Equal(t, "cached", seeded.EvalFeature(ctx, "feat").Value)
+			require.Equal(t, client.EvalFeature(ctx, "feat").Value, seeded.EvalFeature(ctx, "feat").Value)
+			require.Equal(t, client.data.savedGroups, seeded.data.savedGroups)
 		})
 	}
+}
+
+// A payload without features is never cached on its own: a client seeded
+// from it would start with no features at all.
+func TestPayloadWithoutFeaturesIsNotCached(t *testing.T) {
+	cache := NewInMemoryFeatureCache()
+	client, err := NewClient(ctx,
+		WithApiHost("https://example.com"),
+		WithClientKey("k"),
+		WithFeatureCache(cache))
+	require.NoError(t, err)
+
+	require.NoError(t, client.UpdateFromApiResponseJSON(`{"savedGroups":{"beta":["u1"]},"dateUpdated":"2020-01-01T00:00:00Z"}`))
+	_, ok, err := cache.Get(ctx, "https://example.com::k")
+	require.NoError(t, err)
+	require.False(t, ok)
+
+	// Once features arrive, the earlier groups are cached with them.
+	require.NoError(t, client.UpdateFromApiResponseJSON(`{"features":{"feat":{"defaultValue":1}},"dateUpdated":"2020-01-02T00:00:00Z"}`))
+	entry, ok, err := cache.Get(ctx, "https://example.com::k")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.JSONEq(t, `{"features":{"feat":{"defaultValue":1}},"savedGroups":{"beta":["u1"]},"dateUpdated":"2020-01-02T00:00:00Z"}`, string(entry.Payload))
+}
+
+// The client rejects a response older than its data; the cache must not take
+// it either, or a restarted client would load the rejected features.
+func TestRejectedOlderResponseIsNotCached(t *testing.T) {
+	cache := NewInMemoryFeatureCache()
+	client, err := NewClient(ctx,
+		WithApiHost("https://example.com"),
+		WithClientKey("k"),
+		WithFeatureCache(cache))
+	require.NoError(t, err)
+
+	newer := `{"features":{"feat":{"defaultValue":"newer"}},"dateUpdated":"2020-01-02T00:00:00Z"}`
+	require.NoError(t, client.UpdateFromApiResponseJSON(newer))
+	require.NoError(t, client.UpdateFromApiResponseJSON(`{"features":{"feat":{"defaultValue":"older"}},"dateUpdated":"2020-01-01T00:00:00Z"}`))
+
+	require.Equal(t, "newer", client.EvalFeature(ctx, "feat").Value)
+	entry, ok, err := cache.Get(ctx, "https://example.com::k")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.JSONEq(t, newer, string(entry.Payload))
+}
+
+// Plaintext and encrypted keys encode the same section, so an update in one
+// form replaces the other instead of caching both.
+func TestEncryptedSectionReplacesPlaintextInCache(t *testing.T) {
+	cache := NewInMemoryFeatureCache()
+	client, err := NewClient(ctx,
+		WithApiHost("https://example.com"),
+		WithClientKey("k"),
+		WithDecryptionKey(savedGroupsTestKey),
+		WithFeatureCache(cache))
+	require.NoError(t, err)
+
+	require.NoError(t, client.UpdateFromApiResponseJSON(`{"features":{"feat":{"defaultValue":"plain"}},"dateUpdated":"2020-01-01T00:00:00Z"}`))
+	encrypted := encryptSavedGroupsTestJSON(t, `{"feat":{"defaultValue":"secret"}}`)
+	require.NoError(t, client.UpdateFromApiResponseJSON(`{"encryptedFeatures":"`+encrypted+`","dateUpdated":"2020-01-02T00:00:00Z"}`))
+
+	entry, ok, err := cache.Get(ctx, "https://example.com::k")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.JSONEq(t, `{"encryptedFeatures":"`+encrypted+`","dateUpdated":"2020-01-02T00:00:00Z"}`, string(entry.Payload))
+}
+
+// Features set directly have no raw payload to cache. They are dropped from
+// the cache snapshot, so a later partial update cannot cache stale features
+// alongside newer sections.
+func TestDirectlySetFeaturesStopCacheWrites(t *testing.T) {
+	cache := NewInMemoryFeatureCache()
+	client, err := NewClient(ctx,
+		WithApiHost("https://example.com"),
+		WithClientKey("k"),
+		WithFeatureCache(cache))
+	require.NoError(t, err)
+
+	full := `{"features":{"feat":{"defaultValue":"api"}},"dateUpdated":"2020-01-01T00:00:00Z"}`
+	require.NoError(t, client.UpdateFromApiResponseJSON(full))
+	require.NoError(t, client.SetFeatures(FeatureMap{"feat": &Feature{DefaultValue: "direct"}}))
+	require.NoError(t, client.UpdateFromApiResponseJSON(`{"savedGroups":{"beta":["u1"]},"dateUpdated":"2020-01-02T00:00:00Z"}`))
+
+	entry, ok, err := cache.Get(ctx, "https://example.com::k")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.JSONEq(t, full, string(entry.Payload))
+}
+
+// blockingFeatureCache blocks its first Set until release is closed, so a test
+// can hold one cache write in flight while another update runs.
+type blockingFeatureCache struct {
+	*InMemoryFeatureCache
+	inSet   chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (c *blockingFeatureCache) Set(ctx context.Context, key string, entry *FeatureCacheEntry) error {
+	first := false
+	c.once.Do(func() { first = true })
+	if first {
+		close(c.inSet)
+		<-c.release
+	}
+	return c.InMemoryFeatureCache.Set(ctx, key, entry)
+}
+
+// While one update's cache write is in flight, a newer update must wait for
+// it; otherwise the older write could finish last and move the cache backward.
+func TestCacheWritesFollowUpdateOrder(t *testing.T) {
+	cache := &blockingFeatureCache{
+		InMemoryFeatureCache: NewInMemoryFeatureCache(),
+		inSet:                make(chan struct{}),
+		release:              make(chan struct{}),
+	}
+	client, err := NewClient(ctx,
+		WithApiHost("https://example.com"),
+		WithClientKey("k"),
+		WithFeatureCache(cache))
+	require.NoError(t, err)
+
+	older := `{"features":{"feat":{"defaultValue":"older"}},"dateUpdated":"2020-01-01T00:00:00Z"}`
+	newer := `{"features":{"feat":{"defaultValue":"newer"}},"dateUpdated":"2020-01-02T00:00:00Z"}`
+
+	olderDone := make(chan error, 1)
+	go func() { olderDone <- client.UpdateFromApiResponseJSON(older) }()
+	<-cache.inSet
+
+	newerDone := make(chan error, 1)
+	go func() { newerDone <- client.UpdateFromApiResponseJSON(newer) }()
+
+	// The newer update must not complete while the older write is held. This
+	// negative check needs a bound; a broken implementation finishes well
+	// within it, while a correct one never does.
+	select {
+	case <-newerDone:
+		t.Fatal("newer update finished while an older cache write was in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(cache.release)
+	require.NoError(t, <-olderDone)
+	require.NoError(t, <-newerDone)
+
+	entry, ok, err := cache.Get(ctx, "https://example.com::k")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.JSONEq(t, newer, string(entry.Payload))
 }
 
 func TestInlineFeaturesNotOverwrittenByCache(t *testing.T) {

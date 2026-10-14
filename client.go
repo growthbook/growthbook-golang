@@ -121,42 +121,84 @@ func (client *Client) seedFromCache(ctx context.Context) {
 	}
 	resp.raw = entry.Payload
 	resp.Etag = entry.Etag
+	d := client.data
+	d.updateMu.Lock()
+	defer d.updateMu.Unlock()
 	// Apply without writing back: a seed must not refresh a TTL backend's expiry.
-	if err := client.applyApiResponse(&resp); err != nil {
+	applied, err := client.applyApiResponse(&resp)
+	if err != nil {
 		client.logger.WarnContext(ctx, "Failed to seed features from cache", "error", err)
 		return
 	}
+	if applied == nil {
+		return
+	}
+	// Start the cache snapshot from the seed, so later partial updates merge
+	// into what the cache already holds.
+	d.cacheSnapshot = mergeCacheSnapshot(nil, client.rawSections(ctx, resp.raw), *applied)
+	d.cacheEtag = entry.Etag
 	// Record the etag we actually seeded with so the poll data source can issue a
 	// conditional first request. Only set when the cache was adopted, so inline
 	// features (WithFeatures) never reuse an unrelated cached etag.
-	client.data.withLock(func(d *data) error {
+	d.withLock(func(d *data) error {
 		d.seededEtag = entry.Etag
 		return nil
 	})
 }
 
-// writeCache persists the raw feature payload to the configured FeatureCache. A
-// previously stored etag is preserved when this update carries none (e.g. SSE
-// events), so conditional requests still work after a restart. Writes are
-// skipped when there is no raw payload to store faithfully.
-func (client *Client) writeCache(ctx context.Context, payload json.RawMessage, etag string) {
+// writeCache merges the sections an accepted response applied into the cache
+// snapshot and persists it. The latest known etag is kept when this response
+// carries none (e.g. SSE events), so conditional requests still work after a
+// restart. The snapshot is written only once it holds features. The caller
+// must hold updateMu.
+func (client *Client) writeCache(ctx context.Context, resp *FeatureApiResponse, applied appliedSections) {
 	cache := client.data.getFeatureCache()
-	if cache == nil || len(payload) == 0 {
+	if cache == nil {
 		return
 	}
-	key := client.data.cacheKey()
-	if etag == "" {
-		prev, found, err := cache.Get(ctx, key)
-		if err != nil {
-			client.logger.WarnContext(ctx, "Feature cache read failed, writing without the previous etag", "error", err)
-		} else if found && prev != nil {
-			etag = prev.Etag
-		}
+	d := client.data
+	if resp.Etag != "" {
+		d.cacheEtag = resp.Etag
 	}
-	entry := &FeatureCacheEntry{Payload: payload, Etag: etag, UpdatedAt: time.Now().UTC()}
-	if err := cache.Set(ctx, key, entry); err != nil {
+	d.cacheSnapshot = mergeCacheSnapshot(d.cacheSnapshot, client.rawSections(ctx, resp.raw), applied)
+	if !snapshotHasFeatures(d.cacheSnapshot) {
+		return
+	}
+	payload, err := json.Marshal(d.cacheSnapshot)
+	if err != nil {
+		client.logger.WarnContext(ctx, "Failed to encode features for cache", "error", err)
+		return
+	}
+	entry := &FeatureCacheEntry{Payload: payload, Etag: d.cacheEtag, UpdatedAt: time.Now().UTC()}
+	if err := cache.Set(ctx, client.data.cacheKey(), entry); err != nil {
 		client.logger.WarnContext(ctx, "Failed to write features to cache", "error", err)
 	}
+}
+
+// rawSections splits a raw payload into its top-level sections, or returns nil
+// when there is none to split (e.g. a response passed to UpdateFromApiResponse).
+func (client *Client) rawSections(ctx context.Context, raw json.RawMessage) map[string]json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		client.logger.WarnContext(ctx, "Failed to split payload for cache", "error", err)
+		return nil
+	}
+	return fields
+}
+
+// setDirectly applies sections set through the Set* methods rather than from
+// an API payload. They have no raw form to cache, so they are dropped from the
+// cache snapshot: the cache never pairs stale copies of them with newer
+// sections, and is not written again until a payload supplies features.
+func (client *Client) setDirectly(sections appliedSections, update dataUpdate) {
+	d := client.data
+	d.updateMu.Lock()
+	defer d.updateMu.Unlock()
+	d.withLock(update)
+	d.cacheSnapshot = mergeCacheSnapshot(d.cacheSnapshot, nil, sections)
 }
 
 // Close client's background goroutines and plugins.
@@ -193,7 +235,7 @@ func defaultClient() *Client {
 
 // SetFeatures updates shared client features.
 func (client *Client) SetFeatures(features FeatureMap) error {
-	client.data.withLock(func(d *data) error {
+	client.setDirectly(appliedSections{features: true}, func(d *data) error {
 		d.features = features
 		return nil
 	})
@@ -202,7 +244,7 @@ func (client *Client) SetFeatures(features FeatureMap) error {
 
 // SetContextualBandits updates the shared contextual bandit definitions.
 func (client *Client) SetContextualBandits(bandits ContextualBanditDefinitions) error {
-	client.data.withLock(func(d *data) error {
+	client.setDirectly(appliedSections{bandits: true}, func(d *data) error {
 		d.contextualBandits = bandits
 		return nil
 	})
@@ -238,29 +280,32 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 }
 
 // updateFromApiResponse applies an API response and writes through to the
-// feature cache, using ctx for the cache backend.
+// feature cache, using ctx for the cache backend. Updates are serialized with
+// their cache writes, so accepted responses reach the cache in order and a
+// rejected one never reaches it.
 func (client *Client) updateFromApiResponse(ctx context.Context, resp *FeatureApiResponse) error {
-	if err := client.applyApiResponse(resp); err != nil {
+	client.data.updateMu.Lock()
+	defer client.data.updateMu.Unlock()
+	applied, err := client.applyApiResponse(resp)
+	if err != nil || applied == nil {
 		return err
 	}
-	// Only a payload carrying features is a complete snapshot; caching a
-	// partial one would leave clients seeded from it with no features.
-	if resp.Features != nil || resp.EncryptedFeatures != "" {
-		client.writeCache(ctx, resp.raw, resp.Etag)
-	}
+	client.writeCache(ctx, resp, *applied)
 	return nil
 }
 
 // applyApiResponse updates the client's shared data from an API response without
 // writing through to the feature cache. Seeding uses this so a cache read never
-// turns into a cache write (which would refresh a TTL backend's expiry).
-func (client *Client) applyApiResponse(resp *FeatureApiResponse) error {
+// turns into a cache write (which would refresh a TTL backend's expiry). It
+// reports which sections it applied, or nil when it rejected an older response.
+// The caller must hold updateMu.
+func (client *Client) applyApiResponse(resp *FeatureApiResponse) (*appliedSections, error) {
 	dataUpdated := client.data.getDateUpdated()
 	apiUpdated := resp.DateUpdated
 	if apiUpdated.Before(dataUpdated) {
 		client.logger.Warn("Api response is older then current data, refuse to update",
 			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
-		return nil
+		return nil, nil
 	}
 	// Section-presence semantics (Python setPayload parity): a partial
 	// payload — e.g. a bandit-only update — must never wipe sections it did
@@ -274,7 +319,7 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) error {
 	if resp.EncryptedFeatures != "" {
 		features, err = client.DecryptFeatures(resp.EncryptedFeatures)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		featuresPresent = true
 	} else if resp.Features != nil {
@@ -301,7 +346,7 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) error {
 	// Direct callers may supply native Go definitions instead of decoded JSON.
 	savedGroups, err = savedGroups.Normalize()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	savedGroupsPresent := savedGroups != nil
 	// Section-presence semantics: an absent contextualBandits section
@@ -335,7 +380,11 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) error {
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
-	return nil
+	return &appliedSections{
+		features:    featuresPresent,
+		savedGroups: savedGroupsPresent,
+		bandits:     banditsPresent,
+	}, nil
 }
 
 func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {

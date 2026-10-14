@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -29,6 +30,16 @@ type data struct {
 	// on startup, or "" when nothing was seeded. The poll data source reuses it
 	// for a conditional first request.
 	seededEtag string
+
+	// updateMu serializes updates with their cache writes, so accepted updates
+	// reach the cache in the order they were applied. Lock order: updateMu
+	// before mu. Evaluation only takes mu, so a slow cache never blocks it.
+	updateMu sync.Mutex
+	// cacheSnapshot merges the raw sections of every accepted update — what the
+	// cache should hold — and cacheEtag is the latest known etag. Both are
+	// guarded by updateMu.
+	cacheSnapshot map[string]json.RawMessage
+	cacheEtag     string
 }
 
 func newData() *data {
