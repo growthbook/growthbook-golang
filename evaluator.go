@@ -3,24 +3,30 @@ package growthbook
 import (
 	"context"
 	"fmt"
+	"slices"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
 type evaluator struct {
-	features    FeatureMap
-	savedGroups condition.SavedGroups
-	evaluated   stack[string]
-	client      *Client
-	ctx         context.Context
+	features          FeatureMap
+	savedGroups       condition.SavedGroups
+	contextualBandits ContextualBanditDefinitions
+	evaluated         stack[string]
+	client            *Client
+	ctx               context.Context
 
-	recording          bool // false when no callbacks, plugins, or buffer consume tracking
-	userCtx            *TrackingUserContext
-	experiments        []TrackingData
-	featureUsage       []featureUsage
-	trackedExperiments map[string]bool
-	trackedFeatures    map[string]string
+	// recordingExperiments / recordingFeatureUsage are false when nothing
+	// consumes exposures / feature-usage reports, so evaluation skips that
+	// bookkeeping.
+	recordingExperiments  bool
+	recordingFeatureUsage bool
+	userCtx               *TrackingUserContext
+	experiments           []TrackingData
+	featureUsage          []featureUsage
+	trackedExperiments    map[trackingKey]bool
+	trackedFeatures       map[string]trackedValue
 }
 
 func (e *evaluator) evalFeature(key string) *FeatureResult {
@@ -60,6 +66,24 @@ func (e *evaluator) doEvalFeature(key string) *FeatureResult {
 }
 
 func (e *evaluator) runExperiment(exp *Experiment, featureId string) *ExperimentResult {
+	if exp.ContextualBandit != nil {
+		if len(exp.Ranges) > 0 {
+			// Explicit ranges govern bucketing (step 9), so no truthful
+			// propensity vector exists: drop the bandit metadata rather than
+			// describe a distribution bucketing ignored. Bucketing itself is
+			// untouched (same assignment as the JS SDK).
+			exp.ContextualBandit = nil
+		} else {
+			// Resync reported propensities to the weights bucketing will
+			// actually use — including equal weights when Weights is nil.
+			// A no-op for payload-built bandit experiments, defense for
+			// caller-built inline experiments.
+			cb := *exp.ContextualBandit
+			cb.VariationWeights = slices.Clone(normalizedWeights(len(exp.Variations), exp.Weights, e.client.logger))
+			exp.ContextualBandit = &cb
+		}
+	}
+
 	// 1. If experiment.variations has fewer than 2 variations, return getExperimentResult(experiment)
 	if len(exp.Variations) < 2 {
 		e.client.logger.DebugContext(e.ctx, "Invalid experiment", "id", exp.Key)
@@ -281,7 +305,11 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 	// 13. Build the result object
 	result := e.experimentResult(exp, stickyBucketVariation, true, featureId, n, stickyBucketFound)
 
-	// 13.5 Save sticky bucket assignment if in experiment and sticky bucketing is enabled
+	// 13.5 Save sticky bucket assignment if in experiment and sticky bucketing is enabled.
+	// saveStickyBucketAssignment short-circuits from the client cache when
+	// the primary doc already holds this assignment; the check must be
+	// against the primary doc, not the sticky match, because a match found
+	// via the fallback doc still needs upgrading into the hash-attribute doc.
 	if e.client.stickyBucketService != nil && !exp.DisableStickyBucketing && result.InExperiment {
 		// Create the sticky bucket assignment and save it
 		saveStickyBucketAssignment(
@@ -296,13 +324,6 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		)
 	}
 
-	// 14. Record the assignment for reporting. Earlier returns (forced
-	// variations, overrides) are deliberately not recorded; passthrough
-	// assignments are.
-	if result.InExperiment {
-		e.recordExperiment(exp, result)
-	}
-
 	return result
 }
 
@@ -315,6 +336,25 @@ func (e *evaluator) experimentResult(
 	isStickyBucketUsed bool,
 ) *ExperimentResult {
 	result := e.getExperimentResult(exp, variationId, hashUsed, featureId, bucket, isStickyBucketUsed)
+	// The result is the truth for bandit attribution: when it carries no
+	// leaf (forced, QA, sticky-bucketed, not included), the experiment must
+	// not claim one either. The experiment is evaluator-owned on every path
+	// (evalRule builds it; RunExperiment copies the caller's), so this
+	// single strip covers subscribers, tracking snapshots, and the returned
+	// FeatureResult alike — matching the JS SDK, which deletes
+	// experiment.contextualBandit before onExperimentEval.
+	if exp.ContextualBandit != nil && result.LeafId == nil {
+		exp.ContextualBandit = nil
+	}
+	// Record the assignment for reporting BEFORE notifying subscribers:
+	// subscriber code runs mid-evaluation on the live experiment and result,
+	// and must not be able to alter what the tracking pipeline reports.
+	// HashUsed is true only on the hashed-assignment path (step 14) — forced
+	// variations and overrides are deliberately not recorded; passthrough
+	// and sticky assignments are.
+	if result.InExperiment && result.HashUsed {
+		e.recordExperiment(exp, result)
+	}
 	if featureId != "" && e.client.data.subscribers.hasSubscribers() {
 		e.client.notifySubscribers(e.ctx, exp, result)
 	}
@@ -348,13 +388,18 @@ func (e *evaluator) getExperimentResult(
 		key = meta.Key
 	}
 
+	var value FeatureValue
+	if variationId < len(exp.Variations) {
+		value = exp.Variations[variationId]
+	}
+
 	res := ExperimentResult{
 		Key:              key,
 		FeatureId:        featureId,
 		InExperiment:     inExperiment,
 		HashUsed:         hashUsed,
 		VariationId:      variationId,
-		Value:            exp.Variations[variationId],
+		Value:            value,
 		HashAttribute:    hashAttribute,
 		HashValue:        hashValue,
 		Bucket:           bucket,
@@ -364,6 +409,18 @@ func (e *evaluator) getExperimentResult(
 	if meta != nil {
 		res.Name = meta.Name
 		res.Passthrough = meta.Passthrough
+	}
+
+	// A sticky-bucketed assignment did not use the leaf weights, so
+	// reporting them would corrupt the bandit's propensity estimates.
+	if cb := exp.ContextualBandit; cb != nil && hashUsed && inExperiment && !isStickyBucketUsed {
+		leafId := cb.LeafId
+		res.LeafId = &leafId
+		// Clone: the result and the experiment's assignment go to independent
+		// consumers (callbacks, subscribers, the caller); one mutating its
+		// slice must not skew the propensities another observes.
+		res.VariationWeights = slices.Clone(cb.VariationWeights)
+		res.BanditVersion = clonedBanditVersion(cb.BanditVersion)
 	}
 
 	return &res
@@ -396,7 +453,7 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 		return nil
 	}
 
-	if rule.Force != nil {
+	if rule.forcePresent || rule.Force != nil {
 		if !rule.Condition.Eval(e.client.attributes, e.savedGroups) {
 			return nil
 		}
@@ -408,11 +465,14 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 		return getFeatureResult(rule.Force, ForceResultSource, rule.Id, nil, nil)
 	}
 
-	if len(rule.Variations) == 0 {
+	if len(rule.Variations) == 0 && rule.ContextualVariations == nil {
 		return nil
 	}
 
 	exp := experimentFromFeatureRule(featureId, rule)
+	if rule.ContextualBanditRef != "" {
+		e.buildContextualBanditExperiment(exp, rule.ContextualBanditRef, featureId)
+	}
 	res := e.runExperiment(exp, featureId)
 	if !res.InExperiment || res.Passthrough {
 		return nil

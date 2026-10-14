@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"log/slog"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -45,7 +46,34 @@ func TestGetBucketRangesWarnsAndFallsBackForInvalidInputs(t *testing.T) {
 			coverage: 1,
 			weights:  []float64{0.4, 0.1},
 			want:     []BucketRange{{0, 0.5}, {0.5, 1}},
-			warnings: []string{"Experiment weights must add up to 1"},
+			warnings: []string{"Experiment weights must be finite, non-negative, and add up to 1"},
+		},
+		{
+			name:     "NaN weight",
+			num:      2,
+			coverage: 1,
+			weights:  []float64{math.NaN(), 1},
+			want:     []BucketRange{{0, 0.5}, {0.5, 1}},
+			warnings: []string{"Experiment weights must be finite, non-negative, and add up to 1"},
+		},
+		{
+			name:     "infinite weight",
+			num:      2,
+			coverage: 1,
+			weights:  []float64{math.Inf(1), 1},
+			want:     []BucketRange{{0, 0.5}, {0.5, 1}},
+			warnings: []string{"Experiment weights must be finite, non-negative, and add up to 1"},
+		},
+		{
+			// The JS SDK buckets on the inverted ranges this vector produces;
+			// rejecting negative entries is a disclosed, deliberate divergence
+			// shared with the Python SDK.
+			name:     "negative weight summing to one",
+			num:      2,
+			coverage: 1,
+			weights:  []float64{1.2, -0.2},
+			want:     []BucketRange{{0, 0.5}, {0.5, 1}},
+			warnings: []string{"Experiment weights must be finite, non-negative, and add up to 1"},
 		},
 		{
 			name:     "valid approximate weights",

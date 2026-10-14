@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -126,7 +127,7 @@ func newTrackingTestClient(t *testing.T, extra ...ClientOption) (*Client, *track
 	opts := []ClientOption{
 		WithJsonFeatures(trackingFeaturesJSON),
 		WithAttributes(Attributes{"id": "user-1"}),
-		WithDeferredTracking(),
+		WithTrackingBuffer(NewTrackingBuffer()),
 		WithExperimentCallback(func(ctx context.Context, exp *Experiment, res *ExperimentResult, _ *TrackingUserContext, _ any) {
 			callbacks.OnExperimentViewed(ctx, exp, res)
 		}),
@@ -349,6 +350,77 @@ func TestDeferredTracking(t *testing.T) {
 		require.Empty(t, parent.DeferredTrackingCalls())
 	})
 
+	t.Run("attaching a different buffer detaches from the parent's", func(t *testing.T) {
+		parent, _, _ := newTrackingTestClient(t)
+		buf := NewTrackingBuffer()
+		child, err := parent.WithTrackingBuffer(buf)
+		require.NoError(t, err)
+
+		child.EvalFeature(ctx, "ramped")
+		require.Len(t, buf.TrackingCalls(), 1)
+		require.Empty(t, parent.DeferredTrackingCalls())
+	})
+
+	t.Run("attaching nil stops buffering", func(t *testing.T) {
+		parent, _, _ := newTrackingTestClient(t)
+		child, err := parent.WithTrackingBuffer(nil)
+		require.NoError(t, err)
+
+		child.EvalFeature(ctx, "ramped")
+		require.Nil(t, child.DeferredTrackingCalls())
+		require.Empty(t, parent.DeferredTrackingCalls())
+	})
+
+	t.Run("client accessors delegate to the attached buffer", func(t *testing.T) {
+		buf := NewTrackingBuffer()
+		client, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithTrackingBuffer(buf),
+		)
+		require.NoError(t, err)
+
+		client.EvalFeature(ctx, "ramped")
+		require.Equal(t, buf.TrackingCalls(), client.DeferredTrackingCalls())
+		require.Len(t, buf.TrackingCalls(), 1)
+
+		client.ClearDeferredTrackingCalls()
+		require.Empty(t, buf.TrackingCalls())
+	})
+
+	t.Run("buffer lifecycle: reads are non-destructive, Clear forgets dedupe memory", func(t *testing.T) {
+		buf := NewTrackingBuffer()
+		client, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithTrackingBuffer(buf),
+		)
+		require.NoError(t, err)
+
+		client.EvalFeature(ctx, "ramped-treatment")
+		require.Len(t, buf.TrackingCalls(), 1)
+		require.Len(t, buf.TrackingCalls(), 1, "reading must not drain the buffer")
+
+		buf.Clear()
+		require.Empty(t, buf.TrackingCalls())
+
+		client.EvalFeature(ctx, "ramped-treatment")
+		require.Len(t, buf.TrackingCalls(), 1, "Clear forgets dedupe memory, so the exposure records again")
+	})
+
+	t.Run("the zero-value buffer is usable", func(t *testing.T) {
+		var buf TrackingBuffer
+		client, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithTrackingBuffer(&buf),
+		)
+		require.NoError(t, err)
+
+		client.EvalFeature(ctx, "ramped")
+		require.Len(t, buf.TrackingCalls(), 1)
+	})
+
 	t.Run("a shared armed client accumulates all users without cross-user dedupe", func(t *testing.T) {
 		shared, _, _ := newTrackingTestClient(t)
 		user1, err := shared.WithAttributes(Attributes{"id": "user-1"})
@@ -364,6 +436,25 @@ func TestDeferredTracking(t *testing.T) {
 		require.NotEqual(t, calls[0].Result.HashValue, calls[1].Result.HashValue)
 		require.Equal(t, "user-1", calls[0].User.Attributes["id"])
 		require.Equal(t, "user-2", calls[1].User.Attributes["id"])
+	})
+
+	t.Run("distinct exposures whose fields collide under delimiter joining are both kept", func(t *testing.T) {
+		shared, _, _ := newTrackingTestClient(t)
+		user1, err := shared.WithAttributes(Attributes{"id": "u\x001exp"})
+		require.NoError(t, err)
+		user2, err := shared.WithAttributes(Attributes{"id": "u"})
+		require.NoError(t, err)
+
+		one := 1.0
+		expA := Experiment{Key: "x", Variations: []FeatureValue{"a", "b"}, Weights: []float64{1, 0}, Coverage: &one}
+		expB := Experiment{Key: "1exp\x00x", Variations: []FeatureValue{"a", "b"}, Weights: []float64{1, 0}, Coverage: &one}
+
+		require.True(t, user1.RunExperiment(ctx, &expA).InExperiment)
+		require.True(t, user2.RunExperiment(ctx, &expB).InExperiment)
+
+		// Both NUL-joined keys read "id\x00u\x001exp\x00x\x000"; a string-keyed
+		// buffer would silently drop the second user's exposure.
+		require.Len(t, shared.DeferredTrackingCalls(), 2)
 	})
 }
 
@@ -543,6 +634,21 @@ func TestTrackingDataShape(t *testing.T) {
 		require.NotEqual(t, td.DedupeKey(), other.DedupeKey())
 	})
 
+	t.Run("internal dedupe key is field-wise: delimiter bytes in values cannot collide", func(t *testing.T) {
+		a := TrackingData{
+			Experiment: &Experiment{Key: "x"},
+			Result:     &ExperimentResult{HashAttribute: "id", HashValue: "u\x001exp", VariationId: 0},
+		}
+		b := TrackingData{
+			Experiment: &Experiment{Key: "1exp\x00x"},
+			Result:     &ExperimentResult{HashAttribute: "id", HashValue: "u", VariationId: 0},
+		}
+		// The deprecated string encoding collides on exactly this pair...
+		require.Equal(t, a.DedupeKey(), b.DedupeKey())
+		// ...the struct key the SDK dedupes on does not.
+		require.NotEqual(t, dedupeKey(a.Experiment, a.Result), dedupeKey(b.Experiment, b.Result))
+	})
+
 	t.Run("exposures with namespaces, ranges, and filters detach losslessly", func(t *testing.T) {
 		ctx := context.Background()
 		client, _, _ := newTrackingTestClient(t)
@@ -566,7 +672,7 @@ func TestTrackingDataShape(t *testing.T) {
 		require.Equal(t, []BucketRange{{Min: 0, Max: 1}, {Min: 0, Max: 0}}, got.Ranges)
 		require.Equal(t, exp.Filters, got.Filters)
 
-		require.Len(t, client.detachTrackingData(calls), 1)
+		require.Len(t, detachTrackingData(calls, client.logger), 1)
 
 		b, err := json.Marshal(calls[0])
 		require.NoError(t, err)
@@ -617,4 +723,182 @@ func TestConcurrentDeferredTracking(t *testing.T) {
 		{"parent-exp", 0, false, "parent"},
 		{"ramp", 1, true, "ramped"},
 	}, exposures(t, client.DeferredTrackingCalls()))
+}
+
+func TestConcurrentSharedTrackingBuffer(t *testing.T) {
+	ctx := context.Background()
+	base, err := NewClient(ctx, WithJsonFeatures(trackingFeaturesJSON))
+	require.NoError(t, err)
+
+	buf := NewTrackingBuffer()
+	one := 1.0
+
+	var wg sync.WaitGroup
+	for i := 0; i < 20; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			child, err := base.WithAttributes(Attributes{"id": fmt.Sprintf("user-%d", i)})
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			child, err = child.WithTrackingBuffer(buf)
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			exp := Experiment{Key: "exp", Variations: []FeatureValue{"a", "b"}, Weights: []float64{1, 0}, Coverage: &one}
+			child.RunExperiment(ctx, &exp)
+			buf.TrackingCalls() // concurrent reads must not race with writes
+		}(i)
+	}
+	wg.Wait()
+
+	require.Len(t, buf.TrackingCalls(), 20, "one exposure per user, no cross-user dedupe")
+}
+
+func TestTakeTrackingCalls(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("drains atomically and forgets dedupe memory", func(t *testing.T) {
+		buf := NewTrackingBuffer()
+		client, err := NewClient(ctx,
+			WithJsonFeatures(trackingFeaturesJSON),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithTrackingBuffer(buf),
+		)
+		require.NoError(t, err)
+
+		client.EvalFeature(ctx, "ramped-treatment")
+		taken := buf.TakeTrackingCalls()
+		require.Len(t, taken, 1)
+		require.Empty(t, buf.TrackingCalls(), "take must empty the buffer")
+
+		client.EvalFeature(ctx, "ramped-treatment")
+		require.Len(t, buf.TakeTrackingCalls(), 1, "dedupe memory is forgotten, like Clear")
+
+		require.Empty(t, client.TakeDeferredTrackingCalls(), "an empty drain returns nothing")
+	})
+
+	t.Run("client accessor delegates", func(t *testing.T) {
+		client, _, _ := newTrackingTestClient(t)
+		client.EvalFeature(ctx, "ramped")
+		require.Len(t, client.TakeDeferredTrackingCalls(), 1)
+		require.Empty(t, client.DeferredTrackingCalls())
+	})
+
+	t.Run("nothing recorded concurrently is cleared without being returned", func(t *testing.T) {
+		base, err := NewClient(ctx, WithJsonFeatures(trackingFeaturesJSON))
+		require.NoError(t, err)
+		buf := NewTrackingBuffer()
+		one := 1.0
+
+		const producers = 8
+		const perProducer = 25
+		var wg sync.WaitGroup
+		for p := 0; p < producers; p++ {
+			wg.Add(1)
+			go func(p int) {
+				defer wg.Done()
+				for i := 0; i < perProducer; i++ {
+					child, err := base.WithAttributes(Attributes{"id": fmt.Sprintf("u-%d-%d", p, i)})
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					child, err = child.WithTrackingBuffer(buf)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					exp := Experiment{Key: "exp", Variations: []FeatureValue{"a", "b"}, Weights: []float64{1, 0}, Coverage: &one}
+					child.RunExperiment(ctx, &exp)
+				}
+			}(p)
+		}
+
+		drained := 0
+		done := make(chan struct{})
+		go func() { wg.Wait(); close(done) }()
+		for {
+			drained += len(buf.TakeTrackingCalls())
+			select {
+			case <-done:
+				drained += len(buf.TakeTrackingCalls())
+				require.Equal(t, producers*perProducer, drained,
+					"every exposure must be returned by exactly one drain")
+				return
+			default:
+			}
+		}
+	})
+}
+
+// marshalCounting is a feature value that counts its JSON encodings, so
+// tests can observe when evaluation serializes feature values.
+type marshalCounting struct{ calls *int }
+
+func (m marshalCounting) MarshalJSON() ([]byte, error) {
+	*m.calls++
+	return []byte(`"counted"`), nil
+}
+
+// serializationProbeFeatures returns a "parent" whose value counts its own
+// encodings and a "child" whose two rules each read the parent (and skip),
+// so a single EvalFeature("child") evaluates "parent" twice.
+func serializationProbeFeatures(t *testing.T, calls *int) FeatureMap {
+	t.Helper()
+	var first, second FeatureRule
+	for _, r := range []*FeatureRule{&first, &second} {
+		require.NoError(t, json.Unmarshal([]byte(`{
+			"parentConditions": [{"id": "parent", "condition": {"value": "other"}}],
+			"force": "unreachable"
+		}`), r))
+	}
+	return FeatureMap{
+		"parent": {DefaultValue: marshalCounting{calls}},
+		"child":  {DefaultValue: "child-default", Rules: []FeatureRule{first, second}},
+	}
+}
+
+func TestFeatureUsageValueSerialization(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("exposure-only consumers never serialize feature values", func(t *testing.T) {
+		var encodings int
+		client, err := NewClient(ctx,
+			WithFeatures(serializationProbeFeatures(t, &encodings)),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithTrackingBuffer(NewTrackingBuffer()),
+			WithExperimentCallback(func(context.Context, *Experiment, *ExperimentResult, *TrackingUserContext, any) {}),
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, marshalCounting{&encodings}, client.EvalFeature(ctx, "parent").Value)
+		require.Equal(t, "child-default", client.EvalFeature(ctx, "child").Value)
+		require.Zero(t, encodings)
+	})
+
+	t.Run("a feature-usage consumer serializes only when a key repeats within one evaluation", func(t *testing.T) {
+		var encodings int
+		var usage []string
+		client, err := NewClient(ctx,
+			WithFeatures(serializationProbeFeatures(t, &encodings)),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithFeatureUsageCallback(func(_ context.Context, key string, _ *FeatureResult, _ any) {
+				usage = append(usage, key)
+			}),
+		)
+		require.NoError(t, err)
+
+		client.EvalFeature(ctx, "parent")
+		require.Zero(t, encodings, "a key seen once is not serialized")
+		require.Equal(t, []string{"parent"}, usage)
+
+		usage = nil
+		require.Equal(t, "child-default", client.EvalFeature(ctx, "child").Value)
+		require.Equal(t, 2, encodings, "each occurrence of the repeated parent is encoded once")
+		require.Equal(t, []string{"parent", "child"}, usage, "the unchanged repeat is still reported once")
+	})
 }
