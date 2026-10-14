@@ -1,30 +1,31 @@
 package condition
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
 type Base struct {
 	cond Condition
-	// raw is the condition's source JSON, compacted, kept so it can be marshaled
-	// back. Parsing is one-way — the condition tree holds compiled regexps and
-	// operator nodes that cannot be rendered as JSON again — so without it
-	// marshaling would emit an empty object, silently turning a targeted rule
-	// into one that matches everyone.
+	// raw is the condition's JSON in canonical form (re-marshaled from the
+	// parsed map), kept so it can be marshaled back. Parsing is one-way — the
+	// condition tree holds compiled regexps and operator nodes that cannot be
+	// rendered as JSON again — so without it marshaling would emit an empty
+	// object, silently turning a targeted rule into one that matches everyone.
 	raw json.RawMessage
 }
 
+// Eval starts a condition evaluation with no saved-group references visited.
 func (base Base) Eval(actual value.Value, groups SavedGroups) bool {
 	if base.cond == nil {
 		return true
 	}
-	return base.cond.Eval(actual, groups)
+	return base.cond.Eval(actual, groups, nil)
 }
 
 func (base *Base) UnmarshalJSON(data []byte) error {
@@ -33,28 +34,25 @@ func (base *Base) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	cond, err := buildBaseCond(value.New(m))
+	val := value.New(m)
+	cond, err := buildBaseCond(val)
 	if err != nil {
 		return err
 	}
-	// Compact rather than copy the input: it drops insignificant whitespace, so
-	// two conditions that differ only in formatting stay equal under
-	// reflect.DeepEqual, and the buffer is ours (encoding/json may reuse the one
-	// backing data once we return).
-	var raw bytes.Buffer
-	if err := json.Compact(&raw, data); err != nil {
+	raw, err := json.Marshal(m)
+	if err != nil {
 		return err
 	}
-	*base = Base{cond: cond, raw: raw.Bytes()}
+	*base = Base{cond: cond, raw: raw}
 	return nil
 }
 
-// MarshalJSON writes the condition's source JSON back out, so a feature payload
-// survives a round-trip through JSON without losing its targeting rules. A zero
-// Base (a rule that declares no condition) marshals to an empty object, which
-// parses back to a condition matching everyone — the same meaning it has now.
+// MarshalJSON emits the parsed condition in canonical form, so conditions
+// survive a marshal/unmarshal round trip instead of collapsing to {}. A zero
+// Base marshals as {} — the always-true condition, matching its Eval — which
+// is also what it marshaled as before conditions carried their raw form.
 func (base Base) MarshalJSON() ([]byte, error) {
-	if len(base.raw) == 0 {
+	if base.raw == nil {
 		return []byte("{}"), nil
 	}
 	return base.raw, nil
@@ -70,7 +68,7 @@ func buildBaseCond(json value.Value) (Condition, error) {
 		fv := obj[f]
 		cond, err := buildLogicCond(f, fv)
 		if err != nil {
-			return Base{}, fmt.Errorf("Error building %v : %v", f, err)
+			return nil, fmt.Errorf("Error building %v : %v", f, err)
 		}
 		conds = append(conds, cond)
 	}
@@ -102,6 +100,27 @@ func orderedConditionKeys(obj value.ObjValue) []string {
 
 func buildLogicCond(op string, arg value.Value) (Condition, error) {
 	switch Operator(op) {
+	case savedGroupOp:
+		reference, ok := arg.(value.ObjValue)
+		if !ok {
+			return False{}, nil
+		}
+		id, ok := reference["id"].(value.StrValue)
+		if !ok {
+			return False{}, nil
+		}
+		cond := savedGroupCond{id: string(id)}
+		if key, present := reference["attributeKey"]; present {
+			attributeKey, ok := key.(value.StrValue)
+			if !ok {
+				return False{}, nil
+			}
+			cond.overridePath = strings.Split(string(attributeKey), ".")
+		}
+		return cond, nil
+	case "$savedGroups":
+		// The plural operator is authoring-only and never valid on the wire.
+		return False{}, nil
 	case andOp, orOp, norOp:
 		conds, err := buildBaseList(arg)
 		if err != nil {

@@ -40,6 +40,6 @@ func TestValueCond(t *testing.T) {
 	}
 	for _, tt := range tests {
 		var c Condition = NewValueCond(tt.e)
-		require.Equal(t, tt.r, c.Eval(value.New(tt.a), nil), " ValueCond(%v).Eval(%v) == %v", tt.e, tt.a, tt.r)
+		require.Equal(t, tt.r, c.Eval(value.New(tt.a), nil, nil), " ValueCond(%v).Eval(%v) == %v", tt.e, tt.a, tt.r)
 	}
 }

@@ -30,9 +30,10 @@ func TestFeaturesDecryptFeaturesWithInvalidKey(t *testing.T) {
 	encrypedFeatures :=
 		"vMSg2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
 
-	client, _ := NewClient(ctx, WithClientKey(keyString))
+	client, _ := NewClient(ctx, WithDecryptionKey(keyString))
 	err := client.SetEncryptedJSONFeatures(encrypedFeatures)
 	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrNoDecryptionKey)
 }
 
 func TestFeaturesDecryptFeaturesWithInvalidCiphertext(t *testing.T) {
@@ -40,9 +41,10 @@ func TestFeaturesDecryptFeaturesWithInvalidCiphertext(t *testing.T) {
 	encrypedFeatures :=
 		"FAKE2Bj/IurObDsWVmvkUg==.L6qtQkIzKDoE2Dix6IAKDcVel8PHUnzJ7JjmLjFZFQDqidRIoCxKmvxvUj2kTuHFTQ3/NJ3D6XhxhXXv2+dsXpw5woQf0eAgqrcxHrbtFORs18tRXRZza7zqgzwvcznx"
 
-	client, _ := NewClient(ctx, WithClientKey(keyString))
+	client, _ := NewClient(ctx, WithDecryptionKey(keyString))
 	err := client.SetEncryptedJSONFeatures(encrypedFeatures)
 	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrNoDecryptionKey)
 }
 
 func TestFeaturesReturnsRuleID(t *testing.T) {

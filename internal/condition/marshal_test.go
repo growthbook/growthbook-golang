@@ -149,44 +149,35 @@ func TestCaseInsensitiveOperators(t *testing.T) {
 	})
 }
 
-func TestBaseMarshalPreservesCondition(t *testing.T) {
-	src := `{"country":"US","age":{"$gt":18},"tags":{"$in":["a","b"]}}`
+func TestConditionMarshalRoundTrip(t *testing.T) {
+	t.Run("conditions survive a marshal round trip", func(t *testing.T) {
+		src := `{"$or": [{"age": {"$gte": 18}}, {"name": "Bob"}]}`
+		var b Base
+		require.NoError(t, json.Unmarshal([]byte(src), &b))
 
-	var base Base
-	require.NoError(t, json.Unmarshal([]byte(src), &base))
+		out, err := json.Marshal(b)
+		require.NoError(t, err)
 
-	out, err := json.Marshal(base)
-	require.NoError(t, err)
-	require.JSONEq(t, src, string(out))
+		var got, want map[string]any
+		require.NoError(t, json.Unmarshal(out, &got))
+		require.NoError(t, json.Unmarshal([]byte(src), &want))
+		require.Equal(t, want, got)
 
-	// The re-parsed condition must behave identically to the original.
-	var back Base
-	require.NoError(t, json.Unmarshal(out, &back))
-	attrs := value.New(map[string]any{"country": "US", "age": 21, "tags": []any{"a"}})
-	require.True(t, base.Eval(attrs, nil))
-	require.True(t, back.Eval(attrs, nil))
+		var again Base
+		require.NoError(t, json.Unmarshal(out, &again))
+		require.True(t, again.Eval(value.New(map[string]any{"age": 20}), nil))
+		require.False(t, again.Eval(value.New(map[string]any{"age": 10, "name": "Ann"}), nil))
+	})
 
-	other := value.New(map[string]any{"country": "UA", "age": 21, "tags": []any{"a"}})
-	require.False(t, base.Eval(other, nil))
-	require.False(t, back.Eval(other, nil), "round-tripped condition must still reject non-matching users")
-}
+	t.Run("the zero value marshals as {}, its always-true Eval form", func(t *testing.T) {
+		out, err := json.Marshal(Base{})
+		require.NoError(t, err)
+		require.Equal(t, "{}", string(out))
+	})
 
-func TestZeroBaseMarshalsToEmptyObject(t *testing.T) {
-	// A rule with no condition: marshals to {} and parses back to match-everyone.
-	out, err := json.Marshal(Base{})
-	require.NoError(t, err)
-	require.JSONEq(t, `{}`, string(out))
-
-	var back Base
-	require.NoError(t, json.Unmarshal(out, &back))
-	require.True(t, back.Eval(value.New(map[string]any{}), nil))
-}
-
-func TestBaseEqualityIgnoresFormatting(t *testing.T) {
-	// Conditions are compared by value inside FeatureRule/Experiment, so keeping
-	// the raw JSON must not make formatting significant.
-	var compact, pretty Base
-	require.NoError(t, json.Unmarshal([]byte(`{"premium":true}`), &compact))
-	require.NoError(t, json.Unmarshal([]byte("{\n  \"premium\": true\n}"), &pretty))
-	require.Equal(t, compact, pretty)
+	t.Run("a null condition unmarshals as the always-true zero value", func(t *testing.T) {
+		var b Base
+		require.NoError(t, json.Unmarshal([]byte("null"), &b))
+		require.True(t, b.Eval(value.New(map[string]any{"x": 1}), nil))
+	})
 }
