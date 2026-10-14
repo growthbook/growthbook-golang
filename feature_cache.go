@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"sync"
 	"time"
 )
@@ -60,16 +61,29 @@ func NewInMemoryFeatureCache() *InMemoryFeatureCache {
 	return &InMemoryFeatureCache{store: make(map[string]*FeatureCacheEntry)}
 }
 
+// Get returns a copy of the stored entry, so callers cannot change the cached
+// snapshot.
 func (c *InMemoryFeatureCache) Get(_ context.Context, key string) (*FeatureCacheEntry, bool, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	entry, ok := c.store[key]
-	return entry, ok, nil
+	return cloneFeatureCacheEntry(entry), ok, nil
 }
 
+// Set stores a copy of entry, so later changes to it do not reach the cache.
 func (c *InMemoryFeatureCache) Set(_ context.Context, key string, entry *FeatureCacheEntry) error {
+	clone := cloneFeatureCacheEntry(entry)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.store[key] = entry
+	c.store[key] = clone
 	return nil
+}
+
+func cloneFeatureCacheEntry(entry *FeatureCacheEntry) *FeatureCacheEntry {
+	if entry == nil {
+		return nil
+	}
+	clone := *entry
+	clone.Payload = slices.Clone(entry.Payload)
+	return &clone
 }

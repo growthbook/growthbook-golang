@@ -31,6 +31,28 @@ func TestInMemoryFeatureCacheGetSet(t *testing.T) {
 	require.Equal(t, "e1", got.Etag)
 }
 
+func TestInMemoryFeatureCacheCopiesEntries(t *testing.T) {
+	cache := NewInMemoryFeatureCache()
+	payload := `{"features":{}}`
+	entry := &FeatureCacheEntry{Payload: json.RawMessage(payload), Etag: "e1"}
+	require.NoError(t, cache.Set(ctx, "k", entry))
+
+	// Changing the entry after Set must not reach the cache.
+	entry.Payload[0] = 'X'
+	entry.Etag = "changed"
+
+	got, _, err := cache.Get(ctx, "k")
+	require.NoError(t, err)
+	require.Equal(t, payload, string(got.Payload))
+	require.Equal(t, "e1", got.Etag)
+
+	// Neither must changing an entry returned by Get.
+	got.Payload[0] = 'X'
+	again, _, err := cache.Get(ctx, "k")
+	require.NoError(t, err)
+	require.Equal(t, payload, string(again.Payload))
+}
+
 func TestSeedsFeaturesFromCacheOnStartup(t *testing.T) {
 	cache := NewInMemoryFeatureCache()
 	cache.Set(ctx, "https://example.com::k", &FeatureCacheEntry{

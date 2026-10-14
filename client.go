@@ -146,7 +146,10 @@ func (client *Client) writeCache(ctx context.Context, payload json.RawMessage, e
 	}
 	key := client.data.cacheKey()
 	if etag == "" {
-		if prev, found, err := cache.Get(ctx, key); err == nil && found && prev != nil {
+		prev, found, err := cache.Get(ctx, key)
+		if err != nil {
+			client.logger.WarnContext(ctx, "Feature cache read failed, writing without the previous etag", "error", err)
+		} else if found && prev != nil {
 			etag = prev.Etag
 		}
 	}
@@ -349,6 +352,12 @@ func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
 }
 
 func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
+	return client.updateFromApiResponseJSON(context.Background(), respJSON)
+}
+
+// updateFromApiResponseJSON parses and applies a JSON API response, using ctx
+// for the cache backend so data sources can cancel a stalled write.
+func (client *Client) updateFromApiResponseJSON(ctx context.Context, respJSON string) error {
 	var resp FeatureApiResponse
 	err := json.Unmarshal([]byte(respJSON), &resp)
 	if err != nil {
@@ -356,7 +365,7 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 	}
 	// Preserve the raw payload so it can be persisted verbatim to the cache.
 	resp.raw = json.RawMessage(respJSON)
-	return client.updateFromApiResponse(context.Background(), &resp)
+	return client.updateFromApiResponse(ctx, &resp)
 }
 
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
