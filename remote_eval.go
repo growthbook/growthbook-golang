@@ -202,8 +202,10 @@ func remoteEvalFlightKey(key string, force bool) string {
 }
 
 // fetchRemoteEval performs one remote-eval request, caches its result and
-// returns the fetched features (nil for a response without features).
+// returns the features now cached for key: the fetched ones, or newer ones a
+// later-started request already cached (nil for a response without features).
 func (client *Client) fetchRemoteEval(ctx context.Context, key string) (FeatureMap, error) {
+	seq := client.data.remoteEvalSeq.Add(1)
 	resp, err := client.callEvalApi(ctx)
 	if err != nil {
 		return nil, err
@@ -213,8 +215,7 @@ func (client *Client) fetchRemoteEval(ctx context.Context, key string) (FeatureM
 		client.logger.WarnContext(ctx, "Remote eval response contains no features")
 		return nil, nil
 	}
-	client.data.setRemoteEval(key, resp.Features, client.remoteEvalCacheSize)
-	return resp.Features, nil
+	return client.data.setRemoteEval(key, resp.Features, seq, client.remoteEvalCacheSize), nil
 }
 
 // runRemoteEvalCall performs the fetch for a shared call and publishes its

@@ -4,6 +4,7 @@ import (
 	"container/list"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -37,6 +38,9 @@ type data struct {
 	// share one request and its outcome, including a failure.
 	remoteEvalCallsMu sync.Mutex
 	remoteEvalCalls   map[string]*remoteEvalCall
+	// remoteEvalSeq numbers remote-eval requests in the order they start, so a
+	// slow older response cannot replace a newer one for the same key.
+	remoteEvalSeq atomic.Uint64
 
 	// now returns the current time; overridable in tests for TTL checks.
 	now func() time.Time
@@ -56,6 +60,7 @@ type remoteEvalEntry struct {
 	key       string
 	features  FeatureMap
 	fetchedAt time.Time
+	seq       uint64 // start order of the request that produced the entry
 }
 
 func newData() *data {
@@ -107,10 +112,13 @@ func (d *data) getRemoteEval(key string) (*remoteEvalEntry, bool) {
 	return elem.Value.(*remoteEvalEntry), true
 }
 
-// setRemoteEval stores features under key as the most recently fetched entry.
-// When maxSize > 0 the oldest-fetched entries are evicted to keep the cache
-// bounded. Reads do not affect eviction order.
-func (d *data) setRemoteEval(key string, features FeatureMap, maxSize int) {
+// setRemoteEval stores features fetched by request seq under key as the most
+// recently fetched entry, and returns the features now cached for key. A
+// response from a request that started before the cached entry's request is
+// discarded, so the newer cached features are returned instead. When
+// maxSize > 0 the oldest-fetched entries are evicted to keep the cache bounded.
+// Reads do not affect eviction order.
+func (d *data) setRemoteEval(key string, features FeatureMap, seq uint64, maxSize int) FeatureMap {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.remoteEvalCache == nil {
@@ -118,14 +126,17 @@ func (d *data) setRemoteEval(key string, features FeatureMap, maxSize int) {
 		d.remoteEvalOrder = list.New()
 	}
 	if elem, ok := d.remoteEvalCache[key]; ok {
+		if cached := elem.Value.(*remoteEvalEntry); cached.seq > seq {
+			return cached.features
+		}
 		// Replace the pointer instead of mutating in place: getRemoteEval hands
 		// the entry to callers that read it after releasing the RLock, so the
 		// entry must be an immutable snapshot.
-		elem.Value = &remoteEvalEntry{key: key, features: features, fetchedAt: d.now()}
+		elem.Value = &remoteEvalEntry{key: key, features: features, fetchedAt: d.now(), seq: seq}
 		d.remoteEvalOrder.MoveToFront(elem)
-		return
+		return features
 	}
-	elem := d.remoteEvalOrder.PushFront(&remoteEvalEntry{key: key, features: features, fetchedAt: d.now()})
+	elem := d.remoteEvalOrder.PushFront(&remoteEvalEntry{key: key, features: features, fetchedAt: d.now(), seq: seq})
 	d.remoteEvalCache[key] = elem
 
 	for maxSize > 0 && len(d.remoteEvalCache) > maxSize {
@@ -137,6 +148,7 @@ func (d *data) setRemoteEval(key string, features FeatureMap, maxSize int) {
 		d.remoteEvalOrder.Remove(back)
 		delete(d.remoteEvalCache, evicted.key)
 	}
+	return features
 }
 
 func (d *data) getDsStartErr() error {

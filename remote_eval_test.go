@@ -599,3 +599,41 @@ func TestRemoteEvalRefreshDoesNotJoinEarlierLoad(t *testing.T) {
 	}
 	require.Equal(t, int32(2), count.Load())
 }
+
+func TestRemoteEvalOlderResponseDoesNotOverwriteRefresh(t *testing.T) {
+	// The first request (an ordinary load) is held and answers "old"; the
+	// refresh issued meanwhile answers "new" at once.
+	var count atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		value := "new"
+		if count.Add(1) == 1 {
+			close(started)
+			<-release
+			value = "old"
+		}
+		_, _ = w.Write([]byte(`{"features":{"feat":{"defaultValue":"` + value + `"}}}`))
+	}))
+	defer srv.Close()
+
+	// TTL 0 never expires, so a stale overwrite would stick for good.
+	client := newRemoteEvalClient(t, &testServer{http: srv},
+		WithAttributes(Attributes{"id": "1"}), WithRemoteEvalTTL(0))
+
+	loadDone := make(chan struct{})
+	go func() {
+		defer close(loadDone)
+		_ = client.EnsureLoaded(context.Background())
+	}()
+	<-started
+
+	require.NoError(t, client.RefreshFeatures(ctx))
+	require.Equal(t, "new", client.EvalFeature(ctx, "feat").Value)
+
+	// The older load's response arrives last and must not replace the
+	// refresh's newer result.
+	close(release)
+	<-loadDone
+	require.Equal(t, "new", client.EvalFeature(ctx, "feat").Value)
+}
