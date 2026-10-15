@@ -55,9 +55,9 @@ SKIPLIST = REPO_ROOT / "tests" / "scripts" / "corpus_skiplist.json"
 DEFAULT_JS_URL = "https://raw.githubusercontent.com/growthbook/growthbook/main/packages/sdk-js/test/cases.json"
 
 # Top-level keys to diff. Other keys in cases.json (specVersion, decrypt
-# binary blobs, urlRedirect which Go doesn't yet wire, contextualBandit which
-# Go doesn't implement) are skipped either because they're scalar metadata or
-# because the divergence is tracked separately.
+# binary blobs, urlRedirect which Go doesn't yet wire) are skipped either
+# because they're scalar metadata or because the divergence is tracked
+# separately.
 KEYS_TO_DIFF = (
     "evalCondition",
     "feature",
@@ -69,6 +69,10 @@ KEYS_TO_DIFF = (
     "inNamespace",
     "getEqualWeights",
     "stickyBucket",
+    "contextualBandit",
+    "savedGroupReferencesV2.evalCondition",
+    "savedGroupReferencesV2.feature",
+    "savedGroupReferencesV2.run",
 )
 
 
@@ -156,8 +160,11 @@ def _diff(
     drift_skip = skip.get("drift", {})
 
     for key in KEYS_TO_DIFF:
-        js_list = js_cases.get(key, [])
-        local_list = local_cases.get(key, [])
+        js_list = js_cases
+        local_list = local_cases
+        for part in key.split("."):
+            js_list = js_list.get(part, []) if isinstance(js_list, dict) else []
+            local_list = local_list.get(part, []) if isinstance(local_list, dict) else []
         if not isinstance(js_list, list) or not isinstance(local_list, list):
             continue
 

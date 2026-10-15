@@ -30,6 +30,14 @@ type cases struct {
 	GetEqualWeights        JsonTuples[getEqualWeightsCase]        `json:"getEqualWeights"`
 	Decrypt                JsonTuples[decryptCase]                `json:"decrypt"`
 	StickyBucket           JsonTuples[stickyBucketTestCase]       `json:"stickyBucket"`
+	ContextualBandit       JsonTuples[featureCase]                `json:"contextualBandit"`
+	SavedGroupReferencesV2 savedGroupReferencesV2Cases            `json:"savedGroupReferencesV2"`
+}
+
+type savedGroupReferencesV2Cases struct {
+	EvalCondition JsonTuples[evalConditionCase] `json:"evalCondition"`
+	Feature       JsonTuples[featureCase]       `json:"feature"`
+	Run           JsonTuples[runCase]           `json:"run"`
 }
 
 type evalConditionCase struct {
@@ -153,13 +161,14 @@ type stickyBucketTestCase struct {
 }
 
 type env struct {
-	Attributes       Attributes            `json:"attributes"`
-	Features         FeatureMap            `json:"features"`
-	Enabled          *bool                 `json:"enabled"`
-	Url              string                `json:"url"`
-	ForcedVariations ForcedVariationsMap   `json:"forcedVariations"`
-	QaMode           *bool                 `json:"qaMode"`
-	SavedGroups      condition.SavedGroups `json:"savedGroups"`
+	Attributes        Attributes                  `json:"attributes"`
+	Features          FeatureMap                  `json:"features"`
+	Enabled           *bool                       `json:"enabled"`
+	Url               string                      `json:"url"`
+	ForcedVariations  ForcedVariationsMap         `json:"forcedVariations"`
+	QaMode            *bool                       `json:"qaMode"`
+	SavedGroups       condition.SavedGroups       `json:"savedGroups"`
+	ContextualBandits ContextualBanditDefinitions `json:"contextualBandits"`
 }
 
 type JsonTuple[T any] struct {
@@ -216,6 +225,15 @@ func TestCasesJson(t *testing.T) {
 	cases.GetEqualWeights.run("getEqualWeights", t)
 	cases.Decrypt.run("decrypt", t)
 	cases.StickyBucket.run("stickyBucket", t)
+	cases.ContextualBandit.run("contextualBandit", t)
+	t.Run("savedGroupReferencesV2", func(t *testing.T) {
+		require.NotEmpty(t, cases.SavedGroupReferencesV2.EvalCondition)
+		require.NotEmpty(t, cases.SavedGroupReferencesV2.Feature)
+		require.NotEmpty(t, cases.SavedGroupReferencesV2.Run)
+		cases.SavedGroupReferencesV2.EvalCondition.run("evalCondition", t)
+		cases.SavedGroupReferencesV2.Feature.run("feature", t)
+		cases.SavedGroupReferencesV2.Run.run("run", t)
+	})
 }
 
 // stringifyTopLevelHashValue converts a numeric top-level "hashValue" in an
@@ -415,6 +433,7 @@ func (e *env) client() (*Client, error) {
 		WithForcedVariations(e.ForcedVariations),
 		WithFeatures(e.Features),
 		WithSavedGroups(e.SavedGroups),
+		WithContextualBandits(e.ContextualBandits),
 		withSilentTestLogger(),
 	)
 	if err != nil {

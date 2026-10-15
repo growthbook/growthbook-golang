@@ -10,20 +10,21 @@ import (
 )
 
 type data struct {
-	mu            sync.RWMutex
-	features      FeatureMap
-	savedGroups   condition.SavedGroups
-	dateUpdated   time.Time
-	apiHost       string
-	clientKey     string
-	decryptionKey string
-	httpClient    *http.Client
-	dataSource    DataSource
-	dsStarted     bool
-	dsStartWait   chan struct{}
-	dsStartErr    error
-	plugins       []Plugin
-	subscribers   subscriberRegistry
+	mu                sync.RWMutex
+	features          FeatureMap
+	savedGroups       condition.SavedGroups
+	contextualBandits ContextualBanditDefinitions
+	dateUpdated       time.Time
+	apiHost           string
+	clientKey         string
+	decryptionKey     string
+	httpClient        *http.Client
+	dataSource        DataSource
+	dsStarted         bool
+	dsStartWait       chan struct{}
+	dsStartErr        error
+	plugins           []Plugin
+	subscribers       subscriberRegistry
 
 	// remoteEvalCache maps a remote-eval cache key (derived from the relevant
 	// attributes) to its list element; remoteEvalOrder tracks recency so the

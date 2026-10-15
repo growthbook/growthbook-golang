@@ -54,6 +54,46 @@ func BenchmarkEvalFeature_Warm(b *testing.B) {
 	}
 }
 
+func objectValuedBenchClient(b *testing.B, opt ClientOption) *Client {
+	b.Helper()
+	payload := map[string]any{}
+	for i := 0; i < 40; i++ {
+		payload[fmt.Sprintf("key-%d", i)] = map[string]any{"enabled": i%2 == 0, "weight": float64(i), "label": "value"}
+	}
+	c, err := NewClient(context.Background(),
+		WithAttributes(Attributes{"id": "bench-user"}),
+		WithFeatures(FeatureMap{"config": {DefaultValue: payload}}),
+		opt,
+	)
+	if err != nil {
+		b.Fatal(err)
+	}
+	return c
+}
+
+// An object-valued feature on a client whose only tracking consumer is an
+// ExperimentCallback.
+func BenchmarkEvalFeature_ObjectValue_ExperimentCallback(b *testing.B) {
+	c := objectValuedBenchClient(b, WithExperimentCallback(func(context.Context, *Experiment, *ExperimentResult, *TrackingUserContext, any) {}))
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = c.EvalFeature(ctx, "config")
+	}
+}
+
+// The same feature on a client with a FeatureUsageCallback.
+func BenchmarkEvalFeature_ObjectValue_FeatureUsageCallback(b *testing.B) {
+	c := objectValuedBenchClient(b, WithFeatureUsageCallback(func(context.Context, string, *FeatureResult, any) {}))
+	ctx := context.Background()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = c.EvalFeature(ctx, "config")
+	}
+}
+
 func BenchmarkRunExperiment(b *testing.B) {
 	c, err := NewClient(context.Background(),
 		WithAttributes(Attributes{"id": "bench-user"}),

@@ -759,3 +759,146 @@ func TestStickyBucketFalsyFallbackAttributeIgnored(t *testing.T) {
 	require.False(t, res.ExperimentResult.StickyBucketUsed,
 		"sticky doc keyed by falsy fallback value must not be applied")
 }
+
+// Steady state: once an assignment is saved and cached, repeat evaluations
+// must not touch the sticky bucket service at all — JS/Python answer
+// "unchanged?" from memory, and the save is skipped entirely when the
+// variation came from the sticky bucket (evaluator step 13.5).
+func TestStickyBucketSteadyStateNoServiceCalls(t *testing.T) {
+	ctx := context.TODO()
+	var calls atomic.Int32
+	svc := &mockStickyBucketService{
+		InMemoryStickyBucketService: NewInMemoryStickyBucketService(),
+		onGetAssignments: func(_, _ string) {
+			calls.Add(1)
+		},
+	}
+
+	client, err := NewClient(ctx,
+		WithAttributes(Attributes{"id": "steady-user"}),
+		WithFeatures(FeatureMap{
+			"feature": {
+				DefaultValue: 0,
+				Rules: []FeatureRule{{
+					Variations: []FeatureValue{0, 1},
+					Meta:       []VariationMeta{{Key: "0"}, {Key: "1"}},
+				}},
+			},
+		}),
+		WithStickyBucketService(svc),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	// First evaluation: read miss + save cycle both hit the service.
+	res1 := client.EvalFeature(ctx, "feature")
+	require.True(t, res1.InExperiment())
+	require.Positive(t, calls.Load())
+
+	// Steady state: everything answered from the client cache.
+	calls.Store(0)
+	res2 := client.EvalFeature(ctx, "feature")
+	require.True(t, res2.InExperiment())
+	require.True(t, res2.ExperimentResult.StickyBucketUsed)
+	require.Equal(t, res1.Value, res2.Value)
+	require.Equal(t, int32(0), calls.Load(),
+		"steady-state evaluation must not call the sticky bucket service")
+}
+
+// A negative bucketVersion must read and write the same assignment key.
+// Previously the read normalized -1 to 0 ("exp__0") while the save wrote
+// "exp__-1", so the saved assignment was never found again.
+func TestStickyBucketNegativeBucketVersionRoundTrip(t *testing.T) {
+	ctx := context.TODO()
+	service := NewInMemoryStickyBucketService()
+	client, err := NewClient(ctx,
+		WithAttributes(Attributes{"id": "neg-user"}),
+		WithStickyBucketService(service),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	exp := &Experiment{
+		Key:           "neg-exp",
+		Variations:    []FeatureValue{"control", "treatment"},
+		Meta:          []VariationMeta{{Key: "0"}, {Key: "1"}},
+		BucketVersion: -1,
+	}
+
+	res1 := client.RunExperiment(ctx, exp)
+	require.True(t, res1.InExperiment)
+
+	doc, err := service.GetAssignments("id", "neg-user")
+	require.NoError(t, err)
+	require.NotNil(t, doc)
+	require.Contains(t, doc.Assignments, "neg-exp__0",
+		"negative bucketVersion must normalize to 0 in the saved key")
+
+	res2 := client.RunExperiment(ctx, exp)
+	require.True(t, res2.StickyBucketUsed,
+		"second run must find the assignment saved by the first")
+}
+
+// failingSaveService fails SaveAssignments on demand, counting attempts.
+type failingSaveService struct {
+	*InMemoryStickyBucketService
+	failSaves atomic.Bool
+	saveCalls atomic.Int32
+}
+
+func (s *failingSaveService) SaveAssignments(doc *StickyBucketAssignmentDoc) error {
+	s.saveCalls.Add(1)
+	if s.failSaves.Load() {
+		return fmt.Errorf("service unavailable")
+	}
+	return s.InMemoryStickyBucketService.SaveAssignments(doc)
+}
+
+// A failed SaveAssignments must not populate the cache: the fast path would
+// then treat the assignment as persisted and no evaluation would ever retry
+// the missing durable write.
+func TestStickyBucketFailedSaveRetries(t *testing.T) {
+	ctx := context.TODO()
+	svc := &failingSaveService{InMemoryStickyBucketService: NewInMemoryStickyBucketService()}
+	svc.failSaves.Store(true)
+
+	client, err := NewClient(ctx,
+		WithAttributes(Attributes{"id": "retry-user"}),
+		WithFeatures(FeatureMap{
+			"feature": {
+				DefaultValue: 0,
+				Rules: []FeatureRule{{
+					Variations: []FeatureValue{0, 1},
+					Meta:       []VariationMeta{{Key: "0"}, {Key: "1"}},
+				}},
+			},
+		}),
+		WithStickyBucketService(svc),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	// First evaluation: the save is attempted and fails.
+	res1 := client.EvalFeature(ctx, "feature")
+	require.True(t, res1.InExperiment())
+	require.Equal(t, int32(1), svc.saveCalls.Load())
+
+	// The failed write must be retried, not treated as persisted.
+	client.EvalFeature(ctx, "feature")
+	require.Equal(t, int32(2), svc.saveCalls.Load(),
+		"failed save must be retried on the next evaluation")
+
+	// Service recovers: the retry persists the assignment...
+	svc.failSaves.Store(false)
+	client.EvalFeature(ctx, "feature")
+	require.Equal(t, int32(3), svc.saveCalls.Load())
+	doc, err := svc.GetAssignments("id", "retry-user")
+	require.NoError(t, err)
+	require.NotNil(t, doc)
+	require.Contains(t, doc.Assignments, "feature__0")
+
+	// ...and only then does the steady-state fast path kick in.
+	client.EvalFeature(ctx, "feature")
+	require.Equal(t, int32(3), svc.saveCalls.Load(),
+		"persisted assignment must not be re-saved")
+}
