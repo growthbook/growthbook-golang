@@ -146,6 +146,32 @@ func TestRemoteEvalRefetchesAfterTTL(t *testing.T) {
 	require.Equal(t, int32(2), ts.count.Load())
 }
 
+func TestRemoteEvalRefreshFeaturesBypassesCache(t *testing.T) {
+	var value atomic.Value
+	value.Store("v1")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"features":{"feat":{"defaultValue":"` + value.Load().(string) + `"}}}`))
+	}))
+	defer srv.Close()
+
+	// TTL 0 never expires, so only an explicit refresh can pick up new values.
+	client, err := NewClient(ctx,
+		WithHttpClient(srv.Client()), WithApiHost(srv.URL), WithClientKey("k"),
+		WithRemoteEval(true), WithAttributes(Attributes{"id": "1"}), WithRemoteEvalTTL(0),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.EnsureLoaded(ctx))
+	require.Equal(t, "v1", client.EvalFeature(ctx, "feat").Value)
+
+	// The server changes; the cached result is still served.
+	value.Store("v2")
+	require.Equal(t, "v1", client.EvalFeature(ctx, "feat").Value)
+
+	// RefreshFeatures re-fetches the remote evaluation despite the fresh cache.
+	require.NoError(t, client.RefreshFeatures(ctx))
+	require.Equal(t, "v2", client.EvalFeature(ctx, "feat").Value)
+}
+
 func TestRemoteEvalServesStaleOnFailure(t *testing.T) {
 	var fail atomic.Bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

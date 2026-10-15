@@ -296,7 +296,12 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
 // and updates the client. Useful in manual mode when no background datasource is
 // configured and the caller wants to control when features are refreshed.
+// In remote-eval mode it re-fetches the server-evaluated features
+// for the client's attributes, bypassing the TTL.
 func (client *Client) RefreshFeatures(ctx context.Context) error {
+	if client.remoteEval {
+		return client.loadRemoteEval(ctx, true)
+	}
 	resp, err := client.CallFeatureApi(ctx, "")
 	if err != nil {
 		return err
