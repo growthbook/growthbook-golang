@@ -564,3 +564,38 @@ func TestRemoteEvalReportsTrackedExperiments(t *testing.T) {
 	require.Equal(t, 2, calls[0].Result.VariationId)
 	require.Equal(t, "u1", calls[0].Result.HashValue)
 }
+
+func TestRemoteEvalRefreshDoesNotJoinEarlierLoad(t *testing.T) {
+	// The first request (an ordinary load) is held until released; any later
+	// request is answered immediately.
+	var count atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if count.Add(1) == 1 {
+			close(started)
+			<-release
+		}
+		_, _ = w.Write([]byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
+	}))
+	defer srv.Close()
+	defer close(release) // runs before srv.Close, unblocking the held load
+
+	client := newRemoteEvalClient(t, &testServer{http: srv}, WithAttributes(Attributes{"id": "1"}))
+
+	go func() { _ = client.EnsureLoaded(context.Background()) }()
+	<-started
+
+	// A refresh issued while that load is in flight must make its own request
+	// rather than share the earlier load's outcome, which may predate the
+	// refresh or be served from the cache without any request.
+	done := make(chan error, 1)
+	go func() { done <- client.RefreshFeatures(context.Background()) }()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("refresh joined the in-flight load instead of fetching")
+	}
+	require.Equal(t, int32(2), count.Load())
+}

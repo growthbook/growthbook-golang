@@ -174,7 +174,7 @@ func (client *Client) loadRemoteEval(ctx context.Context, force bool) (FeatureMa
 		}
 	}
 
-	call, leader := client.data.joinRemoteEvalCall(key)
+	call, leader := client.data.joinRemoteEvalCall(remoteEvalFlightKey(key, force))
 	if leader {
 		go client.runRemoteEvalCall(ctx, key, force, call)
 	}
@@ -188,6 +188,17 @@ func (client *Client) loadRemoteEval(ctx context.Context, force bool) (FeatureMa
 	case <-ctx.Done():
 		return client.remoteEvalCached(key), ctx.Err()
 	}
+}
+
+// remoteEvalFlightKey keys the in-flight map. Forced refreshes get their own
+// flight so a refresh never joins an ordinary load, whose outcome may predate
+// the refresh or come from the cache without any request; concurrent refreshes
+// still share one. Cache keys are JSON objects, so the prefix cannot collide.
+func remoteEvalFlightKey(key string, force bool) string {
+	if force {
+		return "refresh:" + key
+	}
+	return key
 }
 
 // fetchRemoteEval performs one remote-eval request, caches its result and
@@ -211,7 +222,7 @@ func (client *Client) fetchRemoteEval(ctx context.Context, key string) (FeatureM
 // leader's cancellation, so a leader that gives up does not fail the callers
 // waiting on the same fetch; the remote-eval timeout bounds it instead.
 func (client *Client) runRemoteEvalCall(ctx context.Context, key string, force bool, call *remoteEvalCall) {
-	defer client.data.finishRemoteEvalCall(key, call)
+	defer client.data.finishRemoteEvalCall(remoteEvalFlightKey(key, force), call)
 	// A fetch for this key may have completed between the caller's freshness
 	// check and joining; reuse it instead of fetching again.
 	if features, ok := client.remoteEvalFresh(key); ok && !force {
