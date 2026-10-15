@@ -57,8 +57,8 @@ func WithRemoteEvalTTL(ttl time.Duration) ClientOption {
 }
 
 // WithRemoteEvalCacheSize bounds how many remote-eval results are cached (one
-// per distinct attribute set), evicting least-recently-used entries. A value of
-// 0 disables the bound. Defaults to 1000.
+// per distinct evaluation input), evicting the oldest-fetched entries first. A
+// value of 0 disables the bound. Defaults to 1000.
 func WithRemoteEvalCacheSize(size int) ClientOption {
 	return func(c *Client) error {
 		c.remoteEvalCacheSize = size

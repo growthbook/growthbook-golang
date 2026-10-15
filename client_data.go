@@ -27,9 +27,10 @@ type data struct {
 	subscribers       subscriberRegistry
 
 	// remoteEvalCache maps a remote-eval cache key (derived from the relevant
-	// attributes) to its list element; remoteEvalOrder tracks recency so the
-	// cache can be bounded with LRU eviction. Shared across child clients so
-	// requests with the same attributes reuse one remote fetch.
+	// attributes) to its list element; remoteEvalOrder orders entries by fetch
+	// time so the cache can be bounded by evicting the oldest-fetched entries.
+	// Shared across child clients so requests with the same attributes reuse
+	// one remote fetch.
 	remoteEvalCache map[string]*list.Element
 	remoteEvalOrder *list.List
 	// remoteEvalCalls holds the in-flight fetch per key, so concurrent callers
@@ -106,8 +107,9 @@ func (d *data) getRemoteEval(key string) (*remoteEvalEntry, bool) {
 	return elem.Value.(*remoteEvalEntry), true
 }
 
-// setRemoteEval stores features under key, refreshing recency. When maxSize > 0
-// the least-recently-used entries are evicted to keep the cache bounded.
+// setRemoteEval stores features under key as the most recently fetched entry.
+// When maxSize > 0 the oldest-fetched entries are evicted to keep the cache
+// bounded. Reads do not affect eviction order.
 func (d *data) setRemoteEval(key string, features FeatureMap, maxSize int) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
