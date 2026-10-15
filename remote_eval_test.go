@@ -356,3 +356,107 @@ func TestRemoteEvalSingleFlight(t *testing.T) {
 	// Concurrent evaluations for the same key coalesce into one remote request.
 	require.Equal(t, int32(1), count.Load())
 }
+
+func TestRemoteEvalSingleFlightSharesFailure(t *testing.T) {
+	// The first request blocks until released, so the other callers are
+	// guaranteed to be waiting on it when it fails.
+	var count atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count.Add(1)
+		startedOnce.Do(func() { close(started) })
+		<-release
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	client := newRemoteEvalClient(t, &testServer{http: srv}, WithAttributes(Attributes{"id": "1"}))
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		_ = client.EnsureLoaded(ctx)
+	}()
+	<-started
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_ = client.EnsureLoaded(ctx)
+		}()
+	}
+	time.Sleep(50 * time.Millisecond) // let the waiters queue up
+	close(release)
+	wg.Wait()
+
+	// Callers that waited on the failed request share its error instead of
+	// each retrying in turn.
+	require.Equal(t, int32(1), count.Load())
+}
+
+func TestRemoteEvalWaiterHonorsContext(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startedOnce.Do(func() { close(started) })
+		<-release
+		_, _ = w.Write([]byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
+	}))
+	defer srv.Close()
+	defer close(release) // runs before srv.Close, unblocking the hung request
+
+	client := newRemoteEvalClient(t, &testServer{http: srv}, WithAttributes(Attributes{"id": "1"}))
+
+	// The first caller hangs on a slow request.
+	go func() { _ = client.EnsureLoaded(context.Background()) }()
+	<-started
+
+	// A second caller for the same key must give up when its own context ends.
+	waitCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- client.EnsureLoaded(waitCtx) }()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiter ignored its context and stayed blocked")
+	}
+}
+
+func TestRemoteEvalUsesFetchedResultDespiteEviction(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
+	}))
+	defer srv.Close()
+
+	// A one-entry cache shared by many children with distinct attributes: each
+	// child's entry is likely evicted by another child right after it loads.
+	client := newRemoteEvalClient(t, &testServer{http: srv}, WithRemoteEvalCacheSize(1))
+
+	var unknown atomic.Int32
+	var wg sync.WaitGroup
+	for i := 0; i < 50; i++ {
+		child, err := client.WithAttributes(Attributes{"id": i})
+		require.NoError(t, err)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < 20; j++ {
+				if child.EvalFeature(ctx, "feat").Source == UnknownFeatureResultSource {
+					unknown.Add(1)
+				}
+			}
+		}()
+	}
+	wg.Wait()
+
+	// Every evaluation uses the result it just fetched, even if the shared
+	// cache evicted it before the evaluation read it back.
+	require.Zero(t, unknown.Load())
+}

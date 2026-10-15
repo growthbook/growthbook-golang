@@ -22,10 +22,6 @@ const defaultRemoteEvalTTL = 60 * time.Second
 // high-cardinality attributes does not grow the cache without limit.
 const defaultRemoteEvalCacheSize = 1000
 
-// The remote-eval single-flight uses the shared keyedMutex defined in
-// sticky_bucket.go, which serializes work per key and auto-releases a key's
-// entry once no goroutine holds or waits for it.
-
 // WithRemoteEval enables remote evaluation: features are evaluated on a remote
 // endpoint (POST {apiHost}/api/eval/{clientKey}) for the client's attributes
 // instead of locally. Requires a client key and is incompatible with a
@@ -135,63 +131,93 @@ func (client *Client) remoteEvalCacheKey() (string, error) {
 	return string(b), nil
 }
 
-// maybeLoadRemoteEval lazily loads the remote-eval features for the current
-// attributes when remote eval is enabled. Errors are logged, not returned, so
-// evaluation is never blocked (a failed load yields "unknownFeature", matching
-// the documented remote-eval fallback behavior).
-func (client *Client) maybeLoadRemoteEval(ctx context.Context) {
-	if !client.remoteEval {
-		return
-	}
-	if err := client.loadRemoteEval(ctx, false); err != nil {
+// maybeLoadRemoteEval returns the remote-eval features for the current
+// attributes, loading them lazily. Errors are logged, not returned, so
+// evaluation is never blocked: a failed load serves the previously cached
+// (stale) features, or none, which yields "unknownFeature".
+func (client *Client) maybeLoadRemoteEval(ctx context.Context) FeatureMap {
+	features, err := client.loadRemoteEval(ctx, false)
+	if err != nil {
 		client.logger.WarnContext(ctx, "Remote eval load failed", "error", err)
+	}
+	return features
+}
+
+// loadRemoteEval returns the server-evaluated features for the client's
+// attributes, fetching them unless a fresh (non-expired) entry is cached or
+// force is set. Concurrent loads for the same key share a single request and
+// its outcome. The fetched features are returned directly rather than re-read
+// from the shared cache, which may already have evicted them. On failure the
+// error is returned together with any previously cached (stale) features.
+func (client *Client) loadRemoteEval(ctx context.Context, force bool) (FeatureMap, error) {
+	key, err := client.remoteEvalCacheKey()
+	if err != nil {
+		return nil, err
+	}
+	if !force {
+		if features, ok := client.remoteEvalFresh(key); ok {
+			return features, nil
+		}
+	}
+
+	call, leader := client.data.joinRemoteEvalCall(key)
+	if leader {
+		// A fetch for this key may have completed between the freshness check
+		// above and joining; reuse it instead of fetching again.
+		if features, ok := client.remoteEvalFresh(key); ok && !force {
+			call.features = features
+		} else {
+			call.features, call.err = client.fetchRemoteEval(ctx, key)
+		}
+		client.data.finishRemoteEvalCall(key, call)
+	}
+	select {
+	case <-call.done:
+		if call.err == nil && call.features != nil {
+			return call.features, nil
+		}
+		return client.remoteEvalCached(key), call.err
+	case <-ctx.Done():
+		return client.remoteEvalCached(key), ctx.Err()
 	}
 }
 
-// loadRemoteEval fetches server-evaluated features for the client's attributes
-// and caches them. When force is false and a fresh (non-expired) entry is
-// cached, it is a no-op. Concurrent loads for the same key are coalesced into a
-// single request. On fetch failure any previously cached entry is kept, so a
-// stale result is still served rather than nothing.
-func (client *Client) loadRemoteEval(ctx context.Context, force bool) error {
-	key, err := client.remoteEvalCacheKey()
-	if err != nil {
-		return err
-	}
-	if !force && client.remoteEvalFresh(key) {
-		return nil
-	}
-
-	unlock := client.data.remoteEvalFlight.lock(key)
-	defer unlock()
-	// Another goroutine may have refreshed this key while we waited.
-	if !force && client.remoteEvalFresh(key) {
-		return nil
-	}
-
+// fetchRemoteEval performs one remote-eval request, caches its result and
+// returns the fetched features (nil for a response without features).
+func (client *Client) fetchRemoteEval(ctx context.Context, key string) (FeatureMap, error) {
 	resp, err := client.callEvalApi(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if resp.Features == nil {
 		// A missing "features" key is a malformed response; don't cache it.
 		client.logger.WarnContext(ctx, "Remote eval response contains no features")
-		return nil
+		return nil, nil
 	}
 	client.data.setRemoteEval(key, resp.Features, client.remoteEvalCacheSize)
-	return nil
+	return resp.Features, nil
 }
 
 // remoteEvalFresh reports whether a non-expired cache entry exists for key.
-func (client *Client) remoteEvalFresh(key string) bool {
+func (client *Client) remoteEvalFresh(key string) (FeatureMap, bool) {
 	entry, ok := client.data.getRemoteEval(key)
 	if !ok {
-		return false
+		return nil, false
 	}
-	if client.remoteEvalTTL <= 0 {
-		return true
+	if client.remoteEvalTTL > 0 && client.data.now().Sub(entry.fetchedAt) >= client.remoteEvalTTL {
+		return nil, false
 	}
-	return client.data.now().Sub(entry.fetchedAt) < client.remoteEvalTTL
+	return entry.features, true
+}
+
+// remoteEvalCached returns the cached features for key regardless of age, or
+// nil when none are cached.
+func (client *Client) remoteEvalCached(key string) FeatureMap {
+	entry, ok := client.data.getRemoteEval(key)
+	if !ok {
+		return nil
+	}
+	return entry.features
 }
 
 type remoteEvalPayload struct {
@@ -264,9 +290,5 @@ func (client *Client) remoteEvalFeatures() FeatureMap {
 	if err != nil {
 		return nil
 	}
-	entry, ok := client.data.getRemoteEval(key)
-	if !ok {
-		return nil
-	}
-	return entry.features
+	return client.remoteEvalCached(key)
 }

@@ -300,7 +300,8 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 // for the client's attributes, bypassing the TTL.
 func (client *Client) RefreshFeatures(ctx context.Context) error {
 	if client.remoteEval {
-		return client.loadRemoteEval(ctx, true)
+		_, err := client.loadRemoteEval(ctx, true)
+		return err
 	}
 	resp, err := client.CallFeatureApi(ctx, "")
 	if err != nil {
@@ -315,7 +316,6 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
-	client.maybeLoadRemoteEval(ctx)
 	e := client.evaluator(ctx)
 	res := e.evalFeature(key)
 	client.fireTracking(ctx, e)
@@ -323,7 +323,6 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 }
 
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
-	client.maybeLoadRemoteEval(ctx)
 	// Copy: evaluation may adjust bandit metadata (propensity resync, strip
 	// of unused attribution) and must never mutate the caller's experiment.
 	expCopy := *exp
@@ -451,10 +450,10 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 	contextualBandits := client.data.contextualBandits
 	client.data.mu.RUnlock()
 
-	// In remote-eval mode the features are the server-evaluated set cached for
-	// this client's attributes; fall back to none when not loaded yet.
+	// In remote-eval mode the features are the server-evaluated set for this
+	// client's attributes, loaded lazily; none when loading failed.
 	if client.remoteEval {
-		features = client.remoteEvalFeatures()
+		features = client.maybeLoadRemoteEval(ctx)
 	}
 
 	e := &evaluator{

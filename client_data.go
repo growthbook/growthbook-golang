@@ -32,10 +32,22 @@ type data struct {
 	// requests with the same attributes reuse one remote fetch.
 	remoteEvalCache map[string]*list.Element
 	remoteEvalOrder *list.List
-	// remoteEvalFlight coalesces concurrent remote fetches for the same key.
-	remoteEvalFlight keyedMutex
+	// remoteEvalCalls holds the in-flight fetch per key, so concurrent callers
+	// share one request and its outcome, including a failure.
+	remoteEvalCallsMu sync.Mutex
+	remoteEvalCalls   map[string]*remoteEvalCall
+
 	// now returns the current time; overridable in tests for TTL checks.
 	now func() time.Time
+}
+
+// remoteEvalCall is a remote-eval fetch shared by every caller that asks for
+// the same key while it is in flight. done is closed once features and err are
+// set; they are read-only afterwards.
+type remoteEvalCall struct {
+	done     chan struct{}
+	features FeatureMap
+	err      error
 }
 
 // remoteEvalEntry is a cached server-evaluated feature set with its fetch time.
@@ -165,4 +177,29 @@ func (d *data) decrypt(encrypted string) (string, error) {
 		return "", ErrNoDecryptionKey
 	}
 	return decrypt(encrypted, key)
+}
+
+// joinRemoteEvalCall returns the in-flight call for key, or starts a new one.
+// leader is true for the caller that must perform the fetch.
+func (d *data) joinRemoteEvalCall(key string) (call *remoteEvalCall, leader bool) {
+	d.remoteEvalCallsMu.Lock()
+	defer d.remoteEvalCallsMu.Unlock()
+	if call, ok := d.remoteEvalCalls[key]; ok {
+		return call, false
+	}
+	if d.remoteEvalCalls == nil {
+		d.remoteEvalCalls = make(map[string]*remoteEvalCall)
+	}
+	call = &remoteEvalCall{done: make(chan struct{})}
+	d.remoteEvalCalls[key] = call
+	return call, true
+}
+
+// finishRemoteEvalCall publishes the call's outcome to its waiters and lets the
+// next caller for key start a fresh fetch.
+func (d *data) finishRemoteEvalCall(key string, call *remoteEvalCall) {
+	d.remoteEvalCallsMu.Lock()
+	delete(d.remoteEvalCalls, key)
+	d.remoteEvalCallsMu.Unlock()
+	close(call.done)
 }
