@@ -416,7 +416,13 @@ func featureEvaluatedProperties(key string, res *FeatureResult) EventProperties 
 	}
 }
 
+// Features returns the client's feature definitions. In remote-eval mode it
+// returns the server-evaluated features cached for the client's attributes,
+// or nil until they are loaded (EnsureLoaded, EvalFeature or RefreshFeatures).
 func (client *Client) Features() FeatureMap {
+	if client.remoteEval {
+		return client.remoteEvalFeatures()
+	}
 	return client.data.getFeatures()
 }
 
@@ -448,12 +454,7 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 	// In remote-eval mode the features are the server-evaluated set cached for
 	// this client's attributes; fall back to none when not loaded yet.
 	if client.remoteEval {
-		features = nil
-		if key, err := client.remoteEvalCacheKey(); err == nil {
-			if entry, ok := client.data.getRemoteEval(key); ok {
-				features = entry.features
-			}
-		}
+		features = client.remoteEvalFeatures()
 	}
 
 	e := &evaluator{

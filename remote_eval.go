@@ -256,3 +256,17 @@ func (client *Client) callEvalApi(ctx context.Context) (*FeatureApiResponse, err
 	}
 	return &apiResp, nil
 }
+
+// remoteEvalFeatures returns the cached server-evaluated features for the
+// client's current inputs, or nil when they have not been loaded yet.
+func (client *Client) remoteEvalFeatures() FeatureMap {
+	key, err := client.remoteEvalCacheKey()
+	if err != nil {
+		return nil
+	}
+	entry, ok := client.data.getRemoteEval(key)
+	if !ok {
+		return nil
+	}
+	return entry.features
+}

@@ -51,6 +51,18 @@ func TestRemoteEvalEvaluates(t *testing.T) {
 	require.Equal(t, DefaultValueResultSource, res.Source)
 }
 
+func TestRemoteEvalFeaturesReturnsLoadedSet(t *testing.T) {
+	ts := startServer(http.StatusOK, []byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
+	defer ts.http.Close()
+
+	client := newRemoteEvalClient(t, ts, WithAttributes(Attributes{"id": "1"}))
+	require.Empty(t, client.Features())
+
+	require.NoError(t, client.EnsureLoaded(ctx))
+
+	require.Contains(t, client.Features(), "feat")
+}
+
 func TestRemoteEvalCachesByAttributes(t *testing.T) {
 	ts := startServer(http.StatusOK, []byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
 	defer ts.http.Close()
