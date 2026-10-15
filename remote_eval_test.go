@@ -460,3 +460,71 @@ func TestRemoteEvalUsesFetchedResultDespiteEviction(t *testing.T) {
 	// cache evicted it before the evaluation read it back.
 	require.Zero(t, unknown.Load())
 }
+
+func TestRemoteEvalFetchTimesOut(t *testing.T) {
+	release := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-release // the server accepts the request and never answers
+	}))
+	defer srv.Close()
+	defer close(release) // runs before srv.Close, unblocking the hung handler
+
+	client := newRemoteEvalClient(t, &testServer{http: srv},
+		WithAttributes(Attributes{"id": "1"}),
+		WithRemoteEvalTimeout(50*time.Millisecond),
+	)
+
+	// A caller without a deadline must still get an error once the fetch
+	// timeout elapses, instead of hanging on the silent server.
+	done := make(chan error, 1)
+	go func() { done <- client.EnsureLoaded(context.Background()) }()
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	case <-time.After(2 * time.Second):
+		t.Fatal("remote-eval fetch ignored its timeout and stayed blocked")
+	}
+}
+
+func TestRemoteEvalLeaderCancelDoesNotFailWaiters(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var startedOnce sync.Once
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		startedOnce.Do(func() { close(started) })
+		<-release
+		_, _ = w.Write([]byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
+	}))
+	defer srv.Close()
+
+	client := newRemoteEvalClient(t, &testServer{http: srv}, WithAttributes(Attributes{"id": "1"}))
+
+	// The leader starts the fetch, then a second caller joins it.
+	leaderCtx, cancelLeader := context.WithCancel(context.Background())
+	leaderDone := make(chan error, 1)
+	go func() { leaderDone <- client.EnsureLoaded(leaderCtx) }()
+	<-started
+	waiterDone := make(chan error, 1)
+	go func() { waiterDone <- client.EnsureLoaded(context.Background()) }()
+	time.Sleep(50 * time.Millisecond) // let the waiter join the in-flight fetch
+
+	// The leader's caller gives up: the leader returns promptly...
+	cancelLeader()
+	select {
+	case err := <-leaderDone:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("leader ignored its own context")
+	}
+
+	// ...but the shared fetch keeps running for the waiter, which succeeds.
+	close(release)
+	select {
+	case err := <-waiterDone:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("waiter never received the shared result")
+	}
+	require.Equal(t, "on", client.EvalFeature(ctx, "feat").Value)
+}

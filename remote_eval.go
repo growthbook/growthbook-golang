@@ -22,6 +22,10 @@ const defaultRemoteEvalTTL = 60 * time.Second
 // high-cardinality attributes does not grow the cache without limit.
 const defaultRemoteEvalCacheSize = 1000
 
+// defaultRemoteEvalTimeout bounds a single remote-eval request, so a server that
+// accepts the connection but never answers cannot hang evaluations.
+const defaultRemoteEvalTimeout = 10 * time.Second
+
 // WithRemoteEval enables remote evaluation: features are evaluated on a remote
 // endpoint (POST {apiHost}/api/eval/{clientKey}) for the client's attributes
 // instead of locally. Requires a client key and is incompatible with a
@@ -58,6 +62,16 @@ func WithRemoteEvalTTL(ttl time.Duration) ClientOption {
 func WithRemoteEvalCacheSize(size int) ClientOption {
 	return func(c *Client) error {
 		c.remoteEvalCacheSize = size
+		return nil
+	}
+}
+
+// WithRemoteEvalTimeout bounds how long a single remote-eval request may take,
+// independently of the caller's context. A value of 0 disables the timeout.
+// Defaults to 10s.
+func WithRemoteEvalTimeout(timeout time.Duration) ClientOption {
+	return func(c *Client) error {
+		c.remoteEvalTimeout = timeout
 		return nil
 	}
 }
@@ -162,15 +176,9 @@ func (client *Client) loadRemoteEval(ctx context.Context, force bool) (FeatureMa
 
 	call, leader := client.data.joinRemoteEvalCall(key)
 	if leader {
-		// A fetch for this key may have completed between the freshness check
-		// above and joining; reuse it instead of fetching again.
-		if features, ok := client.remoteEvalFresh(key); ok && !force {
-			call.features = features
-		} else {
-			call.features, call.err = client.fetchRemoteEval(ctx, key)
-		}
-		client.data.finishRemoteEvalCall(key, call)
+		go client.runRemoteEvalCall(ctx, key, force, call)
 	}
+
 	select {
 	case <-call.done:
 		if call.err == nil && call.features != nil {
@@ -198,7 +206,29 @@ func (client *Client) fetchRemoteEval(ctx context.Context, key string) (FeatureM
 	return resp.Features, nil
 }
 
-// remoteEvalFresh reports whether a non-expired cache entry exists for key.
+// runRemoteEvalCall performs the fetch for a shared call and publishes its
+// outcome. It runs on its own goroutine with a context detached from the
+// leader's cancellation, so a leader that gives up does not fail the callers
+// waiting on the same fetch; the remote-eval timeout bounds it instead.
+func (client *Client) runRemoteEvalCall(ctx context.Context, key string, force bool, call *remoteEvalCall) {
+	defer client.data.finishRemoteEvalCall(key, call)
+	// A fetch for this key may have completed between the caller's freshness
+	// check and joining; reuse it instead of fetching again.
+	if features, ok := client.remoteEvalFresh(key); ok && !force {
+		call.features = features
+		return
+	}
+	fetchCtx := context.WithoutCancel(ctx)
+	if client.remoteEvalTimeout > 0 {
+		var cancel context.CancelFunc
+		fetchCtx, cancel = context.WithTimeout(fetchCtx, client.remoteEvalTimeout)
+		defer cancel()
+	}
+	call.features, call.err = client.fetchRemoteEval(fetchCtx, key)
+}
+
+// remoteEvalFresh returns the cached features for key when they have not
+// expired.
 func (client *Client) remoteEvalFresh(key string) (FeatureMap, bool) {
 	entry, ok := client.data.getRemoteEval(key)
 	if !ok {

@@ -45,6 +45,7 @@ type Client struct {
 	cacheKeyAttributes  []string
 	remoteEvalTTL       time.Duration
 	remoteEvalCacheSize int
+	remoteEvalTimeout   time.Duration
 
 	// StickyBucketService for storing experiment assignments
 	stickyBucketService StickyBucketService
@@ -142,6 +143,7 @@ func defaultClient() *Client {
 		stickyBucketAssignments: newStickyBucketCache(defaultStickyBucketCacheSize),
 		remoteEvalTTL:           defaultRemoteEvalTTL,
 		remoteEvalCacheSize:     defaultRemoteEvalCacheSize,
+		remoteEvalTimeout:       defaultRemoteEvalTimeout,
 	}
 }
 
