@@ -528,3 +528,39 @@ func TestRemoteEvalLeaderCancelDoesNotFailWaiters(t *testing.T) {
 	}
 	require.Equal(t, "on", client.EvalFeature(ctx, "feat").Value)
 }
+
+func TestRemoteEvalReportsTrackedExperiments(t *testing.T) {
+	// Remote eval resolves experiments on the server: the feature arrives as a
+	// force rule whose "tracks" carry the assignment the SDK must report (the
+	// shape the GrowthBook Proxy returns from /api/eval).
+	ts := startServer(http.StatusOK, []byte(`{"features":{"exp-flag":{"defaultValue":0,"rules":[{"force":2,"tracks":[{
+		"experiment":{"key":"exp-key","variations":[0,1,2],"hashAttribute":"id","meta":[{"key":"0"},{"key":"1"},{"key":"2","name":"Variation 2"}]},
+		"result":{"key":"2","featureId":"exp-flag","inExperiment":true,"hashUsed":true,"variationId":2,"value":2,"hashAttribute":"id","hashValue":"u1","name":"Variation 2"}
+	}]}]}}}`))
+	defer ts.http.Close()
+
+	type exposure struct {
+		experimentKey string
+		variationId   int
+	}
+	var exposures []exposure
+	buf := NewTrackingBuffer()
+	client := newRemoteEvalClient(t, ts,
+		WithAttributes(Attributes{"id": "u1"}),
+		WithTrackingBuffer(buf),
+		WithExperimentCallback(func(_ context.Context, exp *Experiment, res *ExperimentResult, _ *TrackingUserContext, _ any) {
+			exposures = append(exposures, exposure{exp.Key, res.VariationId})
+		}),
+	)
+
+	res := client.EvalFeature(ctx, "exp-flag")
+	require.Equal(t, ForceResultSource, res.Source)
+
+	// The tracked assignment reaches the callback and the tracking buffer.
+	require.Equal(t, []exposure{{"exp-key", 2}}, exposures)
+	calls := buf.TrackingCalls()
+	require.Len(t, calls, 1)
+	require.Equal(t, "exp-key", calls[0].Experiment.Key)
+	require.Equal(t, 2, calls[0].Result.VariationId)
+	require.Equal(t, "u1", calls[0].Result.HashValue)
+}
