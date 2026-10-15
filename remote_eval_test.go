@@ -13,6 +13,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// releaser returns a function that closes ch at most once. Tests that hold a
+// server handler on ch call it to release the handler and also defer it, so a
+// failed assertion that stops the test early still unblocks the handler before
+// the deferred srv.Close waits for it.
+func releaser(ch chan struct{}) func() {
+	var once sync.Once
+	return func() { once.Do(func() { close(ch) }) }
+}
+
 func newRemoteEvalClient(t *testing.T, ts *testServer, opts ...ClientOption) *Client {
 	t.Helper()
 	base := []ClientOption{
@@ -497,6 +506,8 @@ func TestRemoteEvalLeaderCancelDoesNotFailWaiters(t *testing.T) {
 		_, _ = w.Write([]byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
 	}))
 	defer srv.Close()
+	releaseHeld := releaser(release)
+	defer releaseHeld() // runs before srv.Close, also when an assertion stops the test early
 
 	client := newRemoteEvalClient(t, &testServer{http: srv}, WithAttributes(Attributes{"id": "1"}))
 
@@ -519,7 +530,7 @@ func TestRemoteEvalLeaderCancelDoesNotFailWaiters(t *testing.T) {
 	}
 
 	// ...but the shared fetch keeps running for the waiter, which succeeds.
-	close(release)
+	releaseHeld()
 	select {
 	case err := <-waiterDone:
 		require.NoError(t, err)
@@ -616,6 +627,8 @@ func TestRemoteEvalOlderResponseDoesNotOverwriteRefresh(t *testing.T) {
 		_, _ = w.Write([]byte(`{"features":{"feat":{"defaultValue":"` + value + `"}}}`))
 	}))
 	defer srv.Close()
+	releaseHeld := releaser(release)
+	defer releaseHeld() // runs before srv.Close, also when an assertion stops the test early
 
 	// TTL 0 never expires, so a stale overwrite would stick for good.
 	client := newRemoteEvalClient(t, &testServer{http: srv},
@@ -633,7 +646,7 @@ func TestRemoteEvalOlderResponseDoesNotOverwriteRefresh(t *testing.T) {
 
 	// The older load's response arrives last and must not replace the
 	// refresh's newer result.
-	close(release)
+	releaseHeld()
 	<-loadDone
 	require.Equal(t, "new", client.EvalFeature(ctx, "feat").Value)
 }
