@@ -29,18 +29,7 @@ func (o ObjValue) Cast(t ValueType) Value {
 }
 
 func (o ObjValue) Path(path ...string) Value {
-	var cur ObjValue = o
-	for _, field := range path {
-		val, ok := cur[field]
-		if !ok {
-			return Null()
-		}
-		cur, ok = val.(ObjValue)
-		if !ok {
-			return val
-		}
-	}
-	return cur
+	return Path(o, path...)
 }
 
 func (o ObjValue) String() string {

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
@@ -41,9 +42,10 @@ type Client struct {
 	// cloned clients and mutated during evaluation, hence mutex-guarded.
 	stickyBucketAssignments *lockedStickyBucketCache
 
-	// deferredTracks buffers experiment exposures when deferred tracking is
-	// enabled. Shared by reference with cloned clients, hence mutex-guarded.
-	deferredTracks *trackingBuffer
+	// trackingBuffer collects experiment exposures when one is attached (see
+	// WithTrackingBuffer). Shared by reference with cloned clients — the
+	// attacher chose the scope — hence mutex-guarded.
+	trackingBuffer *TrackingBuffer
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
@@ -130,6 +132,15 @@ func (client *Client) SetFeatures(features FeatureMap) error {
 	return nil
 }
 
+// SetContextualBandits updates the shared contextual bandit definitions.
+func (client *Client) SetContextualBandits(bandits ContextualBanditDefinitions) error {
+	client.data.withLock(func(d *data) error {
+		d.contextualBandits = bandits
+		return nil
+	})
+	return nil
+}
+
 // SetJSONFeatures updates shared features from JSON
 func (client *Client) SetJSONFeatures(featuresJSON string) error {
 	var features FeatureMap
@@ -162,19 +173,76 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
 		return nil
 	}
+	// Section-presence semantics (Python setPayload parity): a partial
+	// payload — e.g. a bandit-only update — must never wipe sections it did
+	// not carry. An absent section preserves the previous data; an explicit
+	// empty section clears it. For features and savedGroups a JSON null
+	// section decodes to a nil map and counts as absent; contextualBandits
+	// additionally treats explicit null as a clear via its custom decoder.
 	var features FeatureMap
 	var err error
+	featuresPresent := false
 	if resp.EncryptedFeatures != "" {
 		features, err = client.DecryptFeatures(resp.EncryptedFeatures)
 		if err != nil {
 			return err
 		}
-	} else {
+		featuresPresent = true
+	} else if resp.Features != nil {
 		features = resp.Features
+		featuresPresent = true
+	}
+	savedGroups := resp.SavedGroups
+	if resp.EncryptedSavedGroups != "" {
+		// Like DecryptFeatures, decrypt with the client's key, then parse JSON;
+		// this section decodes into SavedGroups instead of FeatureMap.
+		groupsJSON, err := client.data.decrypt(resp.EncryptedSavedGroups)
+		var decrypted condition.SavedGroups
+		if err == nil {
+			err = json.Unmarshal([]byte(groupsJSON), &decrypted)
+		}
+		if err != nil {
+			// Match the reference SDK: ignore a failed encrypted section and
+			// retain any plaintext fallback or previously loaded groups.
+			client.logger.Error("Ignoring undecodable encrypted saved groups; using plaintext fallback or previous groups without blocking feature updates", "error", err)
+		} else {
+			savedGroups = decrypted
+		}
+	}
+	// Direct callers may supply native Go definitions instead of decoded JSON.
+	savedGroups, err = savedGroups.Normalize()
+	if err != nil {
+		return err
+	}
+	savedGroupsPresent := savedGroups != nil
+	// Section-presence semantics: an absent contextualBandits section
+	// preserves the previous definitions, an explicit empty (or null)
+	// section clears them, and a section that fails to decrypt is ignored
+	// like an absent one — the previous coherent map stays active rather
+	// than being wiped by a broken update (Python SDK parity).
+	bandits := resp.ContextualBandits
+	banditsPresent := bandits != nil
+	if resp.EncryptedContextualBandits != "" {
+		banditsJSON, err := client.data.decrypt(resp.EncryptedContextualBandits)
+		if err == nil {
+			err = json.Unmarshal([]byte(banditsJSON), &bandits)
+		}
+		if err != nil {
+			client.logger.Warn("Ignoring undecodable encrypted contextual bandits, keeping the previous definitions", "error", err)
+		} else {
+			banditsPresent = true
+		}
 	}
 	client.data.withLock(func(d *data) error {
-		d.features = features
-		d.savedGroups = resp.SavedGroups
+		if featuresPresent {
+			d.features = features
+		}
+		if savedGroupsPresent {
+			d.savedGroups = savedGroups
+		}
+		if banditsPresent {
+			d.contextualBandits = bandits
+		}
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
@@ -211,9 +279,10 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if resp.Features == nil && resp.EncryptedFeatures == "" {
-		return nil
-	}
+	// Apply partial responses too: UpdateFromApiResponse preserves omitted
+	// sections, so a bandit-only or saved-groups-only response updates just
+	// what it carries. (An early return on absent features predated that
+	// gating and left manual-mode clients with stale bandit definitions.)
 	return client.UpdateFromApiResponse(resp)
 }
 
@@ -226,6 +295,10 @@ func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResul
 }
 
 func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *ExperimentResult {
+	// Copy: evaluation may adjust bandit metadata (propensity resync, strip
+	// of unused attribution) and must never mutate the caller's experiment.
+	expCopy := *exp
+	exp = &expCopy
 	e := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
 	client.fireTracking(ctx, e)
@@ -241,10 +314,10 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 // exposures. Plugin panics are recovered so plugins never interrupt
 // evaluation.
 func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
-	if client.deferredTracks != nil {
+	if client.trackingBuffer != nil {
 		// Detach before buffering: this runs on the evaluating goroutine, so
 		// nothing the caller later mutates can reach the buffer.
-		client.deferredTracks.add(client.detachTrackingData(e.experiments))
+		client.trackingBuffer.add(detachTrackingData(e.experiments, client.logger))
 	}
 	plugins := client.data.getPlugins()
 	// Built-in events flow through the event-logger channel alongside the
@@ -339,13 +412,18 @@ func (client *Client) Logger() *slog.Logger {
 func (client *Client) evaluator(ctx context.Context) *evaluator {
 	client.data.mu.RLock()
 	e := evaluator{
-		features:    client.data.features,
-		savedGroups: client.data.savedGroups,
-		client:      client,
-		ctx:         ctx,
-		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
-			client.eventLogger != nil || client.deferredTracks != nil || len(client.data.plugins) > 0,
+		features:          client.data.features,
+		savedGroups:       client.data.savedGroups,
+		contextualBandits: client.data.contextualBandits,
+		client:            client,
+		ctx:               ctx,
 	}
+	// Plugins and the event logger consume both exposures and feature usage;
+	// the tracking buffer and ExperimentCallback only exposures, and
+	// FeatureUsageCallback only feature usage (see fireTracking).
+	both := client.eventLogger != nil || len(client.data.plugins) > 0
+	e.recordingExperiments = both || client.experimentCallback != nil || client.trackingBuffer != nil
+	e.recordingFeatureUsage = both || client.featureUsageCallback != nil
 	client.data.mu.RUnlock()
 	return &e
 }

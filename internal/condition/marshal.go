@@ -5,19 +5,22 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
 type Base struct {
 	cond Condition
+	raw  json.RawMessage
 }
 
+// Eval starts a condition evaluation with no saved-group references visited.
 func (base Base) Eval(actual value.Value, groups SavedGroups) bool {
 	if base.cond == nil {
 		return true
 	}
-	return base.cond.Eval(actual, groups)
+	return base.cond.Eval(actual, groups, nil)
 }
 
 func (base *Base) UnmarshalJSON(data []byte) error {
@@ -26,13 +29,28 @@ func (base *Base) UnmarshalJSON(data []byte) error {
 	if err != nil {
 		return err
 	}
-	json := value.New(m)
-	cond, err := buildBaseCond(json)
+	val := value.New(m)
+	cond, err := buildBaseCond(val)
 	if err != nil {
 		return err
 	}
-	*base = Base{cond}
+	raw, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	*base = Base{cond: cond, raw: raw}
 	return nil
+}
+
+// MarshalJSON emits the parsed condition in canonical form, so conditions
+// survive a marshal/unmarshal round trip instead of collapsing to {}. A zero
+// Base marshals as {} — the always-true condition, matching its Eval — which
+// is also what it marshaled as before conditions carried their raw form.
+func (base Base) MarshalJSON() ([]byte, error) {
+	if base.raw == nil {
+		return []byte("{}"), nil
+	}
+	return base.raw, nil
 }
 
 func buildBaseCond(json value.Value) (Condition, error) {
@@ -45,7 +63,7 @@ func buildBaseCond(json value.Value) (Condition, error) {
 		fv := obj[f]
 		cond, err := buildLogicCond(f, fv)
 		if err != nil {
-			return Base{}, fmt.Errorf("Error building %v : %v", f, err)
+			return nil, fmt.Errorf("Error building %v : %v", f, err)
 		}
 		conds = append(conds, cond)
 	}
@@ -77,6 +95,27 @@ func orderedConditionKeys(obj value.ObjValue) []string {
 
 func buildLogicCond(op string, arg value.Value) (Condition, error) {
 	switch Operator(op) {
+	case savedGroupOp:
+		reference, ok := arg.(value.ObjValue)
+		if !ok {
+			return False{}, nil
+		}
+		id, ok := reference["id"].(value.StrValue)
+		if !ok {
+			return False{}, nil
+		}
+		cond := savedGroupCond{id: string(id)}
+		if key, present := reference["attributeKey"]; present {
+			attributeKey, ok := key.(value.StrValue)
+			if !ok {
+				return False{}, nil
+			}
+			cond.overridePath = strings.Split(string(attributeKey), ".")
+		}
+		return cond, nil
+	case "$savedGroups":
+		// The plural operator is authoring-only and never valid on the wire.
+		return False{}, nil
 	case andOp, orOp, norOp:
 		conds, err := buildBaseList(arg)
 		if err != nil {

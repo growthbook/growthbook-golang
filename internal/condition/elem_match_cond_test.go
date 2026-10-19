@@ -14,8 +14,8 @@ func TestElemMatchCondDirect(t *testing.T) {
 			NewCompCond(lteOp, 20),
 		},
 	)
-	require.True(t, cond.Eval(value.Arr(1, 2, 4, 15, 30), nil))
-	require.False(t, cond.Eval(value.Arr(1, 2, 4, 10, 30), nil))
+	require.True(t, cond.Eval(value.Arr(1, 2, 4, 15, 30), nil, nil))
+	require.False(t, cond.Eval(value.Arr(1, 2, 4, 10, 30), nil, nil))
 }
 
 func TestElemMatchCondNested(t *testing.T) {
@@ -25,8 +25,8 @@ func TestElemMatchCondNested(t *testing.T) {
 
 	val1 := value.Arr(tag("tag1"), tag("tag2"), tag("tag3"))
 	val2 := value.Arr(tag("tag1"), tag("test"), tag("tag3"))
-	require.False(t, cond.Eval(val1, nil))
-	require.True(t, cond.Eval(val2, nil))
+	require.False(t, cond.Eval(val1, nil, nil))
+	require.True(t, cond.Eval(val2, nil, nil))
 }
 
 func tag(name string) value.ObjValue {

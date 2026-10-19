@@ -12,13 +12,13 @@ func NewElemMatchCond(cond Condition) ElemMatchCond {
 	return ElemMatchCond{cond}
 }
 
-func (c ElemMatchCond) Eval(actual value.Value, groups SavedGroups) bool {
+func (c ElemMatchCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
 	arr, ok := actual.(value.ArrValue)
 	if !ok {
 		return false
 	}
 	for _, v := range arr {
-		if c.cond.Eval(v, groups) {
+		if c.cond.Eval(v, groups, visited) {
 			return true
 		}
 	}
