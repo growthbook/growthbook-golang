@@ -169,6 +169,25 @@ func TestGetAllAssignmentsUsesOneRoundTrip(t *testing.T) {
 	require.Zero(t, fake.getCalls)
 }
 
+func TestGetAllAssignmentsFallsBackOnCrossSlot(t *testing.T) {
+	fake := newFakeRedis()
+	svc := New(fake)
+
+	require.NoError(t, svc.SaveAssignments(doc("id", "user-1", map[string]string{"e__0": "v1"})))
+	require.NoError(t, svc.SaveAssignments(doc("deviceId", "dev-9", map[string]string{"f__0": "v2"})))
+
+	fake.mgetErr = errors.New("CROSSSLOT Keys in request don't hash to the same slot")
+	docs, err := svc.GetAllAssignments(map[string]string{
+		"id":       "user-1",
+		"deviceId": "dev-9",
+	})
+	require.NoError(t, err)
+	require.Len(t, docs, 2)
+	require.Equal(t, 2, fake.getCalls)
+	require.Equal(t, "v1", docs["id||user-1"].Assignments["e__0"])
+	require.Equal(t, "v2", docs["deviceId||dev-9"].Assignments["f__0"])
+}
+
 func TestGetAllAssignmentsWithNoAttributes(t *testing.T) {
 	fake := newFakeRedis()
 	docs, err := New(fake).GetAllAssignments(nil)
@@ -282,6 +301,7 @@ func TestFreshAssignmentIsPersisted(t *testing.T) {
 	require.Equal(t, "0", stored.Assignments["exp__0"])
 }
 
+// The key says user-1, but the document stored there claims to be user-2.
 func TestDocForAnotherIdentityIsRejected(t *testing.T) {
 	fake := newFakeRedis()
 	fake.store["id||user-1"] = `{"attributeName":"id","attributeValue":"user-2","assignments":{"e__0":"v1"}}`

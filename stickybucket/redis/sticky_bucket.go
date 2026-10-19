@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	growthbook "github.com/growthbook/growthbook-golang"
@@ -72,8 +73,9 @@ type Option func(*StickyBucketService)
 // shared with it; set a prefix when the same Redis holds unrelated data and a
 // bare `id||123` might collide.
 //
-// On Redis Cluster, MGet requires all keys to live in one hash slot. Use a hash
-// tag to force that, e.g. WithKeyPrefix("{growthbook}:").
+// On Redis Cluster, GetAllAssignments falls back to one GET per key when the
+// keys span hash slots, so no hash tag is needed. Avoid adding one: it would
+// put every user's assignments on a single shard.
 func WithKeyPrefix(prefix string) Option {
 	return func(s *StickyBucketService) { s.keyPrefix = prefix }
 }
@@ -148,6 +150,10 @@ func (s *StickyBucketService) GetAssignments(attributeName, attributeValue strin
 // one attribute at a time through GetAssignments — but it is part of the
 // interface, and callers doing their own prefetch should get the batched
 // round-trip rather than a loop.
+//
+// On Redis Cluster, keys for different attributes usually live in different
+// hash slots, and the server rejects such an MGET with CROSSSLOT. The service
+// then falls back to one GET per attribute.
 func (s *StickyBucketService) GetAllAssignments(attributes map[string]string) (growthbook.StickyBucketAssignments, error) {
 	docs := growthbook.StickyBucketAssignments{}
 	if len(attributes) == 0 {
@@ -180,6 +186,9 @@ func (s *StickyBucketService) GetAllAssignments(attributes map[string]string) (g
 
 	values, err := s.client.MGet(ctx, redisKeys...).Result()
 	if err != nil {
+		if isCrossSlot(err) {
+			return s.getEach(attributes)
+		}
 		return nil, fmt.Errorf("growthbook redis: reading sticky bucket assignments: %w", err)
 	}
 	if len(values) != len(redisKeys) {
@@ -275,4 +284,29 @@ func decodeDoc(key string, raw []byte, attributeName, attributeValue string) (*g
 		return nil, fmt.Errorf("growthbook redis: value at %q belongs to a different attribute", key)
 	}
 	return &doc, nil
+}
+
+// isCrossSlot reports whether Redis Cluster rejected a multi-key command
+// because its keys live in different hash slots. It matches the error code
+// rather than goredis.ErrCrossSlot, which only compares equal when the
+// server's message text is byte-for-byte the same.
+func isCrossSlot(err error) bool {
+	return err != nil && strings.HasPrefix(err.Error(), "CROSSSLOT")
+}
+
+// getEach fetches documents one GET at a time, for Redis Cluster where a
+// single MGET across hash slots is rejected.
+func (s *StickyBucketService) getEach(attributes map[string]string) (growthbook.StickyBucketAssignments, error) {
+	docs := growthbook.StickyBucketAssignments{}
+	for name, value := range attributes {
+		doc, err := s.GetAssignments(name, value)
+		if err != nil {
+			return nil, err
+		}
+		if doc == nil {
+			continue
+		}
+		docs[docKey(name, value)] = doc
+	}
+	return docs, nil
 }
