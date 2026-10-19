@@ -136,7 +136,7 @@ func (s *StickyBucketService) GetAssignments(attributeName, attributeValue strin
 	case err != nil:
 		return nil, fmt.Errorf("growthbook redis: reading sticky bucket assignments at %q: %w", key, err)
 	}
-	return decodeDoc(key, raw)
+	return decodeDoc(key, raw, attributeName, attributeValue)
 }
 
 // GetAllAssignments fetches the documents for several attributes in one MGET
@@ -154,16 +154,22 @@ func (s *StickyBucketService) GetAllAssignments(attributes map[string]string) (g
 		return docs, nil
 	}
 
-	// Two parallel slices: what the SDK will key the result by, and what Redis
-	// is asked for. They differ whenever a key prefix is configured.
+	// Parallel slices, one entry per attribute and in the same order,
+	// so index i in the MGET result maps back to its attribute.
+	// A map would not do: its iteration order is random.
+	// docKeys and redisKeys differ whenever a key prefix is configured.
 	docKeys := make([]string, 0, len(attributes))
 	redisKeys := make([]string, 0, len(attributes))
+	names := make([]string, 0, len(attributes))
+	vals := make([]string, 0, len(attributes))
 	for name, val := range attributes {
 		if name == "" || val == "" {
 			continue
 		}
 		docKeys = append(docKeys, docKey(name, val))
 		redisKeys = append(redisKeys, s.redisKey(name, val))
+		names = append(names, name)
+		vals = append(vals, val)
 	}
 	if len(redisKeys) == 0 {
 		return docs, nil
@@ -188,7 +194,7 @@ func (s *StickyBucketService) GetAllAssignments(attributes map[string]string) (g
 		if !ok {
 			return nil, fmt.Errorf("growthbook redis: sticky bucket key %q holds %T, want a string", redisKeys[i], v)
 		}
-		doc, err := decodeDoc(redisKeys[i], []byte(raw))
+		doc, err := decodeDoc(redisKeys[i], []byte(raw), names[i], vals[i])
 		if err != nil {
 			return nil, err
 		}
@@ -251,7 +257,10 @@ func docKey(attributeName, attributeValue string) string {
 // Handing back a zero-valued document instead would look like "this user has no
 // assignments yet" and quietly re-bucket them, so a key holding foreign data —
 // easy to hit with the default empty prefix on a shared Redis — is an error.
-func decodeDoc(key string, raw []byte) (*growthbook.StickyBucketAssignmentDoc, error) {
+// A document whose attributeName or attributeValue does not match the key
+// it was read from is rejected too: accepting it would apply another identity's
+// assignments to this one.
+func decodeDoc(key string, raw []byte, attributeName, attributeValue string) (*growthbook.StickyBucketAssignmentDoc, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -261,6 +270,9 @@ func decodeDoc(key string, raw []byte) (*growthbook.StickyBucketAssignmentDoc, e
 	}
 	if doc.AttributeName == "" {
 		return nil, fmt.Errorf("growthbook redis: value at %q is not a sticky bucket document (no attributeName)", key)
+	}
+	if doc.AttributeName != attributeName || doc.AttributeValue != attributeValue {
+		return nil, fmt.Errorf("growthbook redis: value at %q belongs to a different attribute", key)
 	}
 	return &doc, nil
 }

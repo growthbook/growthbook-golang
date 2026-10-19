@@ -281,3 +281,18 @@ func TestFreshAssignmentIsPersisted(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "0", stored.Assignments["exp__0"])
 }
+
+func TestDocForAnotherIdentityIsRejected(t *testing.T) {
+	fake := newFakeRedis()
+	fake.store["id||user-1"] = `{"attributeName":"id","attributeValue":"user-2","assignments":{"e__0":"v1"}}`
+
+	doc, err := New(fake).GetAssignments("id", "user-1")
+	require.Nil(t, doc)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "different attribute")
+
+	assignments, err := New(fake).GetAllAssignments(map[string]string{"id": "user-1"})
+	require.Nil(t, assignments)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "different attribute")
+}
