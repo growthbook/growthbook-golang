@@ -207,7 +207,7 @@ func (client *Client) trackingUserContext() *TrackingUserContext {
 }
 
 func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
-	if !e.recording {
+	if !e.recordingExperiments {
 		return
 	}
 	if e.trackedExperiments == nil {
@@ -242,20 +242,39 @@ func (e *evaluator) recordExperiment(exp *Experiment, res *ExperimentResult) {
 	e.experiments = append(e.experiments, TrackingData{Experiment: &expCopy, Result: &resCopy, User: e.userCtx})
 }
 
+// trackedValue is a feature value whose JSON encoding is computed at most
+// once, on first comparison.
+type trackedValue struct {
+	value   FeatureValue
+	enc     string
+	encoded bool
+}
+
+func (t *trackedValue) encoding() string {
+	if !t.encoded {
+		t.enc, t.encoded = stringifyFeatureValue(t.value), true
+	}
+	return t.enc
+}
+
 // recordFeatureUsage reports a feature once per evaluation unless its value
-// changed.
+// changed, using the same JSON-encoding comparison as the JS SDK. Values are
+// only encoded when a key repeats within the evaluation, so the common path
+// serializes nothing.
 func (e *evaluator) recordFeatureUsage(key string, res *FeatureResult) {
-	if !e.recording {
+	if !e.recordingFeatureUsage {
 		return
 	}
 	if e.trackedFeatures == nil {
-		e.trackedFeatures = make(map[string]string)
+		e.trackedFeatures = make(map[string]trackedValue)
 	}
-	stringified := stringifyFeatureValue(res.Value)
-	if prev, ok := e.trackedFeatures[key]; ok && prev == stringified {
+	cur := trackedValue{value: res.Value}
+	prev, seen := e.trackedFeatures[key]
+	if seen && prev.encoding() == cur.encoding() {
+		e.trackedFeatures[key] = prev // keep the encoding for the next repeat
 		return
 	}
-	e.trackedFeatures[key] = stringified
+	e.trackedFeatures[key] = cur
 	e.featureUsage = append(e.featureUsage, featureUsage{key: key, result: res})
 }
 

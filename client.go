@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
@@ -196,7 +197,29 @@ func (client *Client) updateFromApiResponse(ctx context.Context, resp *FeatureAp
 		features = resp.Features
 		featuresPresent = true
 	}
-	savedGroupsPresent := resp.SavedGroups != nil
+	savedGroups := resp.SavedGroups
+	if resp.EncryptedSavedGroups != "" {
+		// Like DecryptFeatures, decrypt with the client's key, then parse JSON;
+		// this section decodes into SavedGroups instead of FeatureMap.
+		groupsJSON, err := client.data.decrypt(resp.EncryptedSavedGroups)
+		var decrypted condition.SavedGroups
+		if err == nil {
+			err = json.Unmarshal([]byte(groupsJSON), &decrypted)
+		}
+		if err != nil {
+			// Match the reference SDK: ignore a failed encrypted section and
+			// retain any plaintext fallback or previously loaded groups.
+			client.logger.Error("Ignoring undecodable encrypted saved groups; using plaintext fallback or previous groups without blocking feature updates", "error", err)
+		} else {
+			savedGroups = decrypted
+		}
+	}
+	// Direct callers may supply native Go definitions instead of decoded JSON.
+	savedGroups, err = savedGroups.Normalize()
+	if err != nil {
+		return err
+	}
+	savedGroupsPresent := savedGroups != nil
 	// Section-presence semantics: an absent contextualBandits section
 	// preserves the previous definitions, an explicit empty (or null)
 	// section clears them, and a section that fails to decrypt is ignored
@@ -220,7 +243,7 @@ func (client *Client) updateFromApiResponse(ctx context.Context, resp *FeatureAp
 			d.features = features
 		}
 		if savedGroupsPresent {
-			d.savedGroups = resp.SavedGroups
+			d.savedGroups = savedGroups
 		}
 		if banditsPresent {
 			d.contextualBandits = bandits
@@ -407,9 +430,13 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 		contextualBandits: client.data.contextualBandits,
 		client:            client,
 		ctx:               ctx,
-		recording: client.experimentCallback != nil || client.featureUsageCallback != nil ||
-			client.eventLogger != nil || client.trackingBuffer != nil || len(client.data.plugins) > 0,
 	}
+	// Plugins and the event logger consume both exposures and feature usage;
+	// the tracking buffer and ExperimentCallback only exposures, and
+	// FeatureUsageCallback only feature usage (see fireTracking).
+	both := client.eventLogger != nil || len(client.data.plugins) > 0
+	e.recordingExperiments = both || client.experimentCallback != nil || client.trackingBuffer != nil
+	e.recordingFeatureUsage = both || client.featureUsageCallback != nil
 	client.data.mu.RUnlock()
 	return &e
 }

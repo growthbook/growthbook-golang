@@ -93,3 +93,63 @@ BenchmarkIsURLTargeted_Regex-10     	  462918	      4962 ns/op	    8211 B/op	   
 - `RunExperiment` is effectively back to the first baseline after avoiding
   subscriber work when no listeners exist.
 - URL targeting remains the same hotspot as the first baseline.
+
+---
+
+## 2026-09-25 - Saved group references v2 (PR #98)
+
+- Base: `453db2f3b377abbc8f8d6e02c5bec0cd3f20948e`.
+- Measured PR commit: `c15a0a6e63e205ed48a7f814c01861a26776f671`; subsequent
+  commit `d39ef8e` adds tests only.
+- Go: `go1.27.1 darwin/arm64`; CPU: Apple M5 Pro; GOMAXPROCS: 18.
+- Scope: v2 list/condition references, attribute overrides, branch-local cycle
+  tracking, legacy membership compatibility, and encrypted saved-group loading.
+- Method: six samples per version, run sequentially with alternating base/PR
+  order. Values below are medians, not formal statistical significance estimates.
+
+Existing root benchmarks used compiled test binaries with
+`-test.run='^$' -test.bench=. -test.benchmem -test.benchtime=300ms`.
+The condition package used the same flags with `-test.benchtime=200ms`.
+
+| Benchmark | Base ns/op | PR ns/op | Change | Allocs/op (unchanged) |
+| --- | ---: | ---: | ---: | ---: |
+| EvalFeature_Cold | 85.94 | 84.89 | -1.2% | 3 |
+| EvalFeature_Warm | 92.10 | 94.11 | +2.2% | 3 |
+| EvalFeature_ObjectValue_ExperimentCallback | 67.45 | 67.76 | +0.5% | 3 |
+| EvalFeature_ObjectValue_FeatureUsageCallback | 184.30 | 184.15 | -0.1% | 6 |
+| RunExperiment | 218.95 | 221.40 | +1.1% | 5 |
+| EvalFeature_Parallel | 214.65 | 213.10 | -0.7% | 3 |
+| IsURLTargeted_Simple | 4471.50 | 4501.00 | +0.7% | 123 |
+| IsURLTargeted_Regex | 2829.50 | 2824.00 | -0.2% | 93 |
+
+These benchmarks do not exercise saved-group lookup. Existing condition
+benchmarks remained allocation-free, with median differences from -7.2% to
++4.9% (at most 1.20 ns).
+
+### Focused saved-group measurements
+
+Temporary review benchmarks (not checked into the repository) exercised
+last-element hits and misses in lists of 1, 100, and 10,000 strings, targeting
+conditions, and JSON payload updates. Evaluation used 300 ms samples; loading
+was confirmed with six alternating 1 s samples per version.
+
+| Operation | Base | PR | Change |
+| --- | ---: | ---: | ---: |
+| Targeting with multiple conditions | 137.10 ns | 140.95 ns | +2.8% |
+| Legacy group, 10,000 strings, last-element hit | 51.29 us | 50.47 us | -1.6% |
+| Load legacy group, 10,000 strings | 1.257 ms | 1.375 ms | +9.4% |
+
+Legacy evaluation retained 256 B and 3 allocations per call. Loading the
+10,000-member group increased from 2,096,615 to 2,219,627 B/op (+5.9%) and
+40,106 to 40,110 allocations. The loader now stages raw JSON, decodes entries
+separately, and copies the group map during normalization. This cost occurs
+during payload updates, not each evaluation.
+
+New v2 string-list evaluation measured 161–200 ns across these list sizes,
+with 512 B and 5 allocations per call. A condition group referencing the same
+list twice measured 375 ns, 1,024 B, and 9 allocations. These are costs of the
+new capability, not comparisons against a previous v2 implementation.
+
+A follow-up per-entry decoder experiment reduced legacy loading memory by
+5.5% but did not improve speed, so it was reverted. The results above describe
+the retained implementation; no further implementation changes were recommended.

@@ -834,3 +834,71 @@ func TestTakeTrackingCalls(t *testing.T) {
 		}
 	})
 }
+
+// marshalCounting is a feature value that counts its JSON encodings, so
+// tests can observe when evaluation serializes feature values.
+type marshalCounting struct{ calls *int }
+
+func (m marshalCounting) MarshalJSON() ([]byte, error) {
+	*m.calls++
+	return []byte(`"counted"`), nil
+}
+
+// serializationProbeFeatures returns a "parent" whose value counts its own
+// encodings and a "child" whose two rules each read the parent (and skip),
+// so a single EvalFeature("child") evaluates "parent" twice.
+func serializationProbeFeatures(t *testing.T, calls *int) FeatureMap {
+	t.Helper()
+	var first, second FeatureRule
+	for _, r := range []*FeatureRule{&first, &second} {
+		require.NoError(t, json.Unmarshal([]byte(`{
+			"parentConditions": [{"id": "parent", "condition": {"value": "other"}}],
+			"force": "unreachable"
+		}`), r))
+	}
+	return FeatureMap{
+		"parent": {DefaultValue: marshalCounting{calls}},
+		"child":  {DefaultValue: "child-default", Rules: []FeatureRule{first, second}},
+	}
+}
+
+func TestFeatureUsageValueSerialization(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("exposure-only consumers never serialize feature values", func(t *testing.T) {
+		var encodings int
+		client, err := NewClient(ctx,
+			WithFeatures(serializationProbeFeatures(t, &encodings)),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithTrackingBuffer(NewTrackingBuffer()),
+			WithExperimentCallback(func(context.Context, *Experiment, *ExperimentResult, *TrackingUserContext, any) {}),
+		)
+		require.NoError(t, err)
+
+		require.Equal(t, marshalCounting{&encodings}, client.EvalFeature(ctx, "parent").Value)
+		require.Equal(t, "child-default", client.EvalFeature(ctx, "child").Value)
+		require.Zero(t, encodings)
+	})
+
+	t.Run("a feature-usage consumer serializes only when a key repeats within one evaluation", func(t *testing.T) {
+		var encodings int
+		var usage []string
+		client, err := NewClient(ctx,
+			WithFeatures(serializationProbeFeatures(t, &encodings)),
+			WithAttributes(Attributes{"id": "user-1"}),
+			WithFeatureUsageCallback(func(_ context.Context, key string, _ *FeatureResult, _ any) {
+				usage = append(usage, key)
+			}),
+		)
+		require.NoError(t, err)
+
+		client.EvalFeature(ctx, "parent")
+		require.Zero(t, encodings, "a key seen once is not serialized")
+		require.Equal(t, []string{"parent"}, usage)
+
+		usage = nil
+		require.Equal(t, "child-default", client.EvalFeature(ctx, "child").Value)
+		require.Equal(t, 2, encodings, "each occurrence of the repeated parent is encoded once")
+		require.Equal(t, []string{"parent", "child"}, usage, "the unchanged repeat is still reported once")
+	})
+}

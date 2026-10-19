@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
@@ -14,11 +15,12 @@ type Base struct {
 	raw  json.RawMessage
 }
 
+// Eval starts a condition evaluation with no saved-group references visited.
 func (base Base) Eval(actual value.Value, groups SavedGroups) bool {
 	if base.cond == nil {
 		return true
 	}
-	return base.cond.Eval(actual, groups)
+	return base.cond.Eval(actual, groups, nil)
 }
 
 func (base *Base) UnmarshalJSON(data []byte) error {
@@ -61,7 +63,7 @@ func buildBaseCond(json value.Value) (Condition, error) {
 		fv := obj[f]
 		cond, err := buildLogicCond(f, fv)
 		if err != nil {
-			return Base{}, fmt.Errorf("Error building %v : %v", f, err)
+			return nil, fmt.Errorf("Error building %v : %v", f, err)
 		}
 		conds = append(conds, cond)
 	}
@@ -93,6 +95,27 @@ func orderedConditionKeys(obj value.ObjValue) []string {
 
 func buildLogicCond(op string, arg value.Value) (Condition, error) {
 	switch Operator(op) {
+	case savedGroupOp:
+		reference, ok := arg.(value.ObjValue)
+		if !ok {
+			return False{}, nil
+		}
+		id, ok := reference["id"].(value.StrValue)
+		if !ok {
+			return False{}, nil
+		}
+		cond := savedGroupCond{id: string(id)}
+		if key, present := reference["attributeKey"]; present {
+			attributeKey, ok := key.(value.StrValue)
+			if !ok {
+				return False{}, nil
+			}
+			cond.overridePath = strings.Split(string(attributeKey), ".")
+		}
+		return cond, nil
+	case "$savedGroups":
+		// The plural operator is authoring-only and never valid on the wire.
+		return False{}, nil
 	case andOp, orOp, norOp:
 		conds, err := buildBaseList(arg)
 		if err != nil {
