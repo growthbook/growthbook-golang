@@ -268,6 +268,25 @@ run **before** release creation. Tags and releases are created in the same
 workflow; no follow-up tag-triggered workflow is needed. Published versions are
 immutable; never move or replace a released tag.
 
+### Adapter modules
+
+Optional adapters such as `stickybucket/redis` are separate Go modules and are
+released as separate release-please packages. The Go module proxy resolves a
+module in a subdirectory only from tags named after that directory, so their
+tags look like `stickybucket/redis/v0.1.0`, and they version independently of
+the SDK. Commits under an adapter's directory go to its own `CHANGELOG.md`, not
+the SDK's.
+
+An adapter builds against this repository through a `replace` directive, which
+consumers ignore. Its `require` must therefore name an SDK version that is
+already published: release the SDK first, then bump the adapter's `require` in
+a follow-up PR. On release PRs, CI drops the `replace` and builds the adapter to
+check this. Confirm an adapter release through the proxy the same way:
+
+```sh
+GOPROXY=https://proxy.golang.org go list -m github.com/growthbook/growthbook-golang/stickybucket/redis@v0.1.0
+```
+
 ### GitHub setup
 
 Enable **Allow GitHub Actions to create and approve pull requests** under

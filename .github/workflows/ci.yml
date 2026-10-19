@@ -87,6 +87,37 @@ jobs:
           diff -u go.mod.bak go.mod && diff -u go.sum.bak go.sum
         working-directory: ${{ matrix.module }}
 
+  # The replace directive points each adapter at this working tree, and
+  # consumers ignore it — so day to day nothing verifies that the SDK version in
+  # `require` was ever published. Dropping the replace and building is the only
+  # check that the module works for anyone else. It runs on release PRs only:
+  # merging one creates the tag, and an unpublished require is fine until then.
+  verify-adapters-resolve:
+    name: Adapter ${{ matrix.module }} resolves without replace
+    if: startsWith(github.head_ref, 'release-please--')
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [ stickybucket/redis ]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.23'
+
+      # go.sum has no entry for the SDK while it is replaced by a directory, so
+      # tidy fetches it from the proxy (verified against the checksum database)
+      # before building. An unpublished version fails here with unknown revision.
+      - name: Build without the local replace
+        run: |
+          go mod edit -dropreplace github.com/growthbook/growthbook-golang
+          go mod tidy
+          go build ./...
+        working-directory: ${{ matrix.module }}
+
   lint-adapters:
     name: Lint adapter ${{ matrix.module }}
     runs-on: ubuntu-latest
