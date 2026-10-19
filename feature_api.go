@@ -17,6 +17,7 @@ type FeatureApiResponse struct {
 	DateUpdated                time.Time                   `json:"dateUpdated"`
 	SavedGroups                condition.SavedGroups       `json:"savedGroups"`
 	EncryptedFeatures          string                      `json:"encryptedFeatures"`
+	EncryptedSavedGroups       string                      `json:"encryptedSavedGroups,omitempty"`
 	ContextualBandits          ContextualBanditDefinitions `json:"contextualBandits"`
 	EncryptedContextualBandits string                      `json:"encryptedContextualBandits"`
 	SseSupport                 bool

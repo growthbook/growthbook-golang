@@ -27,7 +27,7 @@ func TestCompCond(t *testing.T) {
 	}
 	for _, tt := range tests {
 		c := NewCompCond(tt.op, tt.arg)
-		require.Equal(t, tt.res, c.Eval(value.New(tt.value), nil), "%v %v %v != %v", tt.value, tt.op, tt.arg, tt.res)
+		require.Equal(t, tt.res, c.Eval(value.New(tt.value), nil, nil), "%v %v %v != %v", tt.value, tt.op, tt.arg, tt.res)
 	}
 }
 

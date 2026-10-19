@@ -14,7 +14,7 @@ func NewCompCond(op Operator, arg any) CompCond {
 	return CompCond{op, value.New(arg)}
 }
 
-func (c CompCond) Eval(actual value.Value, _ SavedGroups) bool {
+func (c CompCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
 	switch c.op {
 	case eqOp:
 		return value.Equal(c.arg, actual)

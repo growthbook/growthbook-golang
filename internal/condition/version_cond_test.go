@@ -23,7 +23,7 @@ func TestVersionCond(t *testing.T) {
 	}
 	for _, tt := range tests {
 		var c Condition = NewVersionCond(tt.op, value.New(tt.arg))
-		require.Equal(t, tt.res, c.Eval(value.New(tt.value), nil), "%v %v %v != %v", tt.arg, tt.op, tt.value, tt.res)
+		require.Equal(t, tt.res, c.Eval(value.New(tt.value), nil, nil), "%v %v %v != %v", tt.arg, tt.op, tt.value, tt.res)
 	}
 }
 
