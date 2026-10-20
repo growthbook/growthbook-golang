@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.6.1](https://github.com/growthbook/growthbook-golang/compare/v0.6.0...v0.6.1) (2026-10-20)
+
+
+### Bug Fixes
+
+* prevent FMA fusion in getBucketRanges ([#103](https://github.com/growthbook/growthbook-golang/issues/103)) ([0793fae](https://github.com/growthbook/growthbook-golang/commit/0793faef39175d8c349f96562e3ea5ab500d5fd4))
+
 ## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
 
 - **Added: saved-group references v2** (JS parity): `$savedGroup` supports
