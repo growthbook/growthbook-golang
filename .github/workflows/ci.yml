@@ -21,11 +21,14 @@ jobs:
           args: --timeout=5m
 
   test:
-    name: Test Go ${{ matrix.go-version }}
-    runs-on: ubuntu-latest
+    name: Test Go ${{ matrix.go-version }} (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
         go-version: [ '1.21', '1.22', '1.23' ]
+        # arm64 is where the compiler fuses multiply-adds; the bucket range
+        # rounding tests only catch a regression there.
+        os: [ ubuntu-latest, ubuntu-24.04-arm ]
 
     steps:
       - uses: actions/checkout@v4
