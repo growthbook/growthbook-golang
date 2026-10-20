@@ -37,7 +37,7 @@ func (c *Client) getBucketRanges(numVariations int, coverage float64, weights []
 	for i := range weights {
 		start := cumulative
 		cumulative += weights[i]
-		ranges[i] = BucketRange{start, start + coverage*weights[i]}
+		ranges[i] = BucketRange{start, start + float64(coverage*weights[i])}
 	}
 	return ranges
 }
