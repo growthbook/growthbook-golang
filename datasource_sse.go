@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -179,7 +180,14 @@ func sseRetryDelay(max time.Duration, failures int) time.Duration {
 	return delay
 }
 
-func (ds *SseDataSource) markLoaded() {
+// markLoadedIfFeatures records that the initial load has landed, once an applied payload carried a
+// features section. A bandit- or saved-groups-only update leaves the features absent, so it must not
+// stop retryFirstLoad.
+func (ds *SseDataSource) markLoadedIfFeatures(resp *FeatureApiResponse) {
+	if resp.Features == nil && resp.EncryptedFeatures == "" {
+		return
+	}
+
 	ds.mu.Lock()
 	ds.loaded = true
 	ds.mu.Unlock()
@@ -231,12 +239,16 @@ func (ds *SseDataSource) processEvent(event sse.Event) {
 		return
 	}
 	ds.logger.Info("Updating features")
-	err := ds.client.UpdateFromApiResponseJSON(event.Data)
+	var resp FeatureApiResponse
+	err := json.Unmarshal([]byte(event.Data), &resp)
+	if err == nil {
+		err = ds.client.UpdateFromApiResponse(&resp)
+	}
 	if err != nil {
 		ds.logger.Error("Error updating features", "error", err)
 		return
 	}
-	ds.markLoaded()
+	ds.markLoadedIfFeatures(&resp)
 }
 
 func (ds *SseDataSource) loadData(ctx context.Context) error {
@@ -258,7 +270,7 @@ func (ds *SseDataSource) loadData(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	ds.markLoaded()
+	ds.markLoadedIfFeatures(resp)
 
 	if !resp.SseSupport {
 		return errSseUnsupported

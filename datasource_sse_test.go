@@ -460,3 +460,43 @@ func TestSseConnectsAfterAFailedFirstLoad(t *testing.T) {
 
 	require.Fail(t, "the SSE stream never connected after the first load failed")
 }
+
+func TestSseKeepsRetryingTheInitialLoadAfterAnEventWithoutFeatures(t *testing.T) {
+	var apiCalls atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/features/somekey":
+			if apiCalls.Add(1) == 1 {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			w.Header().Add("x-sse-support", "enabled")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"features":{"feature":{"defaultValue":1}}}`))
+		case "/sub/somekey":
+			// A saved-groups-only update arrives before the retry fires, then the stream goes quiet.
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("event: features\ndata: {\"savedGroups\":{\"admins\":[\"user-1\"]}}\n\n"))
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		}
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.URL),
+		WithClientKey("somekey"),
+		WithSseDataSource(WithSseMaxRetryInterval(300*time.Millisecond)),
+	)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	require.Error(t, client.EnsureLoaded(ctx))
+
+	require.Eventually(t, func() bool { return client.EvalFeature(ctx, "feature").Value != nil },
+		3*time.Second, 20*time.Millisecond,
+		"an update that carried no features must not count as the initial load having landed")
+}
