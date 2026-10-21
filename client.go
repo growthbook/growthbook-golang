@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -164,14 +165,18 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 	return client.SetJSONFeatures(featuresJSON)
 }
 
-// UpdateFromApiResponse updates shared data from Growthbook API response
-func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+// applyApiResponse applies an API response to the shared client data. It
+// reports whether anything was applied and the dateUpdated the client holds
+// afterwards: the response's own timestamp when it was applied, and the
+// currently stored one when it was not, so a refresh handler never publishes a
+// timestamp the client did not adopt.
+func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Time, error) {
 	dataUpdated := client.data.getDateUpdated()
 	apiUpdated := resp.DateUpdated
 	if apiUpdated.Before(dataUpdated) {
 		client.logger.Warn("Api response is older then current data, refuse to update",
 			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
-		return nil
+		return false, dataUpdated, nil
 	}
 	// Section-presence semantics (Python setPayload parity): a partial
 	// payload — e.g. a bandit-only update — must never wipe sections it did
@@ -185,7 +190,7 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	if resp.EncryptedFeatures != "" {
 		features, err = client.DecryptFeatures(resp.EncryptedFeatures)
 		if err != nil {
-			return err
+			return false, dataUpdated, err
 		}
 		featuresPresent = true
 	} else if resp.Features != nil {
@@ -212,7 +217,7 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	// Direct callers may supply native Go definitions instead of decoded JSON.
 	savedGroups, err = savedGroups.Normalize()
 	if err != nil {
-		return err
+		return false, dataUpdated, err
 	}
 	savedGroupsPresent := savedGroups != nil
 	// Section-presence semantics: an absent contextualBandits section
@@ -233,6 +238,16 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 			banditsPresent = true
 		}
 	}
+	// A payload that carries no section at all - or only a section that could
+	// not be decoded - applies nothing. It is still a valid no-op response
+	// (section-presence semantics), so it is not an error, but it must not be
+	// reported as an update: a malformed SSE event that omits "features" would
+	// otherwise look like a successful refresh to the refresh handler.
+	applied := featuresPresent || savedGroupsPresent || banditsPresent
+	if !applied {
+		client.logger.Warn("Api response contains nothing to apply, keeping current data",
+			"dateUpdated", resp.DateUpdated)
+	}
 	client.data.withLock(func(d *data) error {
 		if featuresPresent {
 			d.features = features
@@ -246,7 +261,21 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
-	return nil
+	return applied, resp.DateUpdated, nil
+}
+
+func (client *Client) applyApiResponseJSON(respJSON string) (bool, time.Time, error) {
+	var resp FeatureApiResponse
+	if err := json.Unmarshal([]byte(respJSON), &resp); err != nil {
+		return false, client.data.getDateUpdated(), err
+	}
+	return client.applyApiResponse(&resp)
+}
+
+// UpdateFromApiResponse updates shared data from Growthbook API response
+func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+	_, _, err := client.applyApiResponse(resp)
+	return err
 }
 
 func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
@@ -263,12 +292,8 @@ func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
 }
 
 func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
-	var resp FeatureApiResponse
-	err := json.Unmarshal([]byte(respJSON), &resp)
-	if err != nil {
-		return err
-	}
-	return client.UpdateFromApiResponse(&resp)
+	_, _, err := client.applyApiResponseJSON(respJSON)
+	return err
 }
 
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
@@ -277,13 +302,16 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 func (client *Client) RefreshFeatures(ctx context.Context) error {
 	resp, err := client.CallFeatureApi(ctx, "")
 	if err != nil {
+		client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, Error: err})
 		return err
 	}
-	// Apply partial responses too: UpdateFromApiResponse preserves omitted
+	// Apply partial responses too: applyApiResponse preserves omitted
 	// sections, so a bandit-only or saved-groups-only response updates just
 	// what it carries. (An early return on absent features predated that
 	// gating and left manual-mode clients with stale bandit definitions.)
-	return client.UpdateFromApiResponse(resp)
+	applied, dateUpdated, err := client.applyApiResponse(resp)
+	client.notifyRefreshOutcome(ctx, RefreshSourceManual, applied, dateUpdated, err)
+	return err
 }
 
 // EvalFeature evaluates feature based on attributes and features map

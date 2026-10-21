@@ -350,3 +350,13 @@ func (c *Client) cloneWith(opts ...ClientOption) (*Client, error) {
 	}
 	return clone, nil
 }
+
+// WithFeaturesRefreshHandler sets a handler invoked after each feature refresh
+// attempt by a background datasource or a manual RefreshFeatures call. Shared
+// across child clients.
+func WithFeaturesRefreshHandler(h FeaturesRefreshHandler) ClientOption {
+	return func(c *Client) error {
+		c.data.refreshHandler = h
+		return nil
+	}
+}

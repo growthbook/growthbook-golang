@@ -24,6 +24,7 @@ type data struct {
 	dsStartErr        error
 	plugins           []Plugin
 	subscribers       subscriberRegistry
+	refreshHandler    FeaturesRefreshHandler
 }
 
 func newData() *data {
@@ -98,4 +99,10 @@ func (d *data) decrypt(encrypted string) (string, error) {
 		return "", ErrNoDecryptionKey
 	}
 	return decrypt(encrypted, key)
+}
+
+func (d *data) getRefreshHandler() FeaturesRefreshHandler {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.refreshHandler
 }
