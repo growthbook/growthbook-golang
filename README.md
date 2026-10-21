@@ -125,6 +125,28 @@ map clears them. If encrypted saved groups cannot be decrypted or decoded,
 the SDK logs a warning and uses any plaintext `savedGroups` in that response,
 or retains the previous definitions if none were supplied.
 
+### Forced Feature Values
+
+`WithForcedFeatures` forces specific features to evaluate to a given value,
+bypassing rules and experiments. The result reports the `override` source and
+is excluded from feature-usage reporting. Useful for QA and testing.
+
+```go
+client, _ := gb.NewClient(ctx,
+    gb.WithForcedFeatures(gb.ForcedFeaturesMap{"my-feature": true}),
+)
+```
+
+On a child client the forced features are **merged** over the parent's, with the
+child's keys taking precedence:
+
+```go
+child, _ := client.WithForcedFeatures(gb.ForcedFeaturesMap{"other-feature": 42})
+```
+
+A supplied `ForcedFeaturesMap` must not be mutated concurrently while the client
+is in use.
+
 ---
 
 ### Tracking
