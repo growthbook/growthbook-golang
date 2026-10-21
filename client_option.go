@@ -38,10 +38,13 @@ func WithClientKey(clientKey string) ClientOption {
 
 // WithDecryptionKey sets the key used to decrypt encrypted payload sections,
 // including features, saved groups, and contextual bandits.
+//
+// Encrypted features given by an earlier option and still waiting for a key are decrypted with this
+// one.
 func WithDecryptionKey(decryptionKey string) ClientOption {
 	return func(c *Client) error {
 		c.data.decryptionKey = decryptionKey
-		return nil
+		return c.decryptPendingFeatures()
 	}
 }
 
@@ -89,6 +92,7 @@ func WithUrl(rawUrl string) ClientOption {
 // WithFeatures sets features definitions (usually pulled from an API or cache).
 func WithFeatures(features FeatureMap) ClientOption {
 	return func(c *Client) error {
+		c.pendingEncryptedFeatures = nil
 		return c.SetFeatures(features)
 	}
 }
@@ -96,14 +100,21 @@ func WithFeatures(features FeatureMap) ClientOption {
 // WithJsonFeatures sets features definitions from JSON string.
 func WithJsonFeatures(featuresJson string) ClientOption {
 	return func(c *Client) error {
+		c.pendingEncryptedFeatures = nil
 		return c.SetJSONFeatures(featuresJson)
 	}
 }
 
 // WithEncryptedJsonFeatures sets features definitions from encrypted JSON string.
+//
+// The payload is decrypted with the decryption key in effect when the option runs. With no key yet,
+// it waits for the next WithDecryptionKey, so the key option may be listed after this one. A plain
+// feature option listed before that key discards the waiting payload, keeping the last feature
+// option the one that wins.
 func WithEncryptedJsonFeatures(featuresJson string) ClientOption {
 	return func(c *Client) error {
-		return c.SetEncryptedJSONFeatures(featuresJson)
+		c.pendingEncryptedFeatures = append(c.pendingEncryptedFeatures, featuresJson)
+		return c.decryptPendingFeatures()
 	}
 }
 

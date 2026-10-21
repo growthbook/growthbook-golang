@@ -20,18 +20,19 @@ var (
 
 // Client is a GrowthBook SDK client.
 type Client struct {
-	data                 *data
-	enabled              bool
-	attributes           value.ObjValue
-	url                  *url.URL
-	forcedVariations     ForcedVariationsMap
-	groups               map[string]bool
-	qaMode               bool
-	experimentCallback   ExperimentCallback
-	featureUsageCallback FeatureUsageCallback
-	eventLogger          EventLogger
-	logger               *slog.Logger
-	extraData            any
+	data                     *data
+	enabled                  bool
+	attributes               value.ObjValue
+	url                      *url.URL
+	forcedVariations         ForcedVariationsMap
+	groups                   map[string]bool
+	qaMode                   bool
+	experimentCallback       ExperimentCallback
+	featureUsageCallback     FeatureUsageCallback
+	eventLogger              EventLogger
+	logger                   *slog.Logger
+	pendingEncryptedFeatures []string
+	extraData                any
 	// StickyBucketService for storing experiment assignments
 	stickyBucketService StickyBucketService
 
@@ -72,6 +73,11 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	// Encrypted features still pending never got a decryption key from any option.
+	if len(client.pendingEncryptedFeatures) > 0 {
+		return nil, ErrNoDecryptionKey
 	}
 
 	// Initialize plugins. Errors are logged but do not prevent client
@@ -162,6 +168,24 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 		return err
 	}
 	return client.SetJSONFeatures(featuresJSON)
+}
+
+// decryptPendingFeatures decrypts the encrypted feature options waiting for a key, in the order they
+// were given, so each payload uses the key in effect at its position rather than the last one set.
+func (client *Client) decryptPendingFeatures() error {
+	if client.data.decryptionKey == "" {
+		return nil
+	}
+
+	pending := client.pendingEncryptedFeatures
+	client.pendingEncryptedFeatures = nil
+
+	for _, encrypted := range pending {
+		if err := client.SetEncryptedJSONFeatures(encrypted); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // UpdateFromApiResponse updates shared data from Growthbook API response
