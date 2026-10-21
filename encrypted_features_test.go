@@ -135,7 +135,7 @@ func TestAnInvalidEncryptedPayloadFailsEvenWhenAValidOneFollowsIt(t *testing.T) 
 }
 
 func TestTheLastOfSeveralValidEncryptedPayloadsWins(t *testing.T) {
-	other, err := encryptFeaturesForTest(`{"other":{"defaultValue":"second"}}`)
+	other, err := encryptFeaturesForTest(testDecryptionKey, `{"other":{"defaultValue":"second"}}`)
 	require.NoError(t, err)
 
 	client, err := NewClient(ctx,
@@ -149,10 +149,40 @@ func TestTheLastOfSeveralValidEncryptedPayloadsWins(t *testing.T) {
 	require.Nil(t, client.EvalFeature(ctx, "feature").Value)
 }
 
+func TestEachEncryptedPayloadUsesTheKeyInEffectAtItsPosition(t *testing.T) {
+	const otherKey = "MDEyMzQ1Njc4OWFiY2RlZg=="
+
+	other, err := encryptFeaturesForTest(otherKey, `{"other":{"defaultValue":"second"}}`)
+	require.NoError(t, err)
+
+	client, err := NewClient(ctx,
+		WithDecryptionKey(testDecryptionKey),
+		WithEncryptedJsonFeatures(testEncryptedFeats),
+		WithDecryptionKey(otherKey),
+		WithEncryptedJsonFeatures(other),
+	)
+	require.NoError(t, err, "each payload is valid for the key listed before it, so neither may be decrypted with the other key")
+
+	require.Equal(t, "second", client.EvalFeature(ctx, "other").Value)
+}
+
+func TestAPlainFeatureOptionDiscardsAPayloadStillWaitingForAKey(t *testing.T) {
+	client, err := NewClient(ctx,
+		WithEncryptedJsonFeatures(testEncryptedFeats),
+		WithJsonFeatures(`{"fallback":{"defaultValue":"plain"}}`),
+		WithDecryptionKey(testDecryptionKey),
+	)
+	require.NoError(t, err)
+
+	require.Equal(t, "plain", client.EvalFeature(ctx, "fallback").Value,
+		"the plain option came after the encrypted one, so the key listed last must not bring it back")
+	require.Nil(t, client.EvalFeature(ctx, "feature").Value)
+}
+
 // encryptFeaturesForTest produces a payload the SDK's own decrypt accepts, so the ordering of two
 // valid encrypted options can be tested. The repository ships only one valid ciphertext for this key.
-func encryptFeaturesForTest(featuresJson string) (string, error) {
-	key, err := base64.StdEncoding.DecodeString(testDecryptionKey)
+func encryptFeaturesForTest(decryptionKey, featuresJson string) (string, error) {
+	key, err := base64.StdEncoding.DecodeString(decryptionKey)
 	if err != nil {
 		return "", err
 	}

@@ -75,16 +75,9 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 		}
 	}
 
-	// Decrypted here rather than inside the option, so a decryption key supplied by a later option
-	// still applies. Payloads a later plain feature option superseded were dropped by that option, so
-	// what remains is in order and every one of it is validated.
-	pending := client.pendingEncryptedFeatures
-	client.pendingEncryptedFeatures = nil
-
-	for _, encrypted := range pending {
-		if err := client.SetEncryptedJSONFeatures(encrypted); err != nil {
-			return nil, err
-		}
+	// Encrypted features still pending never got a decryption key from any option.
+	if len(client.pendingEncryptedFeatures) > 0 {
+		return nil, ErrNoDecryptionKey
 	}
 
 	// Initialize plugins. Errors are logged but do not prevent client
@@ -175,6 +168,24 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 		return err
 	}
 	return client.SetJSONFeatures(featuresJSON)
+}
+
+// decryptPendingFeatures decrypts the encrypted feature options waiting for a key, in the order they
+// were given, so each payload uses the key in effect at its position rather than the last one set.
+func (client *Client) decryptPendingFeatures() error {
+	if client.data.decryptionKey == "" {
+		return nil
+	}
+
+	pending := client.pendingEncryptedFeatures
+	client.pendingEncryptedFeatures = nil
+
+	for _, encrypted := range pending {
+		if err := client.SetEncryptedJSONFeatures(encrypted); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // UpdateFromApiResponse updates shared data from Growthbook API response
