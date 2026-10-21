@@ -235,25 +235,27 @@ func TestASubscriberMutatingTheResponseCannotReachAnother(t *testing.T) {
 	client, err := NewClient(ctx)
 	require.NoError(t, err)
 
-	first := client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
-		resp.Features["injected"] = &Feature{DefaultValue: true}
-	})
-	defer first()
+	// Subscribers run in no fixed order, so each one checks what it received before deleting it:
+	// with a shared response, whichever runs second finds the feature already gone.
+	var sawFeature []bool
 
-	var seenByTheSecond FeatureMap
-
-	second := client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
-		seenByTheSecond = resp.Features
-	})
-	defer second()
+	for range 2 {
+		defer client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
+			_, ok := resp.Features["feature"]
+			delete(resp.Features, "feature")
+			sawFeature = append(sawFeature, ok)
+		})()
+	}
 
 	require.NoError(t, client.UpdateFromApiResponseJSON(refreshPayload))
 
-	require.NotContains(t, seenByTheSecond, "injected",
+	require.Equal(t, []bool{true, true}, sawFeature,
 		"each subscriber gets its own response - one must not be able to rewrite what another sees")
 }
 
-func TestASubscriberMutatingSavedGroupsCannotChangeEvaluation(t *testing.T) {
+// The client stores a normalized copy of the saved groups, so the response's map never backs live
+// state; copying it still keeps one subscriber's writes from reaching the next.
+func TestASubscriberMutatingSavedGroupsCannotReachAnother(t *testing.T) {
 	const payload = `{
     "features": {"feature": {"defaultValue": 1}},
     "savedGroups": {"admins": ["user-1"]},
@@ -263,20 +265,66 @@ func TestASubscriberMutatingSavedGroupsCannotChangeEvaluation(t *testing.T) {
 	client, err := NewClient(ctx)
 	require.NoError(t, err)
 
+	var sawGroup []bool
+
+	for range 2 {
+		defer client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
+			_, ok := resp.SavedGroups["admins"]
+			delete(resp.SavedGroups, "admins")
+			sawGroup = append(sawGroup, ok)
+		})()
+	}
+
+	require.NoError(t, client.UpdateFromApiResponseJSON(payload))
+
+	require.Equal(t, []bool{true, true}, sawGroup,
+		"each subscriber gets its own saved groups - one must not be able to rewrite what another sees")
+}
+
+func TestASubscriberMutatingContextualBanditsCannotChangeEvaluation(t *testing.T) {
+	const payload = `{
+    "features": {"feature": {"defaultValue": 1}},
+    "contextualBandits": {"cb-1": {"banditVersion": 1, "contexts": []}},
+    "dateUpdated": "2026-01-01T00:00:00Z"
+  }`
+
+	client, err := NewClient(ctx)
+	require.NoError(t, err)
+
 	unsubscribe := client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
-		delete(resp.SavedGroups, "admins")
+		delete(resp.ContextualBandits, "cb-1")
 	})
 	defer unsubscribe()
 
 	require.NoError(t, client.UpdateFromApiResponseJSON(payload))
 
-	var seen bool
+	client.data.mu.RLock()
+	defer client.data.mu.RUnlock()
+	require.Contains(t, client.data.contextualBandits, "cb-1",
+		"a subscriber's delete must not reach the client's contextual bandit definitions")
+}
 
-	check := client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
-		_, seen = resp.SavedGroups["admins"]
-	})
-	defer check()
+type refreshCtxKey struct{}
 
-	require.NoError(t, client.UpdateFromApiResponseJSON(payload))
-	require.True(t, seen, "the earlier subscriber's delete must not have reached the client's saved groups")
+func TestRefreshFeaturesPassesItsContextToSubscribers(t *testing.T) {
+	server := startServer(http.StatusOK, []byte(refreshPayload))
+	defer server.http.Close()
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.http.URL),
+		WithClientKey("test-key"),
+	)
+	require.NoError(t, err)
+
+	var seen any
+
+	defer client.SubscribeFeatureRefresh(func(ctx context.Context, _ *FeatureApiResponse) {
+		seen = ctx.Value(refreshCtxKey{})
+	})()
+
+	callCtx := context.WithValue(ctx, refreshCtxKey{}, "manual refresh")
+	require.NoError(t, client.RefreshFeatures(callCtx))
+
+	require.Equal(t, "manual refresh", seen,
+		"a manual refresh has to hand subscribers the caller's context, not a background one")
 }

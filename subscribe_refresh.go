@@ -12,8 +12,11 @@ import (
 //
 // Each subscriber receives its own response value whose maps are detached from the client's live
 // state, so mutating it cannot change later evaluations, race with an evaluation in progress, or
-// reach another subscriber. The *Feature values inside the map are shared and must be treated as
-// read-only.
+// reach another subscriber. The values inside those maps (*Feature, saved groups, bandit
+// definitions) are shared and must be treated as read-only.
+//
+// The response is passed as received: encrypted sections stay encrypted, so Features is nil when
+// the payload carried EncryptedFeatures.
 type FeatureRefreshSubscriber func(ctx context.Context, resp *FeatureApiResponse)
 
 type refreshSubscriberRegistry struct {
@@ -89,6 +92,14 @@ func detachResponse(resp *FeatureApiResponse) *FeatureApiResponse {
 			savedGroups[key] = group
 		}
 		detached.SavedGroups = savedGroups
+	}
+
+	if resp.ContextualBandits != nil {
+		bandits := make(ContextualBanditDefinitions, len(resp.ContextualBandits))
+		for key, bandit := range resp.ContextualBandits {
+			bandits[key] = bandit
+		}
+		detached.ContextualBandits = bandits
 	}
 
 	return &detached

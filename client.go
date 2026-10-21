@@ -164,7 +164,6 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 	return client.SetJSONFeatures(featuresJSON)
 }
 
-// UpdateFromApiResponse updates shared data from Growthbook API response
 // UpdateFromApiResponse applies a feature payload to the client.
 func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 	return client.updateFromApiResponse(context.Background(), resp)
@@ -296,7 +295,7 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 	// sections, so a bandit-only or saved-groups-only response updates just
 	// what it carries. (An early return on absent features predated that
 	// gating and left manual-mode clients with stale bandit definitions.)
-	return client.UpdateFromApiResponse(resp)
+	return client.updateFromApiResponse(ctx, resp)
 }
 
 // EvalFeature evaluates feature based on attributes and features map

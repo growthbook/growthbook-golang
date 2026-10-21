@@ -154,7 +154,7 @@ func (ds *SseDataSource) loadData(ctx context.Context) error {
 	// features-only guard here used to drop bandit- or saved-groups-only
 	// updates entirely). This path never sends an ETag, so there is no 304
 	// to skip.
-	err = ds.client.UpdateFromApiResponse(resp)
+	err = ds.client.updateFromApiResponse(ctx, resp)
 	if err != nil {
 		return err
 	}
