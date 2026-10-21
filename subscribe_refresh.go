@@ -76,7 +76,9 @@ func (r *refreshSubscriberRegistry) hold(ctx context.Context, resp *FeatureApiRe
 	if !r.holding {
 		return false
 	}
-	r.held = append(r.held, heldRefresh{ctx: ctx, resp: resp})
+	// Detached now rather than at delivery: the caller may reuse resp for its next update before
+	// startup finishes, and the queued notification has to carry this payload, not that one.
+	r.held = append(r.held, heldRefresh{ctx: ctx, resp: detachResponse(resp)})
 	return true
 }
 

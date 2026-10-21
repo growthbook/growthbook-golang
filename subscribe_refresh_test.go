@@ -373,3 +373,60 @@ func TestRefreshFeaturesPassesItsContextToSubscribers(t *testing.T) {
 	require.Equal(t, "manual refresh", seen,
 		"a manual refresh has to hand subscribers the caller's context, not a background one")
 }
+
+// blockingDataSource holds Start until released, keeping the client in its startup window.
+type blockingDataSource struct {
+	release chan struct{}
+}
+
+func (ds *blockingDataSource) Start(ctx context.Context) error {
+	select {
+	case <-ds.release:
+	case <-ctx.Done():
+	}
+	return nil
+}
+
+func (ds *blockingDataSource) Close() error { return nil }
+
+func TestPayloadsQueuedDuringStartupKeepTheirOwnContents(t *testing.T) {
+	ds := &blockingDataSource{release: make(chan struct{})}
+
+	client, err := NewClient(ctx, WithDataSource(ds))
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	var seen []any
+	var mu sync.Mutex
+
+	defer client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
+		mu.Lock()
+		defer mu.Unlock()
+		seen = append(seen, resp.Features["feature"].DefaultValue)
+	})()
+
+	// One response value reused for two updates, both applied while startup is still in progress.
+	resp := &FeatureApiResponse{
+		Features:    FeatureMap{"feature": {DefaultValue: "first"}},
+		DateUpdated: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	require.NoError(t, client.UpdateFromApiResponse(resp))
+
+	resp.Features = FeatureMap{"feature": {DefaultValue: "second"}}
+	resp.DateUpdated = resp.DateUpdated.Add(time.Hour)
+	require.NoError(t, client.UpdateFromApiResponse(resp))
+
+	close(ds.release)
+	require.NoError(t, client.EnsureLoaded(ctx))
+
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(seen) == 2
+	}, time.Second, 5*time.Millisecond)
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []any{"first", "second"}, seen,
+		"each queued notification has to carry the payload as it was applied, not the caller's struct as it ended up")
+}
