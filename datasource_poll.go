@@ -69,8 +69,10 @@ func (ds *PollDataSource) Close() error {
 	ready := ds.ready
 	ds.mu.RUnlock()
 
+	// Not ready means never started or already stopped by its context - Client.Close cancels that
+	// context first, so the loop can get here before this does. Either way there is nothing to stop.
 	if !ready {
-		return fmt.Errorf("Datasource is not ready")
+		return nil
 	}
 	ds.logger.Info("Closing")
 	ds.cancel()

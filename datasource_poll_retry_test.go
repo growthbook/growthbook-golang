@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -221,4 +222,27 @@ func TestClosingAClientWhoseFirstLoadFailedStopsThePoller(t *testing.T) {
 
 	require.Equal(t, settled, requests.Load(),
 		"the poller kept running after Close - its goroutine outlived the client")
+}
+
+func TestClosingAPollerAlreadyStoppedByItsContextSucceeds(t *testing.T) {
+	server := startServer(http.StatusOK, []byte(`{"features":{}}`))
+	defer server.http.Close()
+
+	client, err := NewClient(ctx, WithApiHost(server.http.URL), WithClientKey("somekey"))
+	require.NoError(t, err)
+
+	ds := newPollDataSource(client, time.Hour)
+
+	startCtx, cancel := context.WithCancel(ctx)
+	require.NoError(t, ds.Start(startCtx))
+
+	// Client.Close cancels the context before it calls Close, and the poller can notice in between.
+	cancel()
+	require.Eventually(t, func() bool {
+		ds.mu.RLock()
+		defer ds.mu.RUnlock()
+		return !ds.ready
+	}, time.Second, 5*time.Millisecond)
+
+	require.NoError(t, ds.Close(), "a poller that has already stopped is closed, not failed")
 }

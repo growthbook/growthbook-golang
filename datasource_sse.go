@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -102,8 +101,10 @@ func (ds *SseDataSource) Close() error {
 	ready := ds.ready
 	ds.mu.RUnlock()
 
+	// Not ready means never started, so there is nothing to stop. Closing it is not a failure, the
+	// same as for PollDataSource.
 	if !ready {
-		return fmt.Errorf("datasource is not ready")
+		return nil
 	}
 	ds.logger.Info("Closing")
 	ds.cancel()
