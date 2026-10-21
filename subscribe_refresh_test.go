@@ -208,9 +208,9 @@ func TestFeatureRefreshSubscribersAreCalledFromThePollingDataSource(t *testing.T
 
 	defer client.SubscribeFeatureRefresh(recorder.subscriber())()
 
-	require.NoError(t, client.EnsureLoaded(ctx))
-
-	require.GreaterOrEqual(t, recorder.count(), 1,
+	// The subscriber is registered after NewClient, so the initial load may already have been
+	// delivered without it; a later poll is what it is guaranteed to see.
+	require.Eventually(t, func() bool { return recorder.count() >= 1 }, 2*time.Second, 10*time.Millisecond,
 		"a payload fetched by the data source has to reach subscribers too, not just a direct update")
 }
 
