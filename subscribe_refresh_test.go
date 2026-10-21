@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
@@ -211,6 +212,50 @@ func TestFeatureRefreshSubscribersAreCalledFromThePollingDataSource(t *testing.T
 
 	require.GreaterOrEqual(t, recorder.count(), 1,
 		"a payload fetched by the data source has to reach subscribers too, not just a direct update")
+}
+
+func TestASubscriberCallingEnsureLoadedOnTheInitialLoadDoesNotDeadlock(t *testing.T) {
+	release := make(chan struct{})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Held until the subscriber is registered, so it is the initial load that reaches it.
+		select {
+		case <-release:
+		case <-r.Context().Done():
+			return
+		}
+		_, _ = w.Write([]byte(refreshPayload))
+	}))
+	defer server.Close()
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.URL),
+		WithClientKey("test-key"),
+		WithPollDataSource(time.Hour),
+	)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	loaded := make(chan error, 1)
+
+	defer client.SubscribeFeatureRefresh(func(ctx context.Context, _ *FeatureApiResponse) {
+		waitCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		defer cancel()
+		select {
+		case loaded <- client.EnsureLoaded(waitCtx):
+		default:
+		}
+	})()
+
+	close(release)
+
+	select {
+	case err := <-loaded:
+		require.NoError(t, err,
+			"startup must be published before the initial-load callback, or a subscriber waiting on it deadlocks")
+	case <-time.After(5 * time.Second):
+		require.Fail(t, "the initial-load callback never ran")
+	}
 }
 
 func TestASubscriberMutatingTheResponseCannotChangeEvaluation(t *testing.T) {

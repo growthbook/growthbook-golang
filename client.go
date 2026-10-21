@@ -85,6 +85,7 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	}
 
 	if client.data.dataSource != nil {
+		client.data.refreshSubscribers.holdUntilStarted()
 		go client.startDataSource(ctx)
 	}
 

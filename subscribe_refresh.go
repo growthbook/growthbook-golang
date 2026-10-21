@@ -23,6 +23,16 @@ type refreshSubscriberRegistry struct {
 	mu      sync.RWMutex
 	nextID  atomic.Uint64
 	entries map[uint64]FeatureRefreshSubscriber
+
+	// While the data source is starting, notifications are held here and delivered once startup has
+	// been published, so a subscriber can call EnsureLoaded without waiting on its own callback.
+	holding bool
+	held    []heldRefresh
+}
+
+type heldRefresh struct {
+	ctx  context.Context
+	resp *FeatureApiResponse
 }
 
 func (r *refreshSubscriberRegistry) add(fn FeatureRefreshSubscriber) func() {
@@ -53,8 +63,42 @@ func (r *refreshSubscriberRegistry) subscribers() []FeatureRefreshSubscriber {
 	return fns
 }
 
+func (r *refreshSubscriberRegistry) holdUntilStarted() {
+	r.mu.Lock()
+	r.holding = true
+	r.mu.Unlock()
+}
+
+// hold queues a notification while the data source is starting, and reports whether it did.
+func (r *refreshSubscriberRegistry) hold(ctx context.Context, resp *FeatureApiResponse) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if !r.holding {
+		return false
+	}
+	r.held = append(r.held, heldRefresh{ctx: ctx, resp: resp})
+	return true
+}
+
+// takeHeld returns the queued notifications, and stops holding once the queue is empty. Holding
+// continues while a batch is delivered, so a payload applied meanwhile is queued behind it rather
+// than overtaking it.
+func (r *refreshSubscriberRegistry) takeHeld() []heldRefresh {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	held := r.held
+	r.held = nil
+	if len(held) == 0 {
+		r.holding = false
+	}
+	return held
+}
+
 // SubscribeFeatureRefresh registers fn to be called whenever a new feature payload is applied, and
 // returns a function that removes it again. Evaluation already sees the new payload when fn runs.
+//
+// A payload applied while the data source is still starting - the initial load included - is
+// delivered once startup has finished, so fn may call EnsureLoaded.
 func (client *Client) SubscribeFeatureRefresh(fn FeatureRefreshSubscriber) (unsubscribe func()) {
 	if fn == nil {
 		return func() {}
@@ -63,6 +107,23 @@ func (client *Client) SubscribeFeatureRefresh(fn FeatureRefreshSubscriber) (unsu
 }
 
 func (client *Client) notifyFeatureRefreshSubscribers(ctx context.Context, resp *FeatureApiResponse) {
+	if client.data.refreshSubscribers.hold(ctx, resp) {
+		return
+	}
+	client.deliverFeatureRefresh(ctx, resp)
+}
+
+// deliverHeldFeatureRefreshes delivers the notifications held while the data source was starting.
+// It runs after dsStartWait is closed.
+func (client *Client) deliverHeldFeatureRefreshes() {
+	for held := client.data.refreshSubscribers.takeHeld(); len(held) > 0; held = client.data.refreshSubscribers.takeHeld() {
+		for _, h := range held {
+			client.deliverFeatureRefresh(h.ctx, h.resp)
+		}
+	}
+}
+
+func (client *Client) deliverFeatureRefresh(ctx context.Context, resp *FeatureApiResponse) {
 	for _, fn := range client.data.refreshSubscribers.subscribers() {
 		client.safeNotifyRefreshSubscriber(ctx, fn, detachResponse(resp))
 	}
