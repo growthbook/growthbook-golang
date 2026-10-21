@@ -29,6 +29,10 @@ const userAgent = "Growhthbook Go SDK client"
 // maxDrainedErrorBody bounds how much of an error response is read so its connection can be pooled.
 const maxDrainedErrorBody = 64 << 10
 
+// maxErrorBodyDrainTime bounds how long draining an error response may take. A host that sends the
+// headers and then stalls would otherwise hold the request - and the retry loop behind it - forever.
+const maxErrorBodyDrainTime = time.Second
+
 // FeatureApiError reports a non-success response from the features endpoint. It carries the status
 // code so a caller can tell a request the host will never accept - a wrong client key - from one
 // worth repeating.
@@ -54,6 +58,10 @@ func (e *FeatureApiError) Retryable() bool {
 
 func (c *Client) CallFeatureApi(ctx context.Context, etag string) (*FeatureApiResponse, error) {
 	apiResp := FeatureApiResponse{}
+
+	// Its own cancel, so draining an error body below can be cut short without touching ctx.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 
 	apiUrl := c.data.getApiUrl()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiUrl, nil)
@@ -81,8 +89,11 @@ func (c *Client) CallFeatureApi(ctx context.Context, etag string) (*FeatureApiRe
 	if resp.StatusCode != 200 {
 		// Drained before closing: a connection whose body was closed unread is dropped instead
 		// of pooled, so an outage answered with an error page would have every retry paying for
-		// a fresh connection. The cap keeps a large or hostile body from being read in full.
+		// a fresh connection. The caps keep a large, hostile or stalled body from holding the
+		// request: past maxErrorBodyDrainTime the request is cancelled and the connection dropped.
+		stop := time.AfterFunc(maxErrorBodyDrainTime, cancel)
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrainedErrorBody))
+		stop.Stop()
 		return &apiResp, &FeatureApiError{StatusCode: resp.StatusCode}
 	}
 

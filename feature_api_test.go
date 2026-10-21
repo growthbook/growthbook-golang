@@ -83,3 +83,39 @@ func TestJsonUnmarshaling(t *testing.T) {
 		},
 		apiResp)
 }
+
+func TestAStalledErrorBodyDoesNotHangTheRequest(t *testing.T) {
+	release := make(chan struct{})
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Headers and part of the body, then nothing: the drain would wait on the rest forever.
+		w.Header().Set("Content-Length", "1024")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, `{"error":`)
+		w.(http.Flusher).Flush()
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	defer server.Close()
+	defer close(release) // runs first, so a hung request cannot keep server.Close waiting
+
+	client, err := NewClient(ctx, WithApiHost(server.URL), WithClientKey("somekey"))
+	require.NoError(t, err)
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := client.CallFeatureApi(ctx, "")
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		var apiErr *FeatureApiError
+		require.ErrorAs(t, err, &apiErr)
+		require.Equal(t, http.StatusInternalServerError, apiErr.StatusCode)
+	case <-time.After(3 * maxErrorBodyDrainTime):
+		require.Fail(t, "the error body drain has no time bound, so a stalled host hangs the request")
+	}
+}
