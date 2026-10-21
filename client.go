@@ -85,6 +85,7 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	}
 
 	if client.data.dataSource != nil {
+		client.data.refreshSubscribers.holdUntilStarted()
 		go client.startDataSource(ctx)
 	}
 
@@ -164,8 +165,12 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 	return client.SetJSONFeatures(featuresJSON)
 }
 
-// UpdateFromApiResponse updates shared data from Growthbook API response
+// UpdateFromApiResponse applies a feature payload to the client.
 func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+	return client.updateFromApiResponse(context.Background(), resp)
+}
+
+func (client *Client) updateFromApiResponse(ctx context.Context, resp *FeatureApiResponse) error {
 	dataUpdated := client.data.getDateUpdated()
 	apiUpdated := resp.DateUpdated
 	if apiUpdated.Before(dataUpdated) {
@@ -246,6 +251,9 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
+
+	client.notifyFeatureRefreshSubscribers(ctx, resp)
+
 	return nil
 }
 
@@ -262,13 +270,18 @@ func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
 	return features, err
 }
 
+// UpdateFromApiResponseJSON applies a feature payload, given as the raw API response JSON.
 func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
+	return client.updateFromApiResponseJSON(context.Background(), respJSON)
+}
+
+func (client *Client) updateFromApiResponseJSON(ctx context.Context, respJSON string) error {
 	var resp FeatureApiResponse
 	err := json.Unmarshal([]byte(respJSON), &resp)
 	if err != nil {
 		return err
 	}
-	return client.UpdateFromApiResponse(&resp)
+	return client.updateFromApiResponse(ctx, &resp)
 }
 
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
@@ -283,7 +296,7 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 	// sections, so a bandit-only or saved-groups-only response updates just
 	// what it carries. (An early return on absent features predated that
 	// gating and left manual-mode clients with stale bandit definitions.)
-	return client.UpdateFromApiResponse(resp)
+	return client.updateFromApiResponse(ctx, resp)
 }
 
 // EvalFeature evaluates feature based on attributes and features map
