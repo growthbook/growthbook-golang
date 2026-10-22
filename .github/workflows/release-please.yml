@@ -27,6 +27,12 @@ jobs:
       # Go modules become downloadable as soon as the tag exists.
       - name: Test before creating a release
         run: go test -race -timeout=15m ./...
+      # The root `./...` does not descend into nested modules. Adapters build
+      # against this tree through a replace directive, so an SDK change that
+      # breaks one is caught here rather than after it ships.
+      - name: Test adapters against this revision
+        run: go test -race -timeout=15m ./...
+        working-directory: stickybucket/redis
 
   release-please:
     needs: verify
