@@ -454,6 +454,15 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 			return nil
 		}
 
+		// A remotely evaluated experiment: report the assignments the server
+		// made (JS SDK parity, core.ts evalFeature fires onExperimentViewed
+		// for each of rule.tracks).
+		for _, t := range rule.Tracks {
+			if t.Experiment != nil && t.Result != nil {
+				e.recordExperiment(t.Experiment, t.Result)
+			}
+		}
+
 		return getFeatureResult(rule.Force, ForceResultSource, rule.Id, nil, nil)
 	}
 

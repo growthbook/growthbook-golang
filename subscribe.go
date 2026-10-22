@@ -73,6 +73,11 @@ func (r *subscriberRegistry) subscribersForResult(exp *Experiment, res *Experime
 // Subscribers observe the same experiment state the tracking pipeline
 // records: bandit metadata is stripped before notification whenever the
 // result carries no leaf attribution, matching the JS and Python SDKs.
+//
+// In remote-eval mode, subscribers are not notified for experiments the
+// server evaluated (rules carrying "tracks"): only the experiment callback and
+// tracking see those assignments. This matches the JS SDK, which fires
+// subscriptions only for locally evaluated experiments.
 func (client *Client) Subscribe(fn ExperimentSubscriber) (unsubscribe func()) {
 	if fn == nil {
 		return func() {}

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -16,6 +17,11 @@ const defaultApiHost = "https://cdn.growthbook.io"
 
 var (
 	ErrNoDecryptionKey = errors.New("no decryption key provided")
+
+	ErrRemoteEvalNoClientKey    = errors.New("remote eval requires a client key")
+	ErrRemoteEvalDecryptionKey  = errors.New("remote eval is not compatible with a decryption key")
+	ErrRemoteEvalWithDataSource = errors.New("remote eval is not compatible with a poll/SSE data source")
+	ErrRemoteEvalCloudHost      = errors.New("remote eval is not available on GrowthBook Cloud; set WithApiHost to a self-hosted GrowthBook Proxy or remote evaluation endpoint")
 )
 
 // Client is a GrowthBook SDK client.
@@ -32,6 +38,16 @@ type Client struct {
 	eventLogger          EventLogger
 	logger               *slog.Logger
 	extraData            any
+
+	// remoteEval, when true, evaluates features on a remote endpoint
+	// (/api/eval/{clientKey}) instead of locally. cacheKeyAttributes limits
+	// which attributes trigger a new remote request.
+	remoteEval          bool
+	cacheKeyAttributes  []string
+	remoteEvalTTL       time.Duration
+	remoteEvalCacheSize int
+	remoteEvalTimeout   time.Duration
+
 	// StickyBucketService for storing experiment assignments
 	stickyBucketService StickyBucketService
 
@@ -70,6 +86,12 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	for _, opt := range opts {
 		err := opt(client)
 		if err != nil {
+			return nil, err
+		}
+	}
+
+	if client.remoteEval {
+		if err := client.validateRemoteEval(); err != nil {
 			return nil, err
 		}
 	}
@@ -120,6 +142,9 @@ func defaultClient() *Client {
 		logger:                  slog.Default(),
 		attributes:              value.ObjValue{},
 		stickyBucketAssignments: newStickyBucketCache(defaultStickyBucketCacheSize),
+		remoteEvalTTL:           defaultRemoteEvalTTL,
+		remoteEvalCacheSize:     defaultRemoteEvalCacheSize,
+		remoteEvalTimeout:       defaultRemoteEvalTimeout,
 	}
 }
 
@@ -274,7 +299,13 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
 // and updates the client. Useful in manual mode when no background datasource is
 // configured and the caller wants to control when features are refreshed.
+// In remote-eval mode it re-fetches the server-evaluated features
+// for the client's attributes, bypassing the TTL.
 func (client *Client) RefreshFeatures(ctx context.Context) error {
+	if client.remoteEval {
+		_, err := client.loadRemoteEval(ctx, true)
+		return err
+	}
 	resp, err := client.CallFeatureApi(ctx, "")
 	if err != nil {
 		return err
@@ -387,7 +418,13 @@ func featureEvaluatedProperties(key string, res *FeatureResult) EventProperties 
 	}
 }
 
+// Features returns the client's feature definitions. In remote-eval mode it
+// returns the server-evaluated features cached for the client's attributes,
+// or nil until they are loaded (EnsureLoaded, EvalFeature or RefreshFeatures).
 func (client *Client) Features() FeatureMap {
+	if client.remoteEval {
+		return client.remoteEvalFeatures()
+	}
 	return client.data.getFeatures()
 }
 
@@ -411,10 +448,21 @@ func (client *Client) Logger() *slog.Logger {
 // Internals
 func (client *Client) evaluator(ctx context.Context) *evaluator {
 	client.data.mu.RLock()
-	e := evaluator{
-		features:          client.data.features,
-		savedGroups:       client.data.savedGroups,
-		contextualBandits: client.data.contextualBandits,
+	features := client.data.features
+	savedGroups := client.data.savedGroups
+	contextualBandits := client.data.contextualBandits
+	client.data.mu.RUnlock()
+
+	// In remote-eval mode the features are the server-evaluated set for this
+	// client's attributes, loaded lazily; none when loading failed.
+	if client.remoteEval {
+		features = client.maybeLoadRemoteEval(ctx)
+	}
+
+	e := &evaluator{
+		features:          features,
+		savedGroups:       savedGroups,
+		contextualBandits: contextualBandits,
 		client:            client,
 		ctx:               ctx,
 	}
@@ -424,8 +472,7 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 	both := client.eventLogger != nil || len(client.data.plugins) > 0
 	e.recordingExperiments = both || client.experimentCallback != nil || client.trackingBuffer != nil
 	e.recordingFeatureUsage = both || client.featureUsageCallback != nil
-	client.data.mu.RUnlock()
-	return &e
+	return e
 }
 
 func (client *Client) clone() *Client {
