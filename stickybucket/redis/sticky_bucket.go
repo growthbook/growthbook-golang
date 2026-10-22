@@ -38,13 +38,47 @@ import (
 // Redis; changing it would strand every assignment already stored.
 const keySeparator = "||"
 
+// mergeScript saves an assignment document by merging it into the one already
+// stored, atomically: Redis runs a script without interleaving other commands,
+// so two instances saving different experiments for the same user cannot drop
+// each other's assignment. The JSON format is unchanged, so the JS SDK can
+// still read and write the same keys.
+//
+// KEYS[1] is the document key and ARGV[1] the document to save, as JSON.
+const mergeScript = `
+local incoming = cjson.decode(ARGV[1])
+local raw = redis.call('GET', KEYS[1])
+if raw then
+  local ok, stored = pcall(cjson.decode, raw)
+  if ok and type(stored) == 'table'
+      and stored.attributeName == incoming.attributeName
+      and stored.attributeValue == incoming.attributeValue
+      and type(stored.assignments) == 'table' then
+    local changed = false
+    if type(incoming.assignments) == 'table' then
+      for k, v in pairs(incoming.assignments) do
+        if stored.assignments[k] ~= v then
+          stored.assignments[k] = v
+          changed = true
+        end
+      end
+    end
+    if not changed then
+      return 'OK'
+    end
+    return redis.call('SET', KEYS[1], cjson.encode(stored))
+  end
+end
+return redis.call('SET', KEYS[1], ARGV[1])
+`
+
 // Client is the subset of a go-redis client this service uses. Depending on the
 // three commands actually needed rather than on redis.Cmdable keeps the
 // coupling small and makes the service easy to fake in tests; *redis.Client,
 // *redis.ClusterClient and redis.UniversalClient all satisfy it.
 type Client interface {
 	Get(ctx context.Context, key string) *goredis.StringCmd
-	Set(ctx context.Context, key string, value any, expiration time.Duration) *goredis.StatusCmd
+	Eval(ctx context.Context, script string, keys []string, args ...any) *goredis.Cmd
 	MGet(ctx context.Context, keys ...string) *goredis.SliceCmd
 }
 
@@ -214,7 +248,9 @@ func (s *StickyBucketService) GetAllAssignments(attributes map[string]string) (g
 	return docs, nil
 }
 
-// SaveAssignments writes a user's assignment document.
+// SaveAssignments merges a user's assignment document into the one stored in
+// Redis, atomically (see mergeScript), so concurrent saves from different
+// instances keep each other's assignments.
 //
 // The document is stored without an expiry, deliberately: an assignment has to
 // outlive any single process and any TTL a cache would impose, or the user gets
@@ -236,7 +272,7 @@ func (s *StickyBucketService) SaveAssignments(doc *growthbook.StickyBucketAssign
 	defer cancel()
 
 	key := s.redisKey(doc.AttributeName, doc.AttributeValue)
-	if err := s.client.Set(ctx, key, payload, 0).Err(); err != nil {
+	if err := s.client.Eval(ctx, mergeScript, []string{key}, payload).Err(); err != nil {
 		return fmt.Errorf("growthbook redis: writing sticky bucket assignments to %q: %w", key, err)
 	}
 	return nil

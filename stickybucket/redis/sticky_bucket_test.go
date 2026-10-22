@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	growthbook "github.com/growthbook/growthbook-golang"
 	goredis "github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -21,11 +22,10 @@ type fakeRedis struct {
 
 	getCalls  int
 	mgetCalls int
-	lastTTL   time.Duration
 
 	getErr  error
 	mgetErr error
-	setErr  error
+	evalErr error
 }
 
 func newFakeRedis() *fakeRedis {
@@ -44,18 +44,21 @@ func (f *fakeRedis) Get(_ context.Context, key string) *goredis.StringCmd {
 	return goredis.NewStringResult(v, nil)
 }
 
-func (f *fakeRedis) Set(_ context.Context, key string, value any, ttl time.Duration) *goredis.StatusCmd {
-	if f.setErr != nil {
-		return goredis.NewStatusResult("", f.setErr)
+// Eval stands in for mergeScript by storing the document as given, without
+// merging. The merge itself runs only in real Redis; see the miniredis tests.
+func (f *fakeRedis) Eval(_ context.Context, _ string, keys []string, args ...any) *goredis.Cmd {
+	if f.evalErr != nil {
+		return goredis.NewCmdResult(nil, f.evalErr)
 	}
-	f.lastTTL = ttl
+	key := keys[0]
+	value := args[0]
 	switch v := value.(type) {
 	case []byte:
 		f.store[key] = string(v)
 	case string:
 		f.store[key] = v
 	}
-	return goredis.NewStatusResult("OK", nil)
+	return goredis.NewCmdResult("OK", nil)
 }
 
 func (f *fakeRedis) MGet(_ context.Context, keys ...string) *goredis.SliceCmd {
@@ -70,6 +73,16 @@ func (f *fakeRedis) MGet(_ context.Context, keys ...string) *goredis.SliceCmd {
 		}
 	}
 	return goredis.NewSliceResult(out, nil)
+}
+
+// newMiniRedis starts an in-process Redis that really runs Lua, for the tests
+// that need mergeScript to execute. Both are shut down when the test ends.
+func newMiniRedis(t *testing.T) (*miniredis.Miniredis, *goredis.Client) {
+	t.Helper()
+	mr := miniredis.RunT(t)
+	rdb := goredis.NewClient(&goredis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	return mr, rdb
 }
 
 func doc(name, value string, assignments map[string]string) *growthbook.StickyBucketAssignmentDoc {
@@ -93,12 +106,15 @@ func TestSaveAndGetRoundTrip(t *testing.T) {
 }
 
 func TestSaveUsesNoExpiry(t *testing.T) {
-	fake := newFakeRedis()
-	require.NoError(t, New(fake).SaveAssignments(doc("id", "user-1", nil)))
+	_, rdb := newMiniRedis(t)
+	svc := New(rdb)
+	require.NoError(t, svc.SaveAssignments(doc("id", "user-1", nil)))
 
 	// An assignment must outlive the process; a TTL would silently re-bucket
-	// the user once it lapsed.
-	require.Zero(t, fake.lastTTL)
+	// the user once it lapsed. -1 is Redis for "exists, no expiry".
+	ttl, err := rdb.TTL(ctx, "id||user-1").Result()
+	require.NoError(t, err)
+	require.Equal(t, time.Duration(-1), ttl)
 }
 
 func TestMissingKeyIsNotAnError(t *testing.T) {
@@ -210,7 +226,7 @@ func TestBackendErrorsAreReported(t *testing.T) {
 	require.ErrorIs(t, err, down)
 
 	fake = newFakeRedis()
-	fake.setErr = down
+	fake.evalErr = down
 	require.ErrorIs(t, New(fake).SaveAssignments(doc("id", "user-1", nil)), down)
 }
 
@@ -315,4 +331,55 @@ func TestDocForAnotherIdentityIsRejected(t *testing.T) {
 	require.Nil(t, assignments)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "different attribute")
+}
+
+// Instance B read the document before instance A saved e1, so its save carries
+// only e2. A plain SET would drop e1; the merge script keeps both.
+func TestConcurrentSavesMerge(t *testing.T) {
+	_, rdb := newMiniRedis(t)
+	svc := New(rdb)
+	require.NoError(t, svc.SaveAssignments(doc("id", "user-1", map[string]string{"e1__0": "0"})))
+	require.NoError(t, svc.SaveAssignments(doc("id", "user-1", map[string]string{"e2__0": "1"})))
+	stored, err := svc.GetAssignments("id", "user-1")
+	require.NoError(t, err)
+	require.Equal(t, "0", stored.Assignments["e1__0"])
+	require.Equal(t, "1", stored.Assignments["e2__0"])
+}
+
+// A save with nothing to add must leave the stored document alone. Go encodes
+// a nil map as "assignments":null, and replacing the document with that would
+// wipe every assignment the user already has.
+func TestSaveWithNothingNewKeepsDocument(t *testing.T) {
+	_, rdb := newMiniRedis(t)
+	svc := New(rdb)
+	require.NoError(t, svc.SaveAssignments(doc("id", "user-1", map[string]string{"e1__0": "0"})))
+
+	require.NoError(t, svc.SaveAssignments(doc("id", "user-1", nil)))
+	require.NoError(t, svc.SaveAssignments(doc("id", "user-1", map[string]string{})))
+
+	stored, err := svc.GetAssignments("id", "user-1")
+	require.NoError(t, err)
+	require.Equal(t, map[string]string{"e1__0": "0"}, stored.Assignments)
+}
+
+// Merging only happens into a document that is really ours. Anything else under
+// the key — garbage, or a document for another identity — is replaced, so a
+// save always leaves a readable document behind.
+func TestSaveOverwritesForeignDocument(t *testing.T) {
+	for name, existing := range map[string]string{
+		"garbage":        "not json at all",
+		"other identity": `{"attributeName":"id","attributeValue":"user-2","assignments":{"e9__0":"1"}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			mr, rdb := newMiniRedis(t)
+			require.NoError(t, mr.Set("id||user-1", existing))
+
+			svc := New(rdb)
+			require.NoError(t, svc.SaveAssignments(doc("id", "user-1", map[string]string{"e1__0": "0"})))
+
+			stored, err := svc.GetAssignments("id", "user-1")
+			require.NoError(t, err)
+			require.Equal(t, map[string]string{"e1__0": "0"}, stored.Assignments)
+		})
+	}
 }
