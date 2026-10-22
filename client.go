@@ -169,7 +169,14 @@ func (client *Client) writeCache(ctx context.Context, resp *FeatureApiResponse, 
 		client.logger.WarnContext(ctx, "Failed to encode features for cache", "error", err)
 		return
 	}
-	entry := &FeatureCacheEntry{Payload: payload, Etag: d.cacheEtag, UpdatedAt: time.Now().UTC()}
+	// The client's dateUpdated is the one this update just applied, which is
+	// also the dateUpdated the snapshot carries (or zero when it has none).
+	entry := &FeatureCacheEntry{
+		Payload:     payload,
+		Etag:        d.cacheEtag,
+		DateUpdated: d.getDateUpdated(),
+		UpdatedAt:   time.Now().UTC(),
+	}
 	if err := cache.Set(ctx, client.data.cacheKey(), entry); err != nil {
 		client.logger.WarnContext(ctx, "Failed to write features to cache", "error", err)
 	}

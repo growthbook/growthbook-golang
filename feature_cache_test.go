@@ -518,3 +518,78 @@ func TestSeedDoesNotDependOnUpdatedAt(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "cached", client.EvalFeature(ctx, "feat").Value)
 }
+
+// DateUpdated mirrors the payload's dateUpdated, so a backend can order
+// entries without parsing the payload; zero when the data never had one.
+func TestWriteThroughRecordsDateUpdated(t *testing.T) {
+	written := func(payload string) *FeatureCacheEntry {
+		t.Helper()
+		cache := NewInMemoryFeatureCache()
+		client, err := NewClient(ctx,
+			WithApiHost("https://example.com"), WithClientKey("k"), WithFeatureCache(cache))
+		require.NoError(t, err)
+		require.NoError(t, client.UpdateFromApiResponseJSON(payload))
+		entry, ok, err := cache.Get(ctx, "https://example.com::k")
+		require.NoError(t, err)
+		require.True(t, ok)
+		return entry
+	}
+
+	dated := written(`{"features":{"feat":{"defaultValue":1}},"dateUpdated":"2020-01-02T00:00:00Z"}`)
+	require.Equal(t, time.Date(2020, 1, 2, 0, 0, 0, 0, time.UTC), dated.DateUpdated.UTC())
+
+	undated := written(`{"features":{"feat":{"defaultValue":1}}}`)
+	require.True(t, undated.DateUpdated.IsZero())
+}
+
+func TestInMemoryFeatureCacheNeverGoesBack(t *testing.T) {
+	day := func(d int) time.Time { return time.Date(2020, 1, d, 0, 0, 0, 0, time.UTC) }
+	set := func(cache *InMemoryFeatureCache, etag string, date time.Time) {
+		t.Helper()
+		require.NoError(t, cache.Set(ctx, "k", &FeatureCacheEntry{
+			Payload: json.RawMessage(`{"features":{}}`), Etag: etag, DateUpdated: date,
+		}))
+	}
+	stored := func(cache *InMemoryFeatureCache) string {
+		t.Helper()
+		got, ok, err := cache.Get(ctx, "k")
+		require.NoError(t, err)
+		require.True(t, ok)
+		return got.Etag
+	}
+
+	cache := NewInMemoryFeatureCache()
+	set(cache, "newer", day(2))
+	set(cache, "older", day(1))
+	require.Equal(t, "newer", stored(cache), "an older write is skipped")
+
+	set(cache, "same", day(2))
+	require.Equal(t, "same", stored(cache), "an equally dated write replaces, e.g. a new etag")
+
+	set(cache, "undated", time.Time{})
+	require.Equal(t, "undated", stored(cache), "a zero date is unknown and always written")
+}
+
+// The reviewer's scenario: clients sharing one backend, one of them receiving
+// older data after another cached newer. A client started afterwards must
+// still seed the newer data.
+func TestSharedCacheKeepsNewestAcrossClients(t *testing.T) {
+	cache := NewInMemoryFeatureCache()
+	newClient := func() *Client {
+		t.Helper()
+		c, err := NewClient(ctx,
+			WithApiHost("https://example.com"), WithClientKey("k"), WithFeatureCache(cache))
+		require.NoError(t, err)
+		return c
+	}
+
+	a, b := newClient(), newClient()
+	require.NoError(t, b.UpdateFromApiResponseJSON(
+		`{"features":{"feat":{"defaultValue":"newer"}},"dateUpdated":"2020-01-02T00:00:00Z"}`))
+	// a has seen nothing newer itself, so it accepts the older data.
+	require.NoError(t, a.UpdateFromApiResponseJSON(
+		`{"features":{"feat":{"defaultValue":"older"}},"dateUpdated":"2020-01-01T00:00:00Z"}`))
+	require.Equal(t, "older", a.EvalFeature(ctx, "feat").Value)
+
+	require.Equal(t, "newer", newClient().EvalFeature(ctx, "feat").Value)
+}

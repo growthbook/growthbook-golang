@@ -22,6 +22,11 @@ type FeatureCacheEntry struct {
 	Payload json.RawMessage
 	// Etag is the HTTP ETag for the payload, enabling conditional requests after a restart.
 	Etag string
+	// DateUpdated is the payload's dateUpdated: when GrowthBook last changed the
+	// data this entry holds, or zero when the API supplied none. Unlike
+	// UpdatedAt it orders the data itself, so a backend shared by several clients
+	// can compare it to skip a write older than what it already stores.
+	DateUpdated time.Time
 	// UpdatedAt is when the SDK wrote this entry, in UTC. Backends without their
 	// own expiry — a file, say — need it to age entries out, and it is what a
 	// stale-while-revalidate policy would be built on.
@@ -43,9 +48,15 @@ type FeatureCacheEntry struct {
 // a failed Get on startup is logged and the client continues without a seed,
 // and a failed Set is logged.
 //
-// A client writes its updates in order, but clients sharing one backend each
-// write their own snapshot, so the last writer wins; the SDK does not
-// coordinate writers across instances.
+// A client never writes data older than it already had: it rejects older API
+// responses and writes its updates in order. Clients sharing one backend,
+// though, each write their own snapshot and the SDK does not coordinate them,
+// so by default the last writer wins: a client that received older data — from
+// a lagging CDN edge, say — can overwrite newer data another client wrote. The
+// next update from that client, or a restarted client's first fetch, corrects
+// it. A backend that must never go back to older data can compare
+// FeatureCacheEntry.DateUpdated and skip older writes, atomically (in Redis, a
+// Lua script); InMemoryFeatureCache does.
 type FeatureCache interface {
 	// Get returns the cached entry for key. found is false on a miss; a non-nil
 	// error signals a backend failure (distinct from a miss).
@@ -77,10 +88,18 @@ func (c *InMemoryFeatureCache) Get(_ context.Context, key string) (*FeatureCache
 }
 
 // Set stores a copy of entry, so later changes to it do not reach the cache.
+// Several clients in one process can share this cache, so it never goes back
+// to older data: an entry whose DateUpdated is before the stored one's is
+// skipped. Skipping is not an error. A zero DateUpdated is unknown and always
+// written.
 func (c *InMemoryFeatureCache) Set(_ context.Context, key string, entry *FeatureCacheEntry) error {
 	clone := cloneFeatureCacheEntry(entry)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if old, ok := c.store[key]; ok && old != nil && clone != nil &&
+		!clone.DateUpdated.IsZero() && clone.DateUpdated.Before(old.DateUpdated) {
+		return nil
+	}
 	c.store[key] = clone
 	return nil
 }
