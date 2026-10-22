@@ -21,6 +21,7 @@ var (
 	ErrRemoteEvalNoClientKey    = errors.New("remote eval requires a client key")
 	ErrRemoteEvalDecryptionKey  = errors.New("remote eval is not compatible with a decryption key")
 	ErrRemoteEvalWithDataSource = errors.New("remote eval is not compatible with a poll/SSE data source")
+	ErrRemoteEvalCloudHost      = errors.New("remote eval is not available on GrowthBook Cloud; set WithApiHost to a self-hosted GrowthBook Proxy or remote evaluation endpoint")
 )
 
 // Client is a GrowthBook SDK client.

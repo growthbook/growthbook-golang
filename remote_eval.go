@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -28,8 +30,10 @@ const defaultRemoteEvalTimeout = 10 * time.Second
 
 // WithRemoteEval enables remote evaluation: features are evaluated on a remote
 // endpoint (POST {apiHost}/api/eval/{clientKey}) for the client's attributes
-// instead of locally. Requires a client key and is incompatible with a
-// decryption key or a poll/SSE data source. Default false.
+// instead of locally. Requires a client key and an apiHost other than
+// GrowthBook Cloud (a self-hosted GrowthBook Proxy or remote evaluation
+// endpoint), and is incompatible with a decryption key or a poll/SSE data
+// source. Default false.
 func WithRemoteEval(enabled bool) ClientOption {
 	return func(c *Client) error {
 		c.remoteEval = enabled
@@ -110,7 +114,26 @@ func (client *Client) validateRemoteEval() error {
 	if client.data.dataSource != nil {
 		return ErrRemoteEvalWithDataSource
 	}
+	if isGrowthBookCloudHost(client.data.apiHost) {
+		return ErrRemoteEvalCloudHost
+	}
 	return nil
+}
+
+// isGrowthBookCloudHost reports whether apiHost points at GrowthBook Cloud,
+// which serves no remote-eval endpoint. It matters because the default apiHost
+// is the Cloud CDN: without this check, enabling remote eval and forgetting
+// WithApiHost would pass validation and then fail every request at runtime.
+// The JS SDK rejects the same hosts; unlike its /growthbook\.io$/ match, this
+// requires a label boundary, so a host such as notgrowthbook.io is allowed.
+// An unparsable apiHost is left for the request itself to report.
+func isGrowthBookCloudHost(apiHost string) bool {
+	u, err := url.Parse(apiHost)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "growthbook.io" || strings.HasSuffix(host, ".growthbook.io")
 }
 
 // remoteEvalCacheKey returns a stable key covering every input sent to the

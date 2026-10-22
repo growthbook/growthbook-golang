@@ -48,6 +48,42 @@ func TestRemoteEvalConfigValidation(t *testing.T) {
 	require.ErrorIs(t, err, ErrRemoteEvalWithDataSource)
 }
 
+// The default apiHost is the GrowthBook Cloud CDN, which has no remote-eval
+// endpoint, so forgetting WithApiHost must fail at construction rather than on
+// every request.
+func TestRemoteEvalRejectsGrowthBookCloud(t *testing.T) {
+	ctx := context.TODO()
+
+	_, err := NewClient(ctx, WithRemoteEval(true), WithClientKey("k"))
+	require.ErrorIs(t, err, ErrRemoteEvalCloudHost, "default apiHost")
+
+	for _, host := range []string{
+		"https://cdn.growthbook.io",
+		"https://CDN.GrowthBook.io/",
+		"https://growthbook.io",
+		"https://api.growthbook.io:443",
+	} {
+		_, err := NewClient(ctx, WithRemoteEval(true), WithClientKey("k"), WithApiHost(host))
+		require.ErrorIs(t, err, ErrRemoteEvalCloudHost, host)
+	}
+
+	for _, host := range []string{
+		"https://proxy.example.com",
+		"http://localhost:3300",
+		"https://notgrowthbook.io",
+		"https://growthbook.io.example.com",
+	} {
+		_, err := NewClient(ctx, WithRemoteEval(true), WithClientKey("k"), WithApiHost(host))
+		require.NoError(t, err, host)
+	}
+
+	// A child enabling remote eval on a client left on the default host.
+	parent, err := NewClient(ctx, WithClientKey("k"))
+	require.NoError(t, err)
+	_, err = parent.WithRemoteEval(true)
+	require.ErrorIs(t, err, ErrRemoteEvalCloudHost)
+}
+
 func TestRemoteEvalEvaluates(t *testing.T) {
 	ts := startServer(http.StatusOK, []byte(`{"features":{"feat":{"defaultValue":"on"}}}`))
 	defer ts.http.Close()
