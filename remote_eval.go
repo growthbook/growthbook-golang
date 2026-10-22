@@ -156,12 +156,14 @@ func (client *Client) remoteEvalCacheKey() (string, error) {
 	if client.url != nil {
 		pageURL = client.url.String()
 	}
-	// json.Marshal sorts map keys, so the key is deterministic.
+	// json.Marshal sorts map keys, so the key is deterministic. Attributes are
+	// converted to plain values first, as in the request itself, so a null
+	// attribute and an empty object get different keys.
 	b, err := json.Marshal(struct {
-		Attributes       value.ObjValue      `json:"attributes"`
+		Attributes       Attributes          `json:"attributes"`
 		ForcedVariations ForcedVariationsMap `json:"forcedVariations"`
 		URL              string              `json:"url"`
-	}{attrs, client.forcedVariations, pageURL})
+	}{attributesFromValue(attrs), client.forcedVariations, pageURL})
 	if err != nil {
 		return "", err
 	}
@@ -295,7 +297,9 @@ type remoteEvalPayload struct {
 // callEvalApi POSTs the current attributes to the remote-eval endpoint and
 // returns the server-evaluated feature response.
 func (client *Client) callEvalApi(ctx context.Context) (*FeatureApiResponse, error) {
-	attrs, err := json.Marshal(client.attributes)
+	// Encode plain values, not the internal value types: value.NullValue has no
+	// JSON form of its own and would be sent as {} instead of null.
+	attrs, err := json.Marshal(attributesFromValue(client.attributes))
 	if err != nil {
 		return nil, err
 	}

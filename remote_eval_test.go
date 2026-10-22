@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -346,6 +347,61 @@ func TestRemoteEvalPayloadForcedVariationsNotNull(t *testing.T) {
 
 	require.Contains(t, string(body), `"forcedVariations":{}`)
 	require.NotContains(t, string(body), `"forcedVariations":null`)
+}
+
+// Null attributes, at any depth, must reach the server as JSON null: targeting
+// on null would otherwise see an empty object.
+func TestRemoteEvalPayloadNullAttributes(t *testing.T) {
+	var body []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ = io.ReadAll(r.Body)
+		_, _ = w.Write([]byte(`{"features":{}}`))
+	}))
+	defer srv.Close()
+
+	client, err := NewClient(ctx,
+		WithHttpClient(srv.Client()), WithApiHost(srv.URL), WithClientKey("k"),
+		WithRemoteEval(true), WithAttributes(Attributes{
+			"plan": nil,
+			"list": []any{nil, "a"},
+			"obj":  map[string]any{"k": nil},
+		}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.EnsureLoaded(ctx))
+
+	var payload struct {
+		Attributes map[string]any `json:"attributes"`
+	}
+	require.NoError(t, json.Unmarshal(body, &payload))
+	require.Equal(t, map[string]any{
+		"plan": nil,
+		"list": []any{nil, "a"},
+		"obj":  map[string]any{"k": nil},
+	}, payload.Attributes)
+}
+
+// A null attribute and an empty object are different evaluation inputs, so
+// they must not share a cached result.
+func TestRemoteEvalCacheKeyDistinguishesNull(t *testing.T) {
+	key := func(attrs Attributes, opts ...ClientOption) string {
+		t.Helper()
+		client, err := NewClient(ctx, append([]ClientOption{
+			WithApiHost("https://proxy.example.com"), WithClientKey("k"),
+			WithRemoteEval(true), WithAttributes(attrs),
+		}, opts...)...)
+		require.NoError(t, err)
+		k, err := client.remoteEvalCacheKey()
+		require.NoError(t, err)
+		return k
+	}
+
+	require.NotEqual(t, key(Attributes{"plan": nil}), key(Attributes{"plan": map[string]any{}}))
+	// Same with the key narrowed by cacheKeyAttributes.
+	narrowed := WithCacheKeyAttributes([]string{"plan"})
+	require.NotEqual(t,
+		key(Attributes{"plan": nil, "id": "1"}, narrowed),
+		key(Attributes{"plan": map[string]any{}, "id": "1"}, narrowed))
 }
 
 func TestRemoteEvalConcurrentRefreshNoRace(t *testing.T) {
