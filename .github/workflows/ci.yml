@@ -48,8 +48,8 @@ jobs:
   # Optional adapters live in their own Go modules so their backend drivers stay
   # out of the SDK's dependency graph. `go test ./...` at the repo root does not
   # descend into a nested module, so each one needs its own job or it is never
-  # built by CI. The matrix starts at 1.22 because the adapters declare that
-  # floor; the root module still supports 1.21.
+  # built by CI. The matrix starts at 1.22: the adapters declare the same
+  # `go 1.22` as the root go.mod, so older toolchains cannot build them.
   test-adapters:
     name: Test adapter ${{ matrix.module }} (Go ${{ matrix.go-version }})
     runs-on: ubuntu-latest
