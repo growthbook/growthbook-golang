@@ -12,7 +12,12 @@ import (
 
 type Base struct {
 	cond Condition
-	raw  json.RawMessage
+	// raw is the condition's JSON in canonical form (re-marshaled from the
+	// parsed map), kept so it can be marshaled back. Parsing is one-way — the
+	// condition tree holds compiled regexps and operator nodes that cannot be
+	// rendered as JSON again — so without it marshaling would emit an empty
+	// object, silently turning a targeted rule into one that matches everyone.
+	raw json.RawMessage
 }
 
 // Eval starts a condition evaluation with no saved-group references visited.

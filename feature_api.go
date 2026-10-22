@@ -22,6 +22,9 @@ type FeatureApiResponse struct {
 	EncryptedContextualBandits string                      `json:"encryptedContextualBandits"`
 	SseSupport                 bool
 	Etag                       string
+	// raw holds the original response body so it can be persisted verbatim to a
+	// FeatureCache (parsed conditions do not marshal back to JSON without loss).
+	raw json.RawMessage
 }
 
 const userAgent = "Growhthbook Go SDK client"
@@ -65,6 +68,7 @@ func (c *Client) CallFeatureApi(ctx context.Context, etag string) (*FeatureApiRe
 		c.logger.ErrorContext(ctx, "Error parsing features response", "error", err)
 		return &apiResp, err
 	}
+	apiResp.raw = body
 
 	return &apiResp, err
 }

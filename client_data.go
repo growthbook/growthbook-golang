@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -24,6 +25,21 @@ type data struct {
 	dsStartErr        error
 	plugins           []Plugin
 	subscribers       subscriberRegistry
+	featureCache      FeatureCache
+	// seededEtag is the etag of the cache entry that actually seeded this client
+	// on startup, or "" when nothing was seeded. The poll data source reuses it
+	// for a conditional first request.
+	seededEtag string
+
+	// updateMu serializes updates with their cache writes, so accepted updates
+	// reach the cache in the order they were applied. Lock order: updateMu
+	// before mu. Evaluation only takes mu, so a slow cache never blocks it.
+	updateMu sync.Mutex
+	// cacheSnapshot merges the raw sections of every accepted update — what the
+	// cache should hold — and cacheEtag is the latest known etag. Both are
+	// guarded by updateMu.
+	cacheSnapshot map[string]json.RawMessage
+	cacheEtag     string
 }
 
 func newData() *data {
@@ -80,6 +96,26 @@ func (d *data) getClientKey() string {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.clientKey
+}
+
+func (d *data) getFeatureCache() FeatureCache {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.featureCache
+}
+
+func (d *data) getSeededEtag() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.seededEtag
+}
+
+// cacheKey identifies this client's feature data in a FeatureCache. Keyed by
+// API host and client key so distinct endpoints never collide.
+func (d *data) cacheKey() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.apiHost + "::" + d.clientKey
 }
 
 type dataUpdate func(*data) error
