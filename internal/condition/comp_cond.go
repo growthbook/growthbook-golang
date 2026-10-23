@@ -1,6 +1,7 @@
 package condition
 
 import (
+	"math"
 	"strings"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -26,6 +27,10 @@ func (c CompCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool 
 	// Only numbers with numbers and strings with strings are ordered;
 	// any other pair fails, including booleans and null/missing values.
 	if !isOrderable(actual, c.arg) {
+		return false
+	}
+	// NaN is unordered, so every ordering with it fails, as in JS
+	if isNaN(actual) || isNaN(c.arg) {
 		return false
 	}
 	cmp := compare(actual, c.arg)
@@ -57,4 +62,9 @@ func compare(a, b value.Value) int {
 	default:
 		return 0
 	}
+}
+
+func isNaN(v value.Value) bool {
+	n, ok := v.(value.NumValue)
+	return ok && math.IsNaN(float64(n))
 }

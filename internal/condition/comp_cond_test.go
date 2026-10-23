@@ -1,6 +1,8 @@
 package condition
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -35,6 +37,39 @@ func TestCompCond(t *testing.T) {
 		c := NewCompCond(tt.op, tt.arg)
 		require.Equal(t, tt.res, c.Eval(value.New(tt.value), nil, nil), "%v %v %v != %v", tt.value, tt.op, tt.arg, tt.res)
 	}
+}
+
+// cases.json can't encode NaN, so these mirror JS, where NaN is unordered
+// and not equal to itself
+func TestCompCondNaN(t *testing.T) {
+	nan := math.NaN()
+	tests := []struct {
+		op    Operator
+		value any
+		arg   any
+		res   bool
+	}{
+		{ltOp, nan, 0, false},
+		{lteOp, nan, 0, false},
+		{gtOp, nan, 0, false},
+		{gteOp, nan, 0, false},
+		{lteOp, 0, nan, false},
+		{gteOp, nan, nan, false},
+		{eqOp, nan, nan, false},
+		{neOp, nan, nan, true},
+		{neOp, nan, 0, true},
+	}
+	for _, tt := range tests {
+		c := NewCompCond(tt.op, tt.arg)
+		require.Equal(t, tt.res, c.Eval(value.New(tt.value), nil, nil), "%v %v %v != %v", tt.value, tt.op, tt.arg, tt.res)
+	}
+}
+
+func TestNaNAttributeFailsNumericLimit(t *testing.T) {
+	var c Base
+	require.NoError(t, json.Unmarshal([]byte(`{"score":{"$lte":0}}`), &c))
+	require.False(t, c.Eval(value.ObjValue{"score": value.Num(math.NaN())}, nil))
+	require.True(t, c.Eval(value.ObjValue{"score": value.Num(-1)}, nil))
 }
 
 func TestCompare(t *testing.T) {
