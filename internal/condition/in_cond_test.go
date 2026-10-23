@@ -1,6 +1,7 @@
 package condition
 
 import (
+	"math"
 	"testing"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -18,6 +19,11 @@ func TestInCond(t *testing.T) {
 		require.False(t, c.Eval(value.New(true), nil, nil))
 		require.True(t, c.Eval(value.New(200), nil, nil))
 		require.False(t, c.Eval(value.New(400), nil, nil))
+	})
+	t.Run("NaN is not in an array holding NaN", func(t *testing.T) {
+		c := NewInCond(value.Arr(math.NaN(), 1))
+		require.False(t, c.Eval(value.New(math.NaN()), nil, nil))
+		require.True(t, c.Eval(value.New(1), nil, nil))
 	})
 	t.Run("all-string array uses set lookup", func(t *testing.T) {
 		c := NewInCond(value.Arr("a", "b", "c"))

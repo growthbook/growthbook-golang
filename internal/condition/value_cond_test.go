@@ -13,30 +13,32 @@ func TestValueCond(t *testing.T) {
 		a any
 		r bool
 	}{
-		// string condition: JS `value + "" === condition`
-		{"1", 1, true},
-		{"1", []any{1}, true},
+		// values match only with the same type and value; no coercion
+		{"1", 1, false},
+		{"1", []any{1}, false},
 		{"1", "1", true},
 		{"1", true, false},
-		{"null", nil, true},
-		// number condition: JS `value * 1 === condition`
-		{0, "0", true},
+		{"null", nil, false},
+		{0, "0", false},
 		{0, 0, true},
-		{0, "", true},
-		{0, false, true},
-		{0, nil, true},
+		{0, "", false},
+		{0, false, false},
+		{0, nil, false},
 		{1, "abc", false},
-		// boolean condition: JS `value !== null && !!value === condition`
 		{false, false, true},
-		{false, 0, true},
+		{false, 0, false},
+		{false, "", false},
 		{false, nil, false},
-		{true, "0", true},
+		{true, "0", false},
+		{true, 1, false},
 		{true, nil, false},
 		// null condition: JS `value === null` (missing attributes read as null)
 		{nil, nil, true},
 		{nil, "1", false},
 		{nil, 0, false},
 		{nil, false, false},
+		{[]any{1}, []any{1}, true},
+		{[]any{1}, []any{"1"}, false},
 	}
 	for _, tt := range tests {
 		var c Condition = NewValueCond(tt.e)

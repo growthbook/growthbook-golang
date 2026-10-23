@@ -376,3 +376,9 @@ func buildAlliConds(arg value.Value) (Condition, error) {
 	}
 	return res, nil
 }
+
+// NeverMatch returns a condition that matches nothing and marshals back to raw.
+// It stands in for a malformed condition that could not be parsed.
+func NeverMatch(raw json.RawMessage) Base {
+	return Base{cond: False{}, raw: raw}
+}
