@@ -18,12 +18,18 @@ func TestCompCond(t *testing.T) {
 		{eqOp, 1, "1", false},
 		{neOp, 1, 1, false},
 		{neOp, "aa", "bb", true},
-		{ltOp, 2, "10", true},
+		{ltOp, 2, 10, true},
+		{ltOp, "10", "9", true},
+		{ltOp, 2, "10", false},
 		{ltOp, "2", 2, false},
-		{lteOp, "1", 1, true},
+		{lteOp, "1", 1, false},
 		{lteOp, 100, 10, false},
-		{gtOp, 10, "2", true},
-		{gteOp, value.Null(), 0, true},
+		{gtOp, 10, "2", false},
+		{gtOp, "2026-10-22", "2026-09-30", true},
+		{gtOp, true, false, false},
+		{gteOp, true, true, false},
+		{gteOp, value.Null(), 0, false},
+		{gteOp, value.Null(), value.Null(), false},
 	}
 	for _, tt := range tests {
 		c := NewCompCond(tt.op, tt.arg)
@@ -31,23 +37,20 @@ func TestCompCond(t *testing.T) {
 	}
 }
 
-func TestJsCompare(t *testing.T) {
-	lt, eq, gt, er := -1, 0, 1, 2
-	vals := []any{value.Null(), true, false, "100", "2", "ABCD", 100, 2, 0}
-	tests := map[any][]int{
-		value.Null(): {eq, lt, eq, lt, lt, er, lt, lt, eq},
-		true:         {gt, eq, gt, lt, lt, er, lt, lt, gt},
-		false:        {eq, lt, eq, lt, lt, er, lt, lt, eq},
-		"100":        {gt, gt, gt, eq, lt, lt, eq, gt, gt},
-		"2":          {gt, gt, gt, gt, eq, lt, lt, eq, gt},
-		"ABCD":       {er, er, er, gt, gt, eq, er, er, er},
-		100:          {gt, gt, gt, eq, gt, er, eq, gt, gt},
-		2:            {gt, gt, gt, lt, eq, er, lt, eq, gt},
-		0:            {eq, lt, eq, lt, lt, er, lt, lt, eq},
+func TestCompare(t *testing.T) {
+	lt, eq, gt := -1, 0, 1
+	tests := []struct {
+		a, b any
+		res  int
+	}{
+		{"100", "2", lt},
+		{"2", "2", eq},
+		{"ABCD", "100", gt},
+		{100, 2, gt},
+		{2, 2, eq},
+		{0, 2, lt},
 	}
-	for k, v := range tests {
-		for i := range vals {
-			require.Equal(t, v[i], jsCompare(value.New(k), value.New(vals[i])), "jsCompare(%v, %v) != %v", k, vals[i], v[i])
-		}
+	for _, tt := range tests {
+		require.Equal(t, tt.res, compare(value.New(tt.a), value.New(tt.b)), "compare(%v, %v) != %v", tt.a, tt.b, tt.res)
 	}
 }

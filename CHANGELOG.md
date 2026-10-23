@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- **Changed (breaking, targeting compatibility):** condition operators use
+  strict types, matching the JS SDK 2.0.0 and spec 0.10.0. An attribute whose
+  type differs from the condition's fails the positive operator and matches
+  its negation; there is no coercion, so `"10"` does not equal `10`, `0` does
+  not match null or missing, and `false` does not match `""`. Two strings
+  compare as text (`"10" < "9"`). `$gt`/`$gte`/`$lt`/`$lte` fail on booleans
+  and on missing attributes. Version operators need both sides to be strings
+  or both numbers; otherwise only `$vne` matches. `$exists` and `$type` are
+  unchanged. Existing rules relying on coercion can target different users
+  after upgrading.
+- **Fixed:** a malformed prerequisite condition (for example
+  `{"$not": null}`) never matches, so its rule is skipped, instead of failing
+  to load the whole features payload.
+- Conformance corpus synced to spec 0.10.1.
+
 ## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
 
 - **Added: saved-group references v2** (JS parity): `$savedGroup` supports
