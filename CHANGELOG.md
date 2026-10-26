@@ -37,7 +37,11 @@ All notable changes to this project will be documented in this file.
   partly known, e.g. on a server bootstrapping a client SDK. They prune
   decided conditions, filter by project, tag or custom field, and drop the
   saved groups and contextual bandits nothing references any more. The client
-  keeps the decrypted payload JSON it loads to support this.
+  keeps the decrypted payload JSON it loads to support this, in step with what
+  evaluation uses: a section an update clears or ignores is cleared or ignored
+  there too, and saved groups and contextual bandits set in Go code
+  (`WithSavedGroups`, `WithContextualBandits`, `SetContextualBandits`) are
+  part of the reduced payload.
 - **Fixed (spec 0.11.3, JS #7452):** `ReducePayload` keeps a condition saved
   group as written when `$elemMatch` or a prerequisite references it, since
   those evaluate it against an item or the parent's value rather than the

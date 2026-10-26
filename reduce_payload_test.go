@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,4 +115,70 @@ func TestReducePayloadNumericFilterValues(t *testing.T) {
 		require.JSONEq(t, `{"features": {"half": {"defaultValue": 2, "metadata": {"customFields": {"level": 0.5}}}},
 			"experiments": [], "savedGroups": {}}`, string(res), "%T", want)
 	}
+}
+
+// The stored payload JSON follows each section's update decision, so a
+// reduced payload never carries data evaluation has dropped.
+func TestClientReducePayloadFollowsSectionDecisions(t *testing.T) {
+	t.Run("explicit null contextual bandits clear them", func(t *testing.T) {
+		client, err := NewClient(context.TODO(), withSilentTestLogger())
+		require.NoError(t, err)
+		features := `{"f": {"defaultValue": 0, "rules": [{"key": "exp", "variations": [0, 1], "contextualBanditRef": "cb"}]}}`
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{"features": `+features+`,
+			"contextualBandits": {"cb": {"contexts": []}}}`))
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{"contextualBandits": null}`))
+		res, err := client.ReducePayload(ReducePayloadOptions{})
+		require.NoError(t, err)
+		require.JSONEq(t, `{"features": `+features+`, "experiments": [], "savedGroups": {},
+			"contextualBandits": {}}`, string(res))
+	})
+
+	t.Run("SetJSONFeatures with null clears features", func(t *testing.T) {
+		client, err := NewClient(context.TODO(), withSilentTestLogger())
+		require.NoError(t, err)
+		require.NoError(t, client.SetJSONFeatures(`{"f": {"defaultValue": 1}}`))
+		require.NoError(t, client.SetJSONFeatures(`null`))
+		res, err := client.ReducePayload(ReducePayloadOptions{})
+		require.NoError(t, err)
+		require.JSONEq(t, `{"features": {}, "experiments": [], "savedGroups": {}}`, string(res))
+	})
+
+	t.Run("rejected encrypted saved groups keep the accepted ones", func(t *testing.T) {
+		key := bytes.Repeat([]byte{3}, 16)
+		client, err := NewClient(context.TODO(),
+			WithDecryptionKey(base64.StdEncoding.EncodeToString(key)),
+			WithAttributes(Attributes{"id": "1"}),
+			withSilentTestLogger())
+		require.NoError(t, err)
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{
+			"features": {"f": {"defaultValue": false, "rules": [{"condition": {"id": {"$inGroup": "g"}}, "force": true}]}},
+			"savedGroups": {"g": ["1"]},
+			"encryptedSavedGroups": "`+encryptJSON(t, key, `[]`)+`"}`))
+		require.Equal(t, true, client.EvalFeature(context.TODO(), "f").Value)
+		res, err := client.ReducePayload(ReducePayloadOptions{})
+		require.NoError(t, err)
+		require.JSONEq(t, `{"features": {"f": {"defaultValue": false, "rules": [{"force": true}]}},
+			"experiments": [], "savedGroups": {}}`, string(res))
+	})
+}
+
+// Saved groups and contextual bandits set in Go code are part of the reduced
+// payload, since evaluation uses them.
+func TestClientReducePayloadIncludesDefinitionsSetInCode(t *testing.T) {
+	groups := condition.SavedGroups{"g": map[string]any{"type": "list", "attributeKey": "id", "values": []any{"1"}}}
+	client, err := NewClient(context.TODO(), WithSavedGroups(groups), withSilentTestLogger())
+	require.NoError(t, err)
+	features := `{
+		"f": {"defaultValue": false, "rules": [{"condition": {"$savedGroup": {"id": "g"}}, "force": true}]},
+		"b": {"defaultValue": 0, "rules": [{"key": "exp", "variations": [0, 1], "contextualBanditRef": "cb"}]}
+	}`
+	require.NoError(t, client.SetJSONFeatures(features))
+	require.NoError(t, client.SetContextualBandits(mustBanditDefs(t, `{"cb": {"contexts": [{"leafId": 1, "condition": {}, "weights": [0, 1]}]}}`)))
+
+	res, err := client.ReducePayload(ReducePayloadOptions{})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"features": `+features+`,
+		"experiments": [],
+		"savedGroups": {"g": {"type": "list", "attributeKey": "id", "values": ["1"]}},
+		"contextualBandits": {"cb": {"banditVersion": null, "contexts": [{"leafId": 1, "condition": {}, "weights": [0, 1]}]}}}`, string(res))
 }

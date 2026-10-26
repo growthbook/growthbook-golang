@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -27,6 +28,11 @@ type data struct {
 	dsStartErr    error
 	plugins       []Plugin
 	subscribers   subscriberRegistry
+
+	// savedGroupsFromCode and banditsFromCode mark sections set from Go
+	// values, which payloadJSON doesn't hold
+	savedGroupsFromCode bool
+	banditsFromCode     bool
 }
 
 func newData() *data {
@@ -49,10 +55,54 @@ func (d *data) getFeatures() FeatureMap {
 	return d.features
 }
 
-func (d *data) getPayloadJSON() map[string]any {
+// getReducibleJSON returns the payload JSON that ReducePayload reduces: the
+// stored JSON, with the saved groups and contextual bandits set from Go values
+// in place of its sections, since evaluation uses those. It's nil when the
+// features were set from Go values.
+func (d *data) getReducibleJSON() (map[string]any, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
-	return d.payloadJSON
+	if d.payloadJSON == nil {
+		return nil, nil
+	}
+	payload := make(map[string]any, len(d.payloadJSON))
+	for k, v := range d.payloadJSON {
+		payload[k] = v
+	}
+	for _, s := range []struct {
+		key      string
+		fromCode bool
+		value    any
+		isNil    bool
+	}{
+		{"savedGroups", d.savedGroupsFromCode, d.savedGroups, d.savedGroups == nil},
+		{"contextualBandits", d.banditsFromCode, d.contextualBandits, d.contextualBandits == nil},
+	} {
+		if !s.fromCode {
+			continue
+		}
+		if s.isNil {
+			delete(payload, s.key)
+			continue
+		}
+		v, err := jsonValue(s.value)
+		if err != nil {
+			return nil, err
+		}
+		payload[s.key] = v
+	}
+	return payload, nil
+}
+
+// jsonValue converts a Go value to its decoded JSON form.
+func jsonValue(v any) (any, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var out any
+	err = json.Unmarshal(data, &out)
+	return out, err
 }
 
 func (d *data) getApiUrl() string {
