@@ -28,8 +28,6 @@ func (p *ParentCondition) UnmarshalJSON(data []byte) error {
 	if len(raw.Condition) == 0 || string(raw.Condition) == "null" {
 		return nil
 	}
-	if err := json.Unmarshal(raw.Condition, &p.Condition); err != nil {
-		p.Condition = condition.NeverMatch(raw.Condition)
-	}
-	return nil
+	// A malformed condition parses to one that never matches
+	return json.Unmarshal(raw.Condition, &p.Condition)
 }

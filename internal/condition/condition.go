@@ -11,23 +11,35 @@ type Condition interface {
 	Eval(value.Value, SavedGroups, visitedGroups) bool
 }
 
-func evalAny(cs []Condition, actual value.Value, groups SavedGroups, visited visitedGroups) bool {
+// evalAny is an $or: an empty list passes, one passing condition decides it,
+// and otherwise an unknown condition makes the result unknown.
+func evalAny(cs []Condition, actual value.Value, groups SavedGroups, visited visitedGroups) result {
 	if len(cs) == 0 {
-		return true
+		return pass
 	}
+	res := fail
 	for _, c := range cs {
-		if c.Eval(actual, groups, visited) {
-			return true
+		switch eval3(c, actual, groups, visited) {
+		case pass:
+			return pass
+		case unknown:
+			res = unknown
 		}
 	}
-	return false
+	return res
 }
 
-func evalAll(cs []Condition, actual value.Value, groups SavedGroups, visited visitedGroups) bool {
+// evalAll is an $and: one failing condition decides it, wherever an unknown
+// one is.
+func evalAll(cs []Condition, actual value.Value, groups SavedGroups, visited visitedGroups) result {
+	res := pass
 	for _, c := range cs {
-		if !c.Eval(actual, groups, visited) {
-			return false
+		switch eval3(c, actual, groups, visited) {
+		case fail:
+			return fail
+		case unknown:
+			res = unknown
 		}
 	}
-	return true
+	return res
 }

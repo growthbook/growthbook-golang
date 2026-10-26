@@ -14,10 +14,17 @@ All notable changes to this project will be documented in this file.
   or both numbers; otherwise only `$vne` matches. `$exists` and `$type` are
   unchanged. Existing rules relying on coercion can target different users
   after upgrading.
-- **Fixed:** a malformed prerequisite condition (for example
-  `{"$not": null}`) never matches, so its rule is skipped, instead of failing
-  to load the whole features payload.
-- Conformance corpus synced to spec 0.10.1.
+- **Changed (spec 0.11.0, JS #7346):** a condition that depends on an operator
+  or saved group type this SDK doesn't support now fails even under `$not` or
+  `$nor`, including `$inGroup`/`$notInGroup` on such a group. Before, the
+  unsupported part counted as false, so negating it matched everyone.
+  `$elemMatch` with `$or`, `$and`, `$nor` or `$savedGroup` tests each
+  element's fields, and skips only null elements.
+- **Fixed:** a malformed condition (for example `{"$not": null}`) on a
+  prerequisite, rule or experiment never matches, so its rule is skipped,
+  instead of failing to load the whole features payload. A malformed
+  contextual bandit context still falls back to the default weights.
+- Conformance corpus synced to spec 0.11.2.
 
 ## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
 

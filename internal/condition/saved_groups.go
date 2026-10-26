@@ -43,6 +43,11 @@ type savedGroup struct {
 	raw        json.RawMessage
 	cond       Condition
 	membership *InCond
+	// newType marks an object entry whose type is neither "list" nor
+	// "condition": a group type added after this SDK was built. Conditions
+	// that refer to it are unknown rather than failing, since the client
+	// evaluating the payload may support it.
+	newType bool
 }
 
 func (g savedGroup) MarshalJSON() ([]byte, error) { return g.raw, nil }
@@ -85,8 +90,12 @@ func parseSavedGroup(raw json.RawMessage) savedGroup {
 	if err := json.Unmarshal(raw, &entry); err != nil {
 		return group
 	}
+	if entry == nil {
+		return group
+	}
 	var kind string
-	if err := json.Unmarshal(entry["type"], &kind); err != nil {
+	if err := json.Unmarshal(entry["type"], &kind); err != nil || (kind != "list" && kind != "condition") {
+		group.newType = true
 		return group
 	}
 	// Select the evaluator at load time: list membership or a parsed condition.

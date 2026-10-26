@@ -1,6 +1,7 @@
 package condition
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -11,28 +12,44 @@ import (
 )
 
 type Base struct {
-	cond Condition
-	raw  json.RawMessage
+	cond      Condition
+	raw       json.RawMessage
+	malformed bool
 }
 
 // Eval starts a condition evaluation with no saved-group references visited.
+// Only a condition that passes matches: one that depends on an operator or
+// saved group type this SDK doesn't support fails.
 func (base Base) Eval(actual value.Value, groups SavedGroups) bool {
 	if base.cond == nil {
 		return true
 	}
-	return base.cond.Eval(actual, groups, nil)
+	return eval3(base.cond, actual, groups, nil) == pass
 }
 
+// Malformed reports whether the condition could not be parsed. A malformed
+// condition never matches.
+func (base Base) Malformed() bool {
+	return base.malformed
+}
+
+// UnmarshalJSON parses a condition. A malformed one, such as `{"$not": null}`,
+// never matches instead of failing the whole payload, as in the JS SDK, where
+// feature and experiment evaluation fail a condition that throws.
 func (base *Base) UnmarshalJSON(data []byte) error {
-	m := map[string]any{}
-	err := json.Unmarshal(data, &m)
-	if err != nil {
-		return err
+	if string(bytes.TrimSpace(data)) == "null" {
+		*base = Base{}
+		return nil
 	}
-	val := value.New(m)
-	cond, err := buildBaseCond(val)
+	m := map[string]any{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		*base = NeverMatch(data)
+		return nil
+	}
+	cond, err := buildBaseCond(value.New(m))
 	if err != nil {
-		return err
+		*base = NeverMatch(data)
+		return nil
 	}
 	raw, err := json.Marshal(m)
 	if err != nil {
@@ -284,8 +301,12 @@ func buildOpCond(op Operator, arg value.Value) (Condition, error) {
 			return nil, fmt.Errorf("Error parsing $not operator: %w", err)
 		}
 		return NotCond{cond}, nil
-	default:
+	case andOp, orOp, norOp, savedGroupOp:
+		// Keys this SDK knows, but on a condition rather than on a value,
+		// where they never match
 		return False{}, nil
+	default:
+		return unknownOpCond{}, nil
 	}
 }
 
@@ -331,7 +352,9 @@ func buildElemMatchCond(arg value.Value) (Condition, error) {
 	if !ok {
 		return nil, fmt.Errorf("ElemMatch arg is not an object: %v", arg)
 	}
-	if isOperatorObject(obj) {
+	// Operators test each element itself. A condition, including one that only
+	// uses $or, $and, $nor, or $savedGroup, tests each element's fields.
+	if isOperatorObject(obj) && !hasConditionOperator(obj) {
 		cond, err := buildObjCond(obj)
 		if err != nil {
 			return nil, fmt.Errorf("ElemMatch arg %v is invalid: %w", arg, err)
@@ -343,6 +366,15 @@ func buildElemMatchCond(arg value.Value) (Condition, error) {
 		return nil, fmt.Errorf("ElemMatch arg %v is invalid: %w", arg, err)
 	}
 	return NewElemMatchCond(cond), nil
+}
+
+func hasConditionOperator(obj value.ObjValue) bool {
+	for _, op := range []Operator{orOp, norOp, andOp, savedGroupOp} {
+		if _, ok := obj[string(op)]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func buildAllConds(arg value.Value) (Condition, error) {
@@ -380,5 +412,5 @@ func buildAlliConds(arg value.Value) (Condition, error) {
 // NeverMatch returns a condition that matches nothing and marshals back to raw.
 // It stands in for a malformed condition that could not be parsed.
 func NeverMatch(raw json.RawMessage) Base {
-	return Base{cond: False{}, raw: raw}
+	return Base{cond: False{}, raw: append(json.RawMessage(nil), raw...), malformed: true}
 }

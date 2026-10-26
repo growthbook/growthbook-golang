@@ -12,12 +12,16 @@ type FieldCond struct {
 }
 
 func (c FieldCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
-	obj, ok := actual.(value.ObjValue)
-	if !ok {
-		return false
+	return c.eval3(actual, groups, visited) == pass
+}
+
+func (c FieldCond) eval3(actual value.Value, groups SavedGroups, visited visitedGroups) result {
+	// A path into something that isn't an object is missing, as in JS getPath
+	fieldValue := value.Null()
+	if obj, ok := actual.(value.ObjValue); ok {
+		fieldValue = obj.Path(c.path...)
 	}
-	fieldValue := obj.Path(c.path...)
-	return c.cond.Eval(fieldValue, groups, visited)
+	return eval3(c.cond, fieldValue, groups, visited)
 }
 
 func NewFieldCond(pathStr string, cond Condition) FieldCond {

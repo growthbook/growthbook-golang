@@ -25,7 +25,7 @@ on:
   workflow_dispatch:
 
 env:
-  PINNED_JS_CASES_URL: https://raw.githubusercontent.com/growthbook/growthbook/114a9571fe94d9fea5ac69b17137896c4e88c971/packages/sdk-js/test/cases.json
+  PINNED_JS_CASES_URL: https://raw.githubusercontent.com/growthbook/growthbook/57df18a0fab9338be445741336bb23fe374a991e/packages/sdk-js/test/cases.json
 
 jobs:
   corpus-freshness:

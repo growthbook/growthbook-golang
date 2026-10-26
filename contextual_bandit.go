@@ -72,7 +72,7 @@ func (c *ContextualBanditContext) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if raw.Condition != nil && string(raw.Condition) != "null" {
-		if err := json.Unmarshal(raw.Condition, &c.Condition); err != nil {
+		if err := json.Unmarshal(raw.Condition, &c.Condition); err != nil || c.Condition.Malformed() {
 			c.malformed = true
 		}
 	}
