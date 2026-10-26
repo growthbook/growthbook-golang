@@ -48,6 +48,11 @@ type savedGroup struct {
 	// that refer to it are unknown rather than failing, since the client
 	// evaluating the payload may support it.
 	newType bool
+	// kind, attributeKey and conditionJSON are what pruning reads, decoded
+	// once here rather than from raw on every reference
+	kind          string
+	attributeKey  *string
+	conditionJSON map[string]any
 }
 
 func (g savedGroup) MarshalJSON() ([]byte, error) { return g.raw, nil }
@@ -120,6 +125,7 @@ func parseSavedGroup(raw json.RawMessage) savedGroup {
 		group.newType = true
 		return group
 	}
+	group.kind = kind
 	// Select the evaluator at load time: list membership or a parsed condition.
 	switch kind {
 	case "list":
@@ -137,6 +143,7 @@ func parseSavedGroup(raw json.RawMessage) savedGroup {
 		if err := json.Unmarshal(entry["attributeKey"], &attributeKey); err != nil || attributeKey == nil {
 			return group
 		}
+		group.attributeKey = attributeKey
 		group.cond = savedGroupListCond{
 			path:       strings.Split(*attributeKey, "."),
 			membership: membership,
@@ -147,6 +154,9 @@ func parseSavedGroup(raw json.RawMessage) savedGroup {
 		}
 		var cond Base
 		if err := json.Unmarshal(entry["condition"], &cond); err != nil {
+			return group
+		}
+		if err := json.Unmarshal(entry["condition"], &group.conditionJSON); err != nil {
 			return group
 		}
 		// Reuse the compiled condition, not Base.Eval, which starts a new

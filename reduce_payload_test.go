@@ -6,6 +6,7 @@ import (
 	"crypto/aes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -208,4 +209,72 @@ func TestClientReducePayloadKeepsLegacySavedGroupShapes(t *testing.T) {
 	res, err = client.ReducePayload(ReducePayloadOptions{})
 	require.NoError(t, err)
 	require.JSONEq(t, want, string(res), "set in code")
+}
+
+// Many condition groups sharing one large list: every group is kept, groups on
+// a reference cycle keep their condition as written, and the rest are reduced.
+// Each group's references are collected once, so this stays fast.
+func TestReducePayloadManyGroupsSharingALargeList(t *testing.T) {
+	const groupCount, listSize = 500, 20000
+	values := make([]any, listSize)
+	for i := range values {
+		values[i] = fmt.Sprintf("user-%d", i)
+	}
+	groups := map[string]any{
+		"big": map[string]any{"type": "list", "attributeKey": "id", "values": values},
+		// a and b reference each other
+		"a": map[string]any{"type": "condition", "condition": map[string]any{
+			"$or": []any{map[string]any{"$savedGroup": map[string]any{"id": "b"}}, map[string]any{"x": true}}, "known": true}},
+		"b": map[string]any{"type": "condition", "condition": map[string]any{
+			"$not": map[string]any{"$savedGroup": map[string]any{"id": "a"}}}},
+	}
+	features := map[string]any{
+		"cycle": map[string]any{"defaultValue": false, "rules": []any{
+			map[string]any{"condition": map[string]any{"$savedGroup": map[string]any{"id": "b"}}, "force": true}}},
+	}
+	for i := 0; i < groupCount; i++ {
+		id := fmt.Sprintf("g%d", i)
+		groups[id] = map[string]any{"type": "condition", "condition": map[string]any{
+			"known": true, "$savedGroup": map[string]any{"id": "big"}}}
+		features["f"+id] = map[string]any{"defaultValue": false, "rules": []any{
+			map[string]any{"condition": map[string]any{"$savedGroup": map[string]any{"id": id}}, "force": true}}}
+	}
+	payload, err := json.Marshal(map[string]any{"features": features, "savedGroups": groups})
+	require.NoError(t, err)
+
+	res, err := ReducePayload(payload, Attributes{"known": true}, ReducePayloadOptions{})
+	require.NoError(t, err)
+	var out struct {
+		SavedGroups map[string]map[string]any `json:"savedGroups"`
+	}
+	require.NoError(t, json.Unmarshal(res, &out))
+	require.Len(t, out.SavedGroups, groupCount+3)
+	// On a cycle: as written
+	require.Equal(t, groups["a"].(map[string]any)["condition"], out.SavedGroups["a"]["condition"])
+	// Not on a cycle: the known attribute is pruned
+	require.Equal(t, map[string]any{"$savedGroup": map[string]any{"id": "big"}}, out.SavedGroups["g0"]["condition"])
+	require.Len(t, out.SavedGroups["big"]["values"], listSize)
+}
+
+// A group is on a cycle when it can reach itself through group references,
+// as in the JS SDK's reaches(id, id): a group that only leads into a cycle
+// isn't on it.
+func TestGroupsOnCycle(t *testing.T) {
+	ref := func(ids ...string) map[string]any {
+		refs := []any{}
+		for _, id := range ids {
+			refs = append(refs, map[string]any{"$savedGroup": map[string]any{"id": id}})
+		}
+		return map[string]any{"type": "condition", "condition": map[string]any{"$or": refs}}
+	}
+	groups := map[string]any{
+		"self":  ref("self"),
+		"a":     ref("b"),
+		"b":     ref("c"),
+		"c":     ref("a"),
+		"entry": ref("a"),
+		"leaf":  map[string]any{"type": "list", "attributeKey": "id", "values": []any{"a", "self"}},
+		"user":  ref("leaf"),
+	}
+	require.Equal(t, map[string]bool{"self": true, "a": true, "b": true, "c": true}, groupsOnCycle(groups))
 }

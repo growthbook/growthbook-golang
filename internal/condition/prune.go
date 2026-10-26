@@ -1,7 +1,6 @@
 package condition
 
 import (
-	"encoding/json"
 	"errors"
 	"strings"
 
@@ -192,33 +191,32 @@ func pruneSavedGroup(attrs value.ObjValue, ref any, groups SavedGroups, visited 
 		// Absent, or a v1 bare array
 		return false, nil
 	}
-	var entry map[string]any
-	if err := json.Unmarshal(group.raw, &entry); err != nil || entry == nil {
-		return false, nil
-	}
 	if group.newType {
 		// A group type added after this SDK was built. The client SDK may support it.
 		return nil, nil
 	}
-	switch entry["type"] {
+	// The group was decoded when it loaded, so a large list isn't decoded
+	// again for each reference
+	switch group.kind {
 	case "list":
 		key, ok := attributeKey.(string)
 		if !overridden {
-			key, ok = entry["attributeKey"].(string)
+			ok = group.attributeKey != nil
+			if ok {
+				key = *group.attributeKey
+			}
 		}
-		values, isArr := entry["values"].([]any)
-		if !ok || !isArr {
+		if !ok || group.membership == nil {
 			return false, nil
 		}
 		if !isKnown(attrs, key) {
 			return nil, nil
 		}
-		arr, _ := value.New(values).(value.ArrValue)
-		return NewInCond(arr).Eval(attrs[key], groups, visited), nil
+		return group.membership.Eval(attrs[key], groups, visited), nil
 	case "condition":
 		// A condition group has no single attribute, so any override is ignored
-		cond, ok := entry["condition"].(map[string]any)
-		if !ok {
+		cond := group.conditionJSON
+		if cond == nil {
 			return false, nil
 		}
 		// Each caller retains its slice length, so siblings do not inherit this ID.

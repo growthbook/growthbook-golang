@@ -3,6 +3,7 @@ package growthbook
 import (
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -337,41 +338,7 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 
 	// A group on a cycle can't be reduced on its own: its result depends on
 	// which group the evaluation entered the cycle from
-	var reaches func(from, to string, visited map[string]bool) bool
-	reaches = func(from, to string, visited map[string]bool) bool {
-		found := []string{}
-		var collect func(x any)
-		collect = func(x any) {
-			switch v := x.(type) {
-			case string:
-				if _, ok := rawGroups[v]; ok {
-					found = append(found, v)
-				}
-			case map[string]any:
-				for _, e := range v {
-					collect(e)
-				}
-			case []any:
-				for _, e := range v {
-					collect(e)
-				}
-			}
-		}
-		collect(rawGroups[from])
-		for _, id := range found {
-			if id == to {
-				return true
-			}
-			if visited[id] {
-				continue
-			}
-			visited[id] = true
-			if reaches(id, to, visited) {
-				return true
-			}
-		}
-		return false
-	}
+	onCycle := groupsOnCycle(rawGroups)
 
 	// Keep each saved group whose id appears as a string anywhere, with
 	// condition groups reduced. This needs no list of the operators that
@@ -385,7 +352,7 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 			if _, done := keptGroups[v]; !ok || done {
 				return
 			}
-			if !asWritten[v] && !reaches(v, v, map[string]bool{}) {
+			if !asWritten[v] && !onCycle[v] {
 				if cond, ok := condition.PruneSavedGroup(attrs, v, groups).(map[string]any); ok {
 					if obj, isObj := entry.(map[string]any); isObj {
 						obj = shallowCopy(obj)
@@ -419,6 +386,82 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 		delete(out, "contextualBandits")
 	}
 	return out, nil
+}
+
+// groupsOnCycle returns the saved groups that can reach themselves through
+// group references, i.e. an id that appears as a string anywhere in a group's
+// entry. Each entry is scanned once, then the cycles are found with Tarjan's
+// strongly connected components.
+func groupsOnCycle(groups map[string]any) map[string]bool {
+	refs := make(map[string][]string, len(groups))
+	for id, entry := range groups {
+		seen := map[string]bool{}
+		var collect func(x any)
+		collect = func(x any) {
+			switch v := x.(type) {
+			case string:
+				if _, ok := groups[v]; ok && !seen[v] {
+					seen[v] = true
+					refs[id] = append(refs[id], v)
+				}
+			case map[string]any:
+				for _, e := range v {
+					collect(e)
+				}
+			case []any:
+				for _, e := range v {
+					collect(e)
+				}
+			}
+		}
+		collect(entry)
+	}
+
+	onCycle := map[string]bool{}
+	index := map[string]int{}
+	low := map[string]int{}
+	onStack := map[string]bool{}
+	var stack []string
+	var connect func(id string)
+	connect = func(id string) {
+		index[id] = len(index)
+		low[id] = index[id]
+		stack = append(stack, id)
+		onStack[id] = true
+		for _, next := range refs[id] {
+			if _, visited := index[next]; !visited {
+				connect(next)
+				low[id] = min(low[id], low[next])
+			} else if onStack[next] {
+				low[id] = min(low[id], index[next])
+			}
+		}
+		if low[id] != index[id] {
+			return
+		}
+		var component []string
+		for {
+			top := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			onStack[top] = false
+			component = append(component, top)
+			if top == id {
+				break
+			}
+		}
+		// A single group is on a cycle only when it references itself
+		if len(component) > 1 || slices.Contains(refs[id], id) {
+			for _, c := range component {
+				onCycle[c] = true
+			}
+		}
+	}
+	for id := range groups {
+		if _, visited := index[id]; !visited {
+			connect(id)
+		}
+	}
+	return onCycle
 }
 
 // has reports whether a metadata value shares a value with want, like $in:
