@@ -13,17 +13,20 @@ type data struct {
 	features          FeatureMap
 	savedGroups       condition.SavedGroups
 	contextualBandits ContextualBanditDefinitions
-	dateUpdated       time.Time
-	apiHost           string
-	clientKey         string
-	decryptionKey     string
-	httpClient        *http.Client
-	dataSource        DataSource
-	dsStarted         bool
-	dsStartWait       chan struct{}
-	dsStartErr        error
-	plugins           []Plugin
-	subscribers       subscriberRegistry
+	// payloadJSON is the decrypted payload as JSON values, when the features
+	// came from JSON. ReducePayload reads it.
+	payloadJSON   map[string]any
+	dateUpdated   time.Time
+	apiHost       string
+	clientKey     string
+	decryptionKey string
+	httpClient    *http.Client
+	dataSource    DataSource
+	dsStarted     bool
+	dsStartWait   chan struct{}
+	dsStartErr    error
+	plugins       []Plugin
+	subscribers   subscriberRegistry
 }
 
 func newData() *data {
@@ -44,6 +47,12 @@ func (d *data) getFeatures() FeatureMap {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.features
+}
+
+func (d *data) getPayloadJSON() map[string]any {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.payloadJSON
 }
 
 func (d *data) getApiUrl() string {

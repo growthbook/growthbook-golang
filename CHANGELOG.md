@@ -29,6 +29,12 @@ All notable changes to this project will be documented in this file.
   (`n < coverage`). Before, `n <= coverage` included one extra hash bucket, so
   a coverage of k/10000 included k+1 buckets. Existing partial rollouts whose
   coverage is exactly a bucket value lose that bucket.
+- **Added (spec 0.11.0, JS #7238):** `ReducePayload`, `Client.ReducePayload`
+  and `PruneCondition` shrink a payload for a user whose attributes are only
+  partly known, e.g. on a server bootstrapping a client SDK. They prune
+  decided conditions, filter by project, tag or custom field, and drop the
+  saved groups and contextual bandits nothing references any more. The client
+  keeps the decrypted payload JSON it loads to support this.
 - Conformance corpus synced to spec 0.11.2.
 
 ## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05

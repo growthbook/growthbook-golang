@@ -22,6 +22,22 @@ type FeatureApiResponse struct {
 	EncryptedContextualBandits string                      `json:"encryptedContextualBandits"`
 	SseSupport                 bool
 	Etag                       string
+	// raw is the JSON the response was decoded from, kept for ReducePayload
+	raw json.RawMessage
+}
+
+// UnmarshalJSON decodes a response and keeps its JSON, so the client can
+// reduce the payload with metadata and keys this SDK doesn't model.
+func (r *FeatureApiResponse) UnmarshalJSON(data []byte) error {
+	type plain FeatureApiResponse
+	var resp plain
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return err
+	}
+	resp.Status, resp.SseSupport, resp.Etag = r.Status, r.SseSupport, r.Etag
+	*r = FeatureApiResponse(resp)
+	r.raw = append(json.RawMessage(nil), data...)
+	return nil
 }
 
 const userAgent = "Growhthbook Go SDK client"
