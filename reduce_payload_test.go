@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/aes"
 	"encoding/base64"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -90,4 +91,27 @@ func TestReducePayloadKeepsNonObjectBanditConditionAsWritten(t *testing.T) {
 			{"leafId": 1, "condition": 5, "weights": [1, 0]},
 			{"leafId": 2, "condition": {}, "weights": [0, 1]}
 		]}}}`, string(res))
+}
+
+// Numeric custom field filters accept any Go number type.
+func TestReducePayloadNumericFilterValues(t *testing.T) {
+	payload := `{"features": {
+		"one": {"defaultValue": 1, "metadata": {"customFields": {"level": 1}}},
+		"half": {"defaultValue": 2, "metadata": {"customFields": {"level": 0.5}}}
+	}}`
+	for _, want := range []any{int8(1), int16(1), int32(1), int64(1), uint(1), uint8(1), uint16(1), uint32(1), uint64(1), float32(1), json.Number("1")} {
+		res, err := ReducePayload([]byte(payload), nil, ReducePayloadOptions{
+			Include: PayloadFilters{CustomFields: map[string][]any{"level": {want}}},
+		})
+		require.NoError(t, err)
+		require.JSONEq(t, `{"features": {"one": {"defaultValue": 1, "metadata": {"customFields": {"level": 1}}}},
+			"experiments": [], "savedGroups": {}}`, string(res), "%T", want)
+
+		res, err = ReducePayload([]byte(payload), nil, ReducePayloadOptions{
+			Exclude: PayloadFilters{CustomFields: map[string][]any{"level": {want}}},
+		})
+		require.NoError(t, err)
+		require.JSONEq(t, `{"features": {"half": {"defaultValue": 2, "metadata": {"customFields": {"level": 0.5}}}},
+			"experiments": [], "savedGroups": {}}`, string(res), "%T", want)
+	}
 }

@@ -455,17 +455,49 @@ func includes(list []any, x any) bool {
 			if e == x {
 				return true
 			}
-		case float64:
-			if n, ok := x.(float64); ok && n == e {
-				return true
-			}
-		case int:
-			if n, ok := x.(float64); ok && n == float64(e) {
+		default:
+			want, isNum := number(e)
+			if n, ok := x.(float64); ok && isNum && n == want {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// number converts a filter value of any Go number type to the float64 that
+// JSON metadata decodes to.
+func number(x any) (float64, bool) {
+	switch n := x.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int8:
+		return float64(n), true
+	case int16:
+		return float64(n), true
+	case int32:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case uint:
+		return float64(n), true
+	case uint8:
+		return float64(n), true
+	case uint16:
+		return float64(n), true
+	case uint32:
+		return float64(n), true
+	case uint64:
+		return float64(n), true
+	case json.Number:
+		f, err := n.Float64()
+		return f, err == nil
+	}
+	return 0, false
 }
 
 func shallowCopy(m map[string]any) map[string]any {
