@@ -145,7 +145,7 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 	}
 
 	// Reduces a rule or an auto experiment
-	prune := func(item any) any {
+	prune := func(item any, isRule bool) any {
 		obj, ok := item.(map[string]any)
 		if !ok {
 			return item
@@ -165,8 +165,9 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 			// experiment's condition, and a rule's prerequisites are checked
 			// before it
 			obj["condition"] = map[string]any{"$not": map[string]any{}}
-			// A force rule that never passes never returns its value
-			if _, ok := obj["force"]; ok {
+			// A force rule that never passes never returns its value. An auto
+			// experiment's forced variation still applies to a sticky bucketed user.
+			if _, ok := obj["force"]; ok && isRule {
 				obj["force"] = nil
 			}
 		default:
@@ -210,7 +211,7 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 			ruleObj, _ := rule.(map[string]any)
 			ruleMeta, _ := ruleObj["metadata"].(map[string]any)
 			if !scoped || ruleInProjects(ruleMeta) {
-				kept = append(kept, prune(rule))
+				kept = append(kept, prune(rule, true))
 			}
 		}
 		feature = shallowCopy(feature)
@@ -233,7 +234,7 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 		obj, _ := e.(map[string]any)
 		meta, _ := obj["metadata"].(map[string]any)
 		if matches(meta) {
-			experiments = append(experiments, prune(e))
+			experiments = append(experiments, prune(e, false))
 		}
 	}
 	for _, e := range experiments {
@@ -256,8 +257,14 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 		if _, done := bandits[ref]; ref == "" || done {
 			continue
 		}
-		bandit, ok := allBandits[ref].(map[string]any)
+		def, exists := allBandits[ref]
+		if !exists {
+			continue
+		}
+		// Evaluation tolerates a definition that isn't an object, so it stays
+		bandit, ok := def.(map[string]any)
 		if !ok {
+			bandits[ref] = def
 			continue
 		}
 		contexts, _ := bandit["contexts"].([]any)
@@ -288,6 +295,75 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 		bandits[ref] = bandit
 	}
 
+	// Groups that keep their condition as written: those evaluated against
+	// something other than the user (each item in $elemMatch, or the parent's
+	// value in a prerequisite), and the groups those reference
+	asWritten := map[string]bool{}
+	seen := map[string]bool{}
+	var mark func(x any, user bool)
+	mark = func(x any, user bool) {
+		switch v := x.(type) {
+		case string:
+			entry, ok := rawGroups[v]
+			if !ok || asWritten[v] || (user && seen[v]) {
+				return
+			}
+			if user {
+				seen[v] = true
+			} else {
+				asWritten[v] = true
+			}
+			mark(entry, user)
+		case map[string]any:
+			for k, e := range v {
+				mark(e, user && k != "$elemMatch" && k != "parentConditions")
+			}
+		case []any:
+			for _, e := range v {
+				mark(e, user)
+			}
+		}
+	}
+	mark([]any{features, experiments, bandits}, true)
+
+	// A group on a cycle can't be reduced on its own: its result depends on
+	// which group the evaluation entered the cycle from
+	var reaches func(from, to string, visited map[string]bool) bool
+	reaches = func(from, to string, visited map[string]bool) bool {
+		found := []string{}
+		var collect func(x any)
+		collect = func(x any) {
+			switch v := x.(type) {
+			case string:
+				if _, ok := rawGroups[v]; ok {
+					found = append(found, v)
+				}
+			case map[string]any:
+				for _, e := range v {
+					collect(e)
+				}
+			case []any:
+				for _, e := range v {
+					collect(e)
+				}
+			}
+		}
+		collect(rawGroups[from])
+		for _, id := range found {
+			if id == to {
+				return true
+			}
+			if visited[id] {
+				continue
+			}
+			visited[id] = true
+			if reaches(id, to, visited) {
+				return true
+			}
+		}
+		return false
+	}
+
 	// Keep each saved group whose id appears as a string anywhere, with
 	// condition groups reduced. This needs no list of the operators that
 	// reference groups.
@@ -300,11 +376,13 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 			if _, done := keptGroups[v]; !ok || done {
 				return
 			}
-			if cond, ok := condition.PruneSavedGroup(attrs, v, groups).(map[string]any); ok {
-				if obj, isObj := entry.(map[string]any); isObj {
-					obj = shallowCopy(obj)
-					obj["condition"] = cond
-					entry = obj
+			if !asWritten[v] && !reaches(v, v, map[string]bool{}) {
+				if cond, ok := condition.PruneSavedGroup(attrs, v, groups).(map[string]any); ok {
+					if obj, isObj := entry.(map[string]any); isObj {
+						obj = shallowCopy(obj)
+						obj["condition"] = cond
+						entry = obj
+					}
 				}
 			}
 			keptGroups[v] = entry

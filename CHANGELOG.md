@@ -35,7 +35,14 @@ All notable changes to this project will be documented in this file.
   decided conditions, filter by project, tag or custom field, and drop the
   saved groups and contextual bandits nothing references any more. The client
   keeps the decrypted payload JSON it loads to support this.
-- Conformance corpus synced to spec 0.11.2.
+- **Fixed (spec 0.11.3, JS #7452):** `ReducePayload` keeps a condition saved
+  group as written when `$elemMatch` or a prerequisite references it, since
+  those evaluate it against an item or the parent's value rather than the
+  user, along with the groups it references and any group on a reference
+  cycle. An auto experiment keeps its forced variation when its condition can
+  never pass, since a sticky bucketed user skips the condition. A contextual
+  bandit definition that isn't an object is kept as it is.
+- Conformance corpus synced to spec 0.11.3.
 
 ## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
 
