@@ -21,9 +21,12 @@ All notable changes to this project will be documented in this file.
   `$elemMatch` with `$or`, `$and`, `$nor` or `$savedGroup` tests each
   element's fields, and skips only null elements.
 - **Fixed:** a malformed condition (for example `{"$not": null}`) on a
-  prerequisite, rule or experiment never matches, so its rule is skipped,
-  instead of failing to load the whole features payload. A malformed
-  contextual bandit context still falls back to the default weights.
+  prerequisite, rule or experiment no longer fails to load the whole features
+  payload. As in the JS SDK, where it throws, a malformed part fails the
+  condition only when evaluation reaches it, so `{"$or": [{"id": "123"},
+  {"$not": null}]}` still matches id 123, and it can't be negated into a
+  match. A contextual bandit context whose condition reaches a malformed part
+  falls back to the default weights.
 - **Changed (breaking, bucketing; spec 0.11.1, JS #7425):** a percentage
   rollout includes a user only when their hash is below the coverage
   (`n < coverage`). Before, `n <= coverage` included one extra hash bucket, so

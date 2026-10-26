@@ -20,8 +20,8 @@ type ContextualBanditContext struct {
 	// Weights is nil when the payload's weights are absent or type-malformed.
 	Weights []float64 `json:"weights"`
 
-	// malformed marks a context that was not a JSON object, or whose
-	// condition could not be parsed. It is kept in place rather than dropped:
+	// malformed marks a context that was not a JSON object. It is kept in
+	// place rather than dropped:
 	// routing cannot know whether it would have matched, so reaching it
 	// aborts leaf selection (Python SDK parity).
 	malformed bool
@@ -72,7 +72,7 @@ func (c *ContextualBanditContext) UnmarshalJSON(data []byte) error {
 		}
 	}
 	if raw.Condition != nil && string(raw.Condition) != "null" {
-		if err := json.Unmarshal(raw.Condition, &c.Condition); err != nil || c.Condition.Malformed() {
+		if err := json.Unmarshal(raw.Condition, &c.Condition); err != nil {
 			c.malformed = true
 		}
 	}
@@ -281,12 +281,14 @@ func (e *evaluator) buildContextualBanditExperiment(exp *Experiment, ref string,
 }
 
 // selectContextualBanditLeaf returns the first leaf whose condition matches
-// the client's attributes. Reaching a malformed context aborts selection —
-// evaluation cannot know whether it would have matched, so later leaves must
-// not be consulted (Python SDK parity: a failed leaf lookup falls back).
+// the client's attributes. Reaching a malformed context, or a condition whose
+// evaluation reaches a malformed part, aborts selection — evaluation cannot
+// know whether it would have matched, so later leaves must not be consulted
+// (JS and Python SDK parity: a condition that throws falls back).
 //
-// "Malformed" here means structurally unusable: a non-object context or an
-// unparseable condition. A condition that parses but carries semantic junk
+// "Malformed" here means structurally unusable: a non-object context, or a
+// condition (or part of one) that can't be parsed, which fails only when
+// evaluation reaches it, as in the JS SDK. A condition that parses but carries semantic junk
 // (an unknown operator, `$in` with a non-array argument, an invalid regex)
 // deliberately evaluates false and routing continues — that is how the JS
 // and Python SDKs evaluate the same payload, and diverging here would assign
@@ -299,7 +301,13 @@ func (e *evaluator) selectContextualBanditLeaf(contexts []ContextualBanditContex
 				"id", featureId, "contextualBanditRef", ref)
 			return nil
 		}
-		if leaf.Condition.Eval(e.client.attributes, e.savedGroups) {
+		match, threw := leaf.Condition.EvalSafely(e.client.attributes, e.savedGroups)
+		if threw {
+			e.client.logger.DebugContext(e.ctx, "Contextual bandit: leaf selection stopped at a malformed condition",
+				"id", featureId, "contextualBanditRef", ref)
+			return nil
+		}
+		if match {
 			return leaf
 		}
 	}

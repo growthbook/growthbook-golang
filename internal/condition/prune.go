@@ -113,7 +113,11 @@ func pruneValue(attrs value.ObjValue, key string, v any, groups SavedGroups, vis
 	if err != nil {
 		return nil, errMalformed
 	}
-	switch eval3(cond, attrs[key], groups, visited) {
+	res, err := eval3Safely(cond, attrs[key], groups, visited)
+	if err != nil {
+		return nil, err
+	}
+	switch res {
 	case pass:
 		return true, nil
 	case fail:
@@ -231,4 +235,18 @@ func isKnown(attrs value.ObjValue, key string) bool {
 	}
 	_, ok := attrs[key]
 	return ok
+}
+
+// eval3Safely evaluates a condition, returning errMalformed when evaluation
+// reaches a malformed part, such as one in a referenced saved group.
+func eval3Safely(cond Condition, actual value.Value, groups SavedGroups, visited visitedGroups) (res result, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(malformedPart); !ok {
+				panic(r)
+			}
+			err = errMalformed
+		}
+	}()
+	return eval3(cond, actual, groups, visited), nil
 }
