@@ -259,7 +259,7 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 		}
 		delete(payloadJSON, "savedGroups")
 		if savedGroupsPresent {
-			groupsJSON, err := jsonValue(savedGroups)
+			groupsJSON, err := savedGroups.JSONValue()
 			if err != nil {
 				return err
 			}

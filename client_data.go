@@ -69,27 +69,25 @@ func (d *data) getReducibleJSON() (map[string]any, error) {
 	for k, v := range d.payloadJSON {
 		payload[k] = v
 	}
-	for _, s := range []struct {
-		key      string
-		fromCode bool
-		value    any
-		isNil    bool
-	}{
-		{"savedGroups", d.savedGroupsFromCode, d.savedGroups, d.savedGroups == nil},
-		{"contextualBandits", d.banditsFromCode, d.contextualBandits, d.contextualBandits == nil},
-	} {
-		if !s.fromCode {
-			continue
+	if d.savedGroupsFromCode {
+		delete(payload, "savedGroups")
+		if d.savedGroups != nil {
+			groups, err := d.savedGroups.JSONValue()
+			if err != nil {
+				return nil, err
+			}
+			payload["savedGroups"] = groups
 		}
-		if s.isNil {
-			delete(payload, s.key)
-			continue
+	}
+	if d.banditsFromCode {
+		delete(payload, "contextualBandits")
+		if d.contextualBandits != nil {
+			bandits, err := jsonValue(d.contextualBandits)
+			if err != nil {
+				return nil, err
+			}
+			payload["contextualBandits"] = bandits
 		}
-		v, err := jsonValue(s.value)
-		if err != nil {
-			return nil, err
-		}
-		payload[s.key] = v
 	}
 	return payload, nil
 }

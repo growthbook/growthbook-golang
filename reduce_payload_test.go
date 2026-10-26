@@ -182,3 +182,30 @@ func TestClientReducePayloadIncludesDefinitionsSetInCode(t *testing.T) {
 		"savedGroups": {"g": {"type": "list", "attributeKey": "id", "values": ["1"]}},
 		"contextualBandits": {"cb": {"banditVersion": null, "contexts": [{"leafId": 1, "condition": {}, "weights": [0, 1]}]}}}`, string(res))
 }
+
+// Legacy saved groups keep their exact JSON shape in the reduced payload: an
+// empty list stays [] and null members stay null, whether they came from a
+// payload or were set in Go code.
+func TestClientReducePayloadKeepsLegacySavedGroupShapes(t *testing.T) {
+	features := `{"f": {"defaultValue": false, "rules": [
+		{"condition": {"id": {"$notInGroup": "empty"}, "x": {"$inGroup": "nulls"}}, "force": true}
+	]}}`
+	want := `{"features": ` + features + `, "experiments": [],
+		"savedGroups": {"empty": [], "nulls": [null, "a"]}}`
+
+	client, err := NewClient(context.TODO(), withSilentTestLogger())
+	require.NoError(t, err)
+	require.NoError(t, client.UpdateFromApiResponseJSON(`{"features": `+features+`,
+		"savedGroups": {"empty": [], "nulls": [null, "a"]}}`))
+	res, err := client.ReducePayload(ReducePayloadOptions{})
+	require.NoError(t, err)
+	require.JSONEq(t, want, string(res), "from a payload")
+
+	groups := condition.SavedGroups{"empty": []any{}, "nulls": []any{nil, "a"}}
+	client, err = NewClient(context.TODO(), WithSavedGroups(groups), withSilentTestLogger())
+	require.NoError(t, err)
+	require.NoError(t, client.SetJSONFeatures(features))
+	res, err = client.ReducePayload(ReducePayloadOptions{})
+	require.NoError(t, err)
+	require.JSONEq(t, want, string(res), "set in code")
+}

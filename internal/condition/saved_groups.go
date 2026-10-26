@@ -52,6 +52,28 @@ type savedGroup struct {
 
 func (g savedGroup) MarshalJSON() ([]byte, error) { return g.raw, nil }
 
+// JSONValue returns the groups as decoded JSON in the exact shape they were
+// loaded from: a v2 entry as its raw JSON, and a legacy list as its values,
+// so an empty list stays [] and a null member stays null.
+func (sg SavedGroups) JSONValue() (map[string]any, error) {
+	out := make(map[string]any, len(sg))
+	for id, group := range sg {
+		switch g := group.(type) {
+		case savedGroup:
+			var v any
+			if err := json.Unmarshal(g.raw, &v); err != nil {
+				return nil, fmt.Errorf("saved group %q: %w", id, err)
+			}
+			out[id] = v
+		case value.Value:
+			out[id] = value.ToAny(g)
+		default:
+			out[id] = group
+		}
+	}
+	return out, nil
+}
+
 func (sg *SavedGroups) UnmarshalJSON(data []byte) error {
 	var groups map[string]json.RawMessage
 	if err := json.Unmarshal(data, &groups); err != nil {
