@@ -16,12 +16,9 @@ func (c FieldCond) Eval(actual value.Value, groups SavedGroups, visited visitedG
 }
 
 func (c FieldCond) eval3(actual value.Value, groups SavedGroups, visited visitedGroups) result {
-	// A path into something that isn't an object is missing, as in JS getPath
-	fieldValue := value.Null()
-	if obj, ok := actual.(value.ObjValue); ok {
-		fieldValue = obj.Path(c.path...)
-	}
-	return eval3(c.cond, fieldValue, groups, visited)
+	// As in JS getPath, an array's own keys are its indexes and length, so a
+	// condition inside $elemMatch can test a nested array element
+	return eval3(c.cond, value.Path(actual, c.path...), groups, visited)
 }
 
 func NewFieldCond(pathStr string, cond Condition) FieldCond {

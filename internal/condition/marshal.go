@@ -447,7 +447,8 @@ func buildElemMatchCond(arg value.Value) (Condition, error) {
 		}
 		return NewElemMatchCond(cond), nil
 	}
-	cond, err := buildBaseCond(obj)
+	// Built lazily, so a malformed branch fails only when evaluation reaches it
+	cond, _, err := buildLazyBaseCond(obj)
 	if err != nil {
 		return nil, fmt.Errorf("ElemMatch arg %v is invalid: %w", arg, err)
 	}
