@@ -504,8 +504,10 @@ func (e *evaluator) isIncludedInRollout(featureId string, rule *FeatureRule) boo
 		return rule.Range.InRange(*n)
 	}
 
+	// Half-open, like InRange: a coverage of k/10000 includes exactly k of
+	// hash v2's 10000 buckets
 	if rule.Coverage != nil {
-		return *n <= *rule.Coverage
+		return *n < *rule.Coverage
 	}
 
 	return true

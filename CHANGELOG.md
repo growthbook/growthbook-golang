@@ -24,6 +24,11 @@ All notable changes to this project will be documented in this file.
   prerequisite, rule or experiment never matches, so its rule is skipped,
   instead of failing to load the whole features payload. A malformed
   contextual bandit context still falls back to the default weights.
+- **Changed (breaking, bucketing; spec 0.11.1, JS #7425):** a percentage
+  rollout includes a user only when their hash is below the coverage
+  (`n < coverage`). Before, `n <= coverage` included one extra hash bucket, so
+  a coverage of k/10000 included k+1 buckets. Existing partial rollouts whose
+  coverage is exactly a bucket value lose that bucket.
 - Conformance corpus synced to spec 0.11.2.
 
 ## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
