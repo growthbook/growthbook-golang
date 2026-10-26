@@ -323,7 +323,9 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 			} else {
 				asWritten[v] = true
 			}
-			mark(entry, user)
+			if canReference(entry) {
+				mark(entry, user)
+			}
 		case map[string]any:
 			for k, e := range v {
 				mark(e, user && k != "$elemMatch" && k != "parentConditions")
@@ -334,7 +336,12 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 			}
 		}
 	}
-	mark([]any{features, experiments, bandits}, true)
+	// Walking the payload is only needed when there are groups to find
+	reduced := []any{features, experiments, bandits}
+	hasGroups := len(rawGroups) > 0
+	if hasGroups {
+		mark(reduced, true)
+	}
 
 	// A group on a cycle can't be reduced on its own: its result depends on
 	// which group the evaluation entered the cycle from
@@ -362,7 +369,9 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 				}
 			}
 			keptGroups[v] = entry
-			keep(entry)
+			if canReference(entry) {
+				keep(entry)
+			}
 		case map[string]any:
 			for _, e := range v {
 				keep(e)
@@ -373,7 +382,9 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 			}
 		}
 	}
-	keep([]any{features, experiments, bandits})
+	if hasGroups {
+		keep(reduced)
+	}
 
 	out := shallowCopy(payload)
 	out["features"] = features
@@ -388,9 +399,17 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 	return out, nil
 }
 
+// canReference reports whether a saved group's entry can reference other
+// groups. A list's values (or a legacy bare array's) are attribute values,
+// never group ids.
+func canReference(entry any) bool {
+	obj, ok := entry.(map[string]any)
+	return ok && obj["type"] != "list"
+}
+
 // groupsOnCycle returns the saved groups that can reach themselves through
-// group references, i.e. an id that appears as a string anywhere in a group's
-// entry. Each entry is scanned once, then the cycles are found with Tarjan's
+// group references, i.e. an id that appears as a string anywhere in a
+// non-list group's entry. Each entry is scanned once, then the cycles are found with Tarjan's
 // strongly connected components.
 func groupsOnCycle(groups map[string]any) map[string]bool {
 	refs := make(map[string][]string, len(groups))
@@ -414,7 +433,9 @@ func groupsOnCycle(groups map[string]any) map[string]bool {
 				}
 			}
 		}
-		collect(entry)
+		if canReference(entry) {
+			collect(entry)
+		}
 	}
 
 	onCycle := map[string]bool{}

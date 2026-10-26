@@ -276,8 +276,58 @@ func TestGroupsOnCycle(t *testing.T) {
 		"entry": ref("a"),
 		"leaf":  map[string]any{"type": "list", "attributeKey": "id", "values": []any{"a", "self"}},
 		"user":  ref("leaf"),
+		// A list's values aren't references, so this isn't a cycle
+		"list": map[string]any{"type": "list", "attributeKey": "id", "values": []any{"back"}},
+		"back": ref("list"),
+		// Nor is a legacy bare array's
+		"legacy":     []any{"legacyBack"},
+		"legacyBack": map[string]any{"type": "condition", "condition": map[string]any{"id": map[string]any{"$inGroup": "legacy"}}},
 	}
 	require.Equal(t, map[string]bool{"self": true, "a": true, "b": true, "c": true}, groupsOnCycle(groups))
+}
+
+// A list group's values, or a legacy bare array's, never reference other
+// groups, so a value that happens to be a group id doesn't keep that group,
+// mark it as written, or put the list on a cycle.
+func TestReducePayloadListValuesNeverReferenceGroups(t *testing.T) {
+	payload := `{"features": {"f": {"defaultValue": false, "rules": [
+			{"condition": {"$savedGroup": {"id": "loop"}}, "force": true},
+			{"condition": {"items": {"$elemMatch": {"id": {"$inGroup": "legacy"}}}}, "force": true}
+		]}},
+		"savedGroups": {
+			"ids": {"type": "list", "attributeKey": "id", "values": ["other", "loop"]},
+			"legacy": ["other"],
+			"loop": {"type": "condition", "condition": {"known": true, "$savedGroup": {"id": "ids"}}},
+			"other": {"type": "condition", "condition": {"known": true}}
+		}}`
+	res, err := ReducePayload([]byte(payload), Attributes{"known": true}, ReducePayloadOptions{})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"features": {"f": {"defaultValue": false, "rules": [
+			{"condition": {"$savedGroup": {"id": "loop"}}, "force": true},
+			{"condition": {"items": {"$elemMatch": {"id": {"$inGroup": "legacy"}}}}, "force": true}
+		]}},
+		"experiments": [],
+		"savedGroups": {
+			"ids": {"type": "list", "attributeKey": "id", "values": ["other", "loop"]},
+			"legacy": ["other"],
+			"loop": {"type": "condition", "condition": {"$savedGroup": {"id": "ids"}}}
+		}}`, string(res))
+}
+
+// The result leaves out contextualBandits when the payload has none, rather
+// than sending null or an empty object.
+func TestReducePayloadOmitsContextualBanditsWhenAbsent(t *testing.T) {
+	for _, payload := range []string{
+		`{"features": {}}`,
+		`{"features": {}, "contextualBandits": null}`,
+	} {
+		res, err := ReducePayload([]byte(payload), nil, ReducePayloadOptions{})
+		require.NoError(t, err)
+		require.JSONEq(t, `{"features": {}, "experiments": [], "savedGroups": {}}`, string(res), payload)
+	}
+	res, err := ReducePayload([]byte(`{"features": {}, "contextualBandits": {}}`), nil, ReducePayloadOptions{})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"features": {}, "experiments": [], "savedGroups": {}, "contextualBandits": {}}`, string(res))
 }
 
 // A composite $eq/$in operand never matches, as in JS, so reduction keeps the
