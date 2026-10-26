@@ -20,9 +20,25 @@ func isOrderable(a, b value.Value) bool {
 	return (t == value.NumType || t == value.StrType) && t == b.Type()
 }
 
+// strictEqual mirrors JS ===, used by $eq and $ne: an object or array never
+// equals one parsed separately, and NaN equals nothing.
+func strictEqual(a, b value.Value) bool {
+	switch a.Type() {
+	case value.ObjType, value.ArrType:
+		return false
+	}
+	return value.Equal(a, b)
+}
+
+// sameValueZero mirrors JS Array.prototype.includes, used by $in and $nin: it
+// is strictEqual except that NaN matches NaN.
+func sameValueZero(a, b value.Value) bool {
+	return strictEqual(a, b) || (isNaN(a) && isNaN(b))
+}
+
 func isIn(fieldVal value.Value, expected value.ArrValue) bool {
 	for _, ev := range expected {
-		if value.Equal(fieldVal, ev) {
+		if sameValueZero(fieldVal, ev) {
 			return true
 		}
 	}
@@ -43,10 +59,16 @@ func equalCaseInsensitive(v1, v2 value.Value) bool {
 }
 
 // isInCaseInsensitive performs case-insensitive membership check for strings,
-// falls back to standard equality for other types
+// and compares other values like JS === (see strictEqual)
 func isInCaseInsensitive(fieldVal value.Value, expected value.ArrValue) bool {
 	for _, ev := range expected {
-		if equalCaseInsensitive(fieldVal, ev) {
+		if s1, ok := fieldVal.(value.StrValue); ok {
+			if s2, ok := ev.(value.StrValue); ok && strings.EqualFold(string(s1), string(s2)) {
+				return true
+			}
+			continue
+		}
+		if strictEqual(fieldVal, ev) {
 			return true
 		}
 	}

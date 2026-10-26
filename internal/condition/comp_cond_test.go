@@ -89,3 +89,28 @@ func TestCompare(t *testing.T) {
 		require.Equal(t, tt.res, compare(value.New(tt.a), value.New(tt.b)), "compare(%v, %v) != %v", tt.a, tt.b, tt.res)
 	}
 }
+
+// $eq, $ne, $in and $nin compare like JS ===, where an object or array never
+// equals one parsed separately. A literal object or array condition still
+// compares structurally.
+func TestCompositeOperandsCompareByIdentity(t *testing.T) {
+	attrs := `{"x": {"a": 1}, "y": [1, 2], "z": [[1], {"a": 1}]}`
+	var a map[string]any
+	require.NoError(t, json.Unmarshal([]byte(attrs), &a))
+	for cond, want := range map[string]bool{
+		`{"x": {"$eq": {"a": 1}}}`:        false,
+		`{"x": {"$ne": {"a": 1}}}`:        true,
+		`{"y": {"$eq": [1, 2]}}`:          false,
+		`{"y": {"$ne": [1, 2]}}`:          true,
+		`{"x": {"$in": [{"a": 1}]}}`:      false,
+		`{"x": {"$nin": [{"a": 1}]}}`:     true,
+		`{"z": {"$in": [[1], {"a": 1}]}}`: false,
+		`{"z": {"$ini": [[1]]}}`:          false,
+		`{"y": {"$in": [2]}}`:             true,
+		`{"x": {"a": 1}}`:                 true,
+		`{"y": [1, 2]}`:                   true,
+	} {
+		require.Equal(t, want, parseBase(t, cond).Eval(value.New(a), nil), cond)
+		require.Equal(t, want, pruneJSON(t, cond, attrs), cond)
+	}
+}

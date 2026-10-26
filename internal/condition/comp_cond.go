@@ -20,9 +20,9 @@ func NewCompCond(op Operator, arg any) CompCond {
 func (c CompCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
 	switch c.op {
 	case eqOp:
-		return value.Equal(c.arg, actual)
+		return strictEqual(c.arg, actual)
 	case neOp:
-		return !value.Equal(c.arg, actual)
+		return !strictEqual(c.arg, actual)
 	}
 	// Only numbers with numbers and strings with strings are ordered;
 	// any other pair fails, including booleans and null/missing values.

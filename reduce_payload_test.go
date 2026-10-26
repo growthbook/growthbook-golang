@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -277,4 +278,26 @@ func TestGroupsOnCycle(t *testing.T) {
 		"user":  ref("leaf"),
 	}
 	require.Equal(t, map[string]bool{"self": true, "a": true, "b": true, "c": true}, groupsOnCycle(groups))
+}
+
+// A composite $eq/$in operand never matches, as in JS, so reduction keeps the
+// rule disabled instead of making it unconditional.
+func TestReducePayloadCompositeIdentityComparison(t *testing.T) {
+	res, err := PruneCondition(map[string]any{"x": map[string]any{"$eq": map[string]any{"a": 1}}},
+		Attributes{"x": map[string]any{"a": 1}}, nil)
+	require.NoError(t, err)
+	require.Equal(t, false, res)
+
+	res, err = PruneCondition(map[string]any{"x": map[string]any{"$in": []any{math.NaN()}}},
+		Attributes{"x": math.NaN()}, nil)
+	require.NoError(t, err)
+	require.Equal(t, true, res)
+
+	payload := `{"features": {"f": {"defaultValue": false,
+		"rules": [{"condition": {"x": {"$eq": {"a": 1}}}, "force": true}]}}}`
+	out, err := ReducePayload([]byte(payload), Attributes{"x": map[string]any{"a": 1}}, ReducePayloadOptions{})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"features": {"f": {"defaultValue": false,
+		"rules": [{"condition": {"$not": {}}, "force": null}]}},
+		"experiments": [], "savedGroups": {}}`, string(out))
 }
