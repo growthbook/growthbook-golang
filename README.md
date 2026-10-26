@@ -421,6 +421,11 @@ client, _ := gb.NewClient(ctx,
 	gb.WithClientKey("sdk-abc123"),
 	gb.WithAttributes(gb.Attributes{"id": "123"}),
 )
+// Load the payload first, here with a one-off fetch. A client with a data
+// source can wait for it with client.EnsureLoaded(ctx) instead.
+if err := client.RefreshFeatures(ctx); err != nil {
+	log.Fatal(err)
+}
 // The client's current payload, reduced for its attributes
 bootstrap, err := client.ReducePayload(gb.ReducePayloadOptions{
 	Include: gb.PayloadFilters{Projects: []string{"mobile"}},
