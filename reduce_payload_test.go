@@ -70,3 +70,24 @@ func TestPruneConditionReturnsMalformedConditionAsWritten(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, cond, res)
 }
+
+// A bandit context whose condition isn't an object falls back to the default
+// weights in evaluation, so reduction keeps it as written rather than turning
+// it into a catch-all. A missing or null condition still becomes {}.
+func TestReducePayloadKeepsNonObjectBanditConditionAsWritten(t *testing.T) {
+	payload := `{"features": {"f": {"defaultValue": "a", "rules": [{"key": "exp", "variations": ["a", "b"],
+		"contextualBanditRef": "cb", "hashAttribute": "id"}]}},
+		"contextualBandits": {"cb": {"contexts": [
+			{"leafId": 1, "condition": 5, "weights": [1, 0]},
+			{"leafId": 2, "condition": null, "weights": [0, 1]}
+		]}}}`
+	res, err := ReducePayload([]byte(payload), Attributes{"id": "u"}, ReducePayloadOptions{})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"features": {"f": {"defaultValue": "a", "rules": [{"key": "exp", "variations": ["a", "b"],
+		"contextualBanditRef": "cb", "hashAttribute": "id"}]}},
+		"experiments": [], "savedGroups": {},
+		"contextualBandits": {"cb": {"contexts": [
+			{"leafId": 1, "condition": 5, "weights": [1, 0]},
+			{"leafId": 2, "condition": {}, "weights": [0, 1]}
+		]}}}`, string(res))
+}

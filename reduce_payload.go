@@ -275,7 +275,13 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 				keptContexts = append(keptContexts, c)
 				continue
 			}
-			cond, _ := ctxObj["condition"].(map[string]any)
+			cond, isObj := ctxObj["condition"].(map[string]any)
+			if !isObj && ctxObj["condition"] != nil {
+				// Evaluation falls back on a condition that isn't an object, so
+				// it stays as written rather than becoming a catch-all
+				keptContexts = append(keptContexts, ctxObj)
+				continue
+			}
 			if cond == nil {
 				cond = map[string]any{}
 			}
