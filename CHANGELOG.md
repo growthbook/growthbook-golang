@@ -49,7 +49,18 @@ All notable changes to this project will be documented in this file.
   cycle. An auto experiment keeps its forced variation when its condition can
   never pass, since a sticky bucketed user skips the condition. A contextual
   bandit definition that isn't an object is kept as it is.
-- Conformance corpus synced to spec 0.11.3.
+- **Changed (breaking, bucketing; spec 0.12.0, JS #7507):** hashing runs
+  FNV-1a over UTF-16 code units, like JS, instead of UTF-8 bytes. Bucketing
+  changes only when the hashed value or seed contains non-ASCII characters.
+- **Changed (breaking, bucketing; spec 0.12.0, JS #7507):** only a non-empty
+  string or a finite, non-zero number is a hash attribute. `true`, arrays and
+  objects now count as missing, like `false`, `0`, `""` and null: the
+  fallback attribute is used where one applies, otherwise the user is not in
+  the experiment or rollout. Before, they were hashed.
+- **Fixed (spec 0.12.0):** `$type: "undefined"` or an unknown type name no
+  longer matches a missing or null attribute, and strings order by UTF-16
+  code units in `$lt`/`$gt`/`$lte`/`$gte`, as in JS.
+- Conformance corpus synced to spec 0.12.0.
 
 ## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
 

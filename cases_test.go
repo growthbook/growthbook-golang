@@ -274,8 +274,8 @@ func TestCasesJson(t *testing.T) {
 	})
 }
 
-// stringifyTopLevelHashValue converts a numeric top-level "hashValue" in an
-// ExperimentResult JSON blob to a string. The JS corpus stores hashValue with
+// stringifyTopLevelHashValue converts a non-string top-level "hashValue" in
+// an ExperimentResult JSON blob to a string. The JS corpus stores hashValue with
 // the raw attribute type, while ExperimentResult.HashValue is a string. Only
 // the blob's own hashValue key is touched — nested values that happen to
 // contain a hashValue key are left as-is.
@@ -284,11 +284,23 @@ func stringifyTopLevelHashValue(data []byte) ([]byte, error) {
 	if err := json.Unmarshal(data, &obj); err != nil || obj == nil {
 		return data, err
 	}
-	var num float64
-	if err := json.Unmarshal(obj["hashValue"], &num); err != nil {
+	raw, ok := obj["hashValue"]
+	if !ok {
 		return data, nil
 	}
-	quoted, err := json.Marshal(strconv.FormatFloat(num, 'f', -1, 64))
+	var str string
+	if json.Unmarshal(raw, &str) == nil {
+		return data, nil
+	}
+	// A number is formatted like JS String(); any other non-string value
+	// keeps its JSON text so the case fails on comparison instead of
+	// aborting the decode of the whole file.
+	text := string(raw)
+	var num float64
+	if json.Unmarshal(raw, &num) == nil {
+		text = strconv.FormatFloat(num, 'f', -1, 64)
+	}
+	quoted, err := json.Marshal(text)
 	if err != nil {
 		return nil, err
 	}

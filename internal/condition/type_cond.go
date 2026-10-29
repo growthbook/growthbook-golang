@@ -4,30 +4,36 @@ import "github.com/growthbook/growthbook-golang/internal/value"
 
 // TypeCond checks if value has proper type
 type TypeCond struct {
-	t value.ValueType
+	t     value.ValueType
+	known bool
 }
 
 func NewTypeCond(arg string) TypeCond {
-	return TypeCond{typeFromName(arg)}
+	t, known := typeFromName(arg)
+	return TypeCond{t, known}
 }
 
-func typeFromName(arg string) value.ValueType {
+// typeFromName maps a JS type name to a value type. A missing attribute is
+// null, so "undefined" (like any unknown name) never matches.
+func typeFromName(arg string) (value.ValueType, bool) {
 	switch arg {
 	case "string":
-		return value.StrType
+		return value.StrType, true
 	case "number":
-		return value.NumType
+		return value.NumType, true
 	case "boolean":
-		return value.BoolType
+		return value.BoolType, true
 	case "object":
-		return value.ObjType
+		return value.ObjType, true
 	case "array":
-		return value.ArrType
+		return value.ArrType, true
+	case "null":
+		return value.NullType, true
 	default:
-		return value.NullType
+		return value.NullType, false
 	}
 }
 
 func (c TypeCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
-	return actual.Type() == c.t
+	return c.known && actual.Type() == c.t
 }
