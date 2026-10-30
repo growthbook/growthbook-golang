@@ -46,3 +46,15 @@ func TestPaddedVersion(t *testing.T) {
 		require.Equal(t, r, paddedVersionString(value.New(s)))
 	}
 }
+
+// growthbook/growthbook#7401: one leading `v` and everything from the first `+`
+// are stripped, whatever follows
+func TestPaddedVersionStripsOneLeadingVAndBuildMetadata(t *testing.T) {
+	plain := paddedVersionString(value.New("1.2.3"))
+	for _, s := range []string{"v1.2.3", "1.2.3+build", "v1.2.3+build+more.1-2", "1.2.3+", "1.2.3+build\nx", "1.2.3+\n"} {
+		require.Equal(t, plain, paddedVersionString(value.New(s)), "%q", s)
+	}
+	require.Equal(t, "v1-    2-    3-~", paddedVersionString(value.New("vv1.2.3")))
+	require.Equal(t, "", paddedVersionString(value.New("+build")))
+	require.Equal(t, paddedVersionString(value.New("1.2.3-rc.1")), paddedVersionString(value.New("v1.2.3-rc.1+build.5")))
+}
