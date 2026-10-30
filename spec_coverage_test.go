@@ -36,13 +36,13 @@ var specRunSections = map[string]string{
 	"savedGroupReferencesV2.evalCondition": "TestCasesJson",
 	"savedGroupReferencesV2.feature":       "TestCasesJson",
 	"savedGroupReferencesV2.run":           "TestCasesJson",
+	"savedGroupReferencesRemote.evalCondition": "TestCasesJson",
+	"savedGroupReferencesRemote.feature":       "TestCasesJson",
 }
 
 // Sections the tests don't run, and why
 var specExcludedSections = map[string]string{
 	"urlRedirect": "URL redirect experiments are a browser feature",
-	"savedGroupReferencesRemote.evalCondition": "Remote saved groups aren't implemented yet",
-	"savedGroupReferencesRemote.feature":       "Remote saved groups aren't implemented yet",
 }
 
 func specSections(t *testing.T) []string {

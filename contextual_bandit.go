@@ -301,7 +301,7 @@ func (e *evaluator) selectContextualBanditLeaf(contexts []ContextualBanditContex
 				"id", featureId, "contextualBanditRef", ref)
 			return nil
 		}
-		match, threw := leaf.Condition.EvalSafely(e.client.attributes, e.savedGroups)
+		match, threw := leaf.Condition.EvalSafely(e.conditionAttributes, e.savedGroups)
 		if threw {
 			e.client.logger.DebugContext(e.ctx, "Contextual bandit: leaf selection stopped at a malformed condition",
 				"id", featureId, "contextualBanditRef", ref)

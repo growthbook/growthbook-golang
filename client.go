@@ -46,6 +46,10 @@ type Client struct {
 	// WithTrackingBuffer). Shared by reference with cloned clients — the
 	// attacher chose the scope — hence mutex-guarded.
 	trackingBuffer *TrackingBuffer
+
+	// remoteGroupIDs are the remote saved groups the user is in. nil means
+	// unresolved, which is not the same as no groups (see WithRemoteGroupIds).
+	remoteGroupIDs []string
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
@@ -283,7 +287,7 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 			d.features = features
 		}
 		if savedGroupsPresent {
-			d.savedGroups = savedGroups
+			d.setSavedGroups(savedGroups)
 			d.savedGroupsFromCode = false
 		}
 		if banditsPresent {
@@ -512,12 +516,14 @@ func (client *Client) Logger() *slog.Logger {
 func (client *Client) evaluator(ctx context.Context) *evaluator {
 	client.data.mu.RLock()
 	e := evaluator{
-		features:          client.data.features,
-		savedGroups:       client.data.savedGroups,
-		contextualBandits: client.data.contextualBandits,
-		client:            client,
-		ctx:               ctx,
+		features:            client.data.features,
+		savedGroups:         client.data.savedGroups,
+		contextualBandits:   client.data.contextualBandits,
+		client:              client,
+		ctx:                 ctx,
+		conditionAttributes: client.conditionAttributes(),
 	}
+	remoteGroups := client.data.remoteGroups
 	// Plugins and the event logger consume both exposures and feature usage;
 	// the tracking buffer and ExperimentCallback only exposures, and
 	// FeatureUsageCallback only feature usage (see fireTracking).
@@ -525,6 +531,7 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 	e.recordingExperiments = both || client.experimentCallback != nil || client.trackingBuffer != nil
 	e.recordingFeatureUsage = both || client.featureUsageCallback != nil
 	client.data.mu.RUnlock()
+	client.warnIfRemoteGroupIDsMissing(remoteGroups)
 	return &e
 }
 

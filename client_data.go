@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -33,6 +34,31 @@ type data struct {
 	// values, which payloadJSON doesn't hold
 	savedGroupsFromCode bool
 	banditsFromCode     bool
+
+	// remoteGroups are the saved groups' remote groups, listed once per
+	// payload; savedGroupsVersion counts saved group updates, so a lookup can
+	// tell the payload changed while it ran
+	remoteGroups       []condition.RemoteGroup
+	savedGroupsVersion uint64
+	// warnedMissingRemoteGroupIDs is set once the missing ids warning is
+	// logged, for the client and all its children
+	warnedMissingRemoteGroupIDs atomic.Bool
+}
+
+// setSavedGroups replaces the saved groups. Call it with the lock held, or
+// before the client is shared.
+func (d *data) setSavedGroups(groups condition.SavedGroups) {
+	d.savedGroups = groups
+	d.remoteGroups = groups.RemoteGroups()
+	d.savedGroupsVersion++
+}
+
+// getRemoteGroups returns the payload's remote saved groups and the saved
+// groups version they belong to
+func (d *data) getRemoteGroups() ([]condition.RemoteGroup, uint64) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.remoteGroups, d.savedGroupsVersion
 }
 
 func newData() *data {

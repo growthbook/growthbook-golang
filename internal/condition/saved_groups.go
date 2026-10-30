@@ -4,10 +4,41 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
+
+// RemoteGroupIDsAttribute is the attribute conditions read a user's remote
+// saved groups from. Internal attributes start with `__gb_`, matching
+// GrowthBook's back end.
+const RemoteGroupIDsAttribute = "__gb_remoteGroupIds"
+
+// RemoteGroup is a remote saved group from the payload: its members live
+// outside the payload, and the app resolves which of them a user is in.
+type RemoteGroup struct {
+	ID           string
+	AttributeKey string
+	// ValuesFrom is the remote group whose ids a derived group checks
+	ValuesFrom string
+}
+
+// RemoteGroups returns the payload's remote saved groups, sorted by id. Only
+// v2 payloads carry this metadata. An entry without an attribute gives a
+// resolver nothing to look up, so it's left out and its rules fail closed.
+func (sg SavedGroups) RemoteGroups() []RemoteGroup {
+	var groups []RemoteGroup
+	for id, entry := range sg {
+		group, ok := entry.(savedGroup)
+		if !ok || group.kind != "remote" || group.attributeKey == nil {
+			continue
+		}
+		groups = append(groups, RemoteGroup{ID: id, AttributeKey: *group.attributeKey, ValuesFrom: group.valuesFrom})
+	}
+	sort.Slice(groups, func(i, j int) bool { return groups[i].ID < groups[j].ID })
+	return groups
+}
 
 // SavedGroups holds legacy value arrays and parsed v2 definitions. Malformed
 // entries are retained so legacy exclusion operators can distinguish them from
@@ -43,16 +74,18 @@ type savedGroup struct {
 	raw        json.RawMessage
 	cond       Condition
 	membership *InCond
-	// newType marks an object entry whose type is neither "list" nor
-	// "condition": a group type added after this SDK was built. Conditions
-	// that refer to it are unknown rather than failing, since the client
-	// evaluating the payload may support it.
+	// newType marks an object entry whose type is not "list", "condition" or
+	// "remote": a group type added after this SDK was built. Conditions that
+	// refer to it are unknown rather than failing, since the client evaluating
+	// the payload may support it.
 	newType bool
 	// kind, attributeKey and conditionJSON are what pruning reads, decoded
 	// once here rather than from raw on every reference
 	kind          string
 	attributeKey  *string
 	conditionJSON map[string]any
+	// valuesFrom is the source group of a derived remote group
+	valuesFrom string
 }
 
 func (g savedGroup) MarshalJSON() ([]byte, error) { return g.raw, nil }
@@ -121,7 +154,7 @@ func parseSavedGroup(raw json.RawMessage) savedGroup {
 		return group
 	}
 	var kind string
-	if err := json.Unmarshal(entry["type"], &kind); err != nil || (kind != "list" && kind != "condition") {
+	if err := json.Unmarshal(entry["type"], &kind); err != nil || (kind != "list" && kind != "condition" && kind != "remote") {
 		group.newType = true
 		return group
 	}
@@ -162,6 +195,17 @@ func parseSavedGroup(raw json.RawMessage) savedGroup {
 		// Reuse the compiled condition, not Base.Eval, which starts a new
 		// evaluation and would discard the caller's cycle guard.
 		group.cond = cond.cond
+	case "remote":
+		// The members live outside the payload; a $savedGroup reference checks
+		// the user's resolved ids (see savedGroupCond)
+		var attributeKey *string
+		if err := json.Unmarshal(entry["attributeKey"], &attributeKey); err == nil {
+			group.attributeKey = attributeKey
+		}
+		var valuesFrom string
+		if err := json.Unmarshal(entry["valuesFrom"], &valuesFrom); err == nil {
+			group.valuesFrom = valuesFrom
+		}
 	}
 	return group
 }

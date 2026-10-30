@@ -125,6 +125,41 @@ map clears them. If encrypted saved groups cannot be decrypted or decoded,
 the SDK logs a warning and uses any plaintext `savedGroups` in that response,
 or retains the previous definitions if none were supplied.
 
+#### Remote saved groups
+
+A **remote** saved group keeps its members outside the payload, for lists too
+large to ship (millions of ids). The payload only says which attribute the
+group is about, `{"type": "remote", "attributeKey": "account_id"}`, so the SDK
+needs the ids of the groups the user is in. Conditions read them as the
+`__gb_remoteGroupIds` attribute.
+
+Resolve them per user with `AddRemoteSavedGroups`, which returns a child
+client. `RedisResolver` reads the sets GrowthBook's loader writes to Redis
+(`SMEMBERS gb:member:<attribute>:<value>`) through a one-method interface, so
+the SDK doesn't depend on a Redis client; any `SavedGroupResolver` function
+works too:
+
+```go
+type redisSets struct{ rdb *redis.Client } // github.com/redis/go-redis/v9
+
+func (r redisSets) SMembers(ctx context.Context, key string) ([]string, error) {
+	return r.rdb.SMembers(ctx, key).Result()
+}
+
+child, err := client.WithAttributes(gb.Attributes{"account_id": "a1"})
+child, err = child.AddRemoteSavedGroups(ctx, gb.RedisResolver(redisSets{rdb}))
+```
+
+Or set them directly with `client.WithRemoteGroupIds([]string{"grp_vip"})` or
+the `gb.WithRemoteGroupIds` option. They win over an attribute of that name,
+which also works on its own.
+
+Leave them nil while they are unresolved: rules that use remote groups then
+fail, including "not in group" rules, and one warning is logged. An empty
+slice means the user is in no group, which is what lets "not in group" rules
+match. If the resolver fails, `AddRemoteSavedGroups` returns the client
+unchanged with the error, so it stays usable and those rules fail closed.
+
 ---
 
 ### Tracking

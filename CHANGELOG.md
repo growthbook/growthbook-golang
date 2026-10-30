@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- **Added (spec 0.12.0, JS #7277):** remote saved groups. A `$savedGroup`
+  reference to a `remote` group matches when its id is in the user's remote
+  group ids: `WithRemoteGroupIds`, or `AddRemoteSavedGroups` with a
+  `SavedGroupResolver` such as `RedisResolver`. Unresolved ids (nil) make
+  rules using remote groups fail, "not in group" included. `PruneCondition`
+  and `ReducePayload` leave a remote reference undecided while
+  `__gb_remoteGroupIds` is unknown.
 - **Changed (breaking, targeting compatibility):** condition operators use
   strict types, matching the JS SDK 2.0.0 and spec 0.10.0. An attribute whose
   type differs from the condition's fails the positive operator and matches
