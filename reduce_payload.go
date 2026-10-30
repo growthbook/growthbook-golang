@@ -79,8 +79,9 @@ func ReducePayload(payload []byte, attributes Attributes, opts ReducePayloadOpti
 }
 
 // ReducePayload reduces the client's current features payload for the
-// client's attributes. See the package-level ReducePayload. It returns
-// ErrNoPayloadJSON when the client's features were set from Go values.
+// client's attributes, with its remote group ids when set. See the
+// package-level ReducePayload. It returns ErrNoPayloadJSON when the client's
+// features were set from Go values.
 func (client *Client) ReducePayload(opts ReducePayloadOptions) ([]byte, error) {
 	payload, err := client.data.getReducibleJSON()
 	if err != nil {
@@ -89,7 +90,7 @@ func (client *Client) ReducePayload(opts ReducePayloadOptions) ([]byte, error) {
 	if payload == nil {
 		return nil, ErrNoPayloadJSON
 	}
-	reduced, err := reducePayload(payload, client.attributes, opts)
+	reduced, err := reducePayload(payload, client.conditionAttributes(), opts)
 	if err != nil {
 		return nil, err
 	}

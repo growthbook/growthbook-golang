@@ -17,6 +17,9 @@ type evaluator struct {
 	evaluated         stack[string]
 	client            *Client
 	ctx               context.Context
+	// conditionAttributes are the attributes targeting conditions see: the
+	// client's, with its remote group ids
+	conditionAttributes value.ObjValue
 
 	// recordingExperiments / recordingFeatureUsage are false when nothing
 	// consumes exposures / feature-usage reports, so evaluation skips that
@@ -217,7 +220,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		// 7.5. If experiment has an include property - include is deprecated property. Hence skipping this step.
 
 		// 8 Return if any conditions are not met, return
-		if !exp.Condition.Eval(e.client.attributes, e.savedGroups) {
+		if !exp.Condition.Eval(e.conditionAttributes, e.savedGroups) {
 			e.client.logger.DebugContext(e.ctx, "Skip because of condition exp", "id", exp.Key)
 			return e.experimentResult(exp, -1, false, featureId, nil, false)
 		}
@@ -451,7 +454,7 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 	}
 
 	if rule.forcePresent || rule.Force != nil {
-		if !rule.Condition.Eval(e.client.attributes, e.savedGroups) {
+		if !rule.Condition.Eval(e.conditionAttributes, e.savedGroups) {
 			return nil
 		}
 

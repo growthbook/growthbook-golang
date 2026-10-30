@@ -70,7 +70,7 @@ func WithSavedGroups(savedGroups condition.SavedGroups) ClientOption {
 		if err != nil {
 			return err
 		}
-		c.data.savedGroups = parsed
+		c.data.setSavedGroups(parsed)
 		c.data.savedGroupsFromCode = true
 		return nil
 	}
