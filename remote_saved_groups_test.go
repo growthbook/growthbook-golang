@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"testing"
@@ -229,6 +230,72 @@ func TestAddRemoteSavedGroupsLooksUpAgainWhenTheSavedGroupsChange(t *testing.T) 
 	require.Equal(t, []string{"grp_vip", "grp_new"}, child.RemoteGroupIds())
 }
 
+// remoteGroupsUpdate returns a payload update whose remote groups are grp_vip
+// and grp_new<n>
+func remoteGroupsUpdate(n int) string {
+	return fmt.Sprintf(`{"savedGroups": {
+		"grp_vip": {"type": "remote", "attributeKey": "account_id"},
+		"grp_new%d": {"type": "remote", "attributeKey": "account_id"}
+	}}`, n)
+}
+
+func TestAddRemoteSavedGroupsChecksTheGroupsAfterEveryLookup(t *testing.T) {
+	client, _ := remoteClient(t)
+	var seen [][]string
+	child, err := client.AddRemoteSavedGroups(context.Background(), func(_ context.Context, _ Attributes, groups []RemoteSavedGroup) ([]string, error) {
+		ids := make([]string, len(groups))
+		for i, g := range groups {
+			ids[i] = g.ID
+		}
+		seen = append(seen, ids)
+		// The payload changes during the first two lookups
+		if len(seen) <= 2 {
+			require.NoError(t, client.UpdateFromApiResponseJSON(remoteGroupsUpdate(len(seen))))
+		}
+		return ids, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, [][]string{
+		{"grp_vip", "grp_vip:parent_id"},
+		{"grp_new1", "grp_vip"},
+		{"grp_new2", "grp_vip"},
+	}, seen)
+	// Only the lookup that covers the latest groups is kept
+	require.Equal(t, []string{"grp_new2", "grp_vip"}, child.RemoteGroupIds())
+}
+
+func TestAddRemoteSavedGroupsFailsWhenTheGroupsChangeDuringEveryLookup(t *testing.T) {
+	client, _ := remoteClient(t)
+	lookups := 0
+	child, err := client.AddRemoteSavedGroups(context.Background(), func(context.Context, Attributes, []RemoteSavedGroup) ([]string, error) {
+		lookups++
+		require.NoError(t, client.UpdateFromApiResponseJSON(remoteGroupsUpdate(lookups)))
+		return []string{"grp_vip"}, nil
+	})
+	require.ErrorIs(t, err, ErrRemoteSavedGroupsChanged)
+	require.Same(t, client, child)
+	require.Nil(t, child.RemoteGroupIds())
+	require.Equal(t, maxRemoteSavedGroupsLookups, lookups)
+}
+
+func TestAddRemoteSavedGroupsKeepsTheLookupWhenOnlyOtherGroupsChange(t *testing.T) {
+	client, _ := remoteClient(t)
+	lookups := 0
+	child, err := client.AddRemoteSavedGroups(context.Background(), func(context.Context, Attributes, []RemoteSavedGroup) ([]string, error) {
+		lookups++
+		// Same remote groups, another list group
+		require.NoError(t, client.UpdateFromApiResponseJSON(`{"savedGroups": {
+			"grp_vip": {"type": "remote", "attributeKey": "account_id"},
+			"grp_vip:parent_id": {"type": "remote", "attributeKey": "parent_id", "valuesFrom": "grp_vip"},
+			"grp_list2": {"type": "list", "attributeKey": "id", "values": ["u_2"]}
+		}}`))
+		return []string{"grp_vip"}, nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 1, lookups)
+	require.Equal(t, []string{"grp_vip"}, child.RemoteGroupIds())
+}
+
 func TestAddRemoteSavedGroupsLeavesTheIdsWhenTheNewSavedGroupsHaveNoRemoteGroups(t *testing.T) {
 	client, _ := remoteClient(t)
 	child, err := client.AddRemoteSavedGroups(context.Background(), func(context.Context, Attributes, []RemoteSavedGroup) ([]string, error) {
@@ -284,6 +351,90 @@ func TestClientReducePayloadUsesTheRemoteGroupIds(t *testing.T) {
 	require.Equal(t, map[string]any{"$not": map[string]any{}}, features["in_vip"].(map[string]any)["rules"].([]any)[0].(map[string]any)["condition"])
 	require.NotContains(t, features["not_in_vip"].(map[string]any)["rules"].([]any)[0], "condition")
 	require.Empty(t, reduced["savedGroups"])
+}
+
+// remoteIDStates are the three states of a user's remote group ids
+var remoteIDStates = []struct {
+	name string
+	ids  []string
+	// in and notIn are whether "in grp_vip" and the guarded "not in grp_vip" match
+	in, notIn bool
+}{
+	{"member", []string{"grp_vip"}, true, false},
+	{"no groups", []string{}, false, true},
+	{"unresolved", nil, false, false},
+}
+
+func remoteCondition(t *testing.T, in bool) condition.Base {
+	t.Helper()
+	raw := `{"$savedGroup": {"id": "grp_vip"}}`
+	if !in {
+		raw = `{"$not": {"$savedGroup": {"id": "grp_vip"}}, "__gb_remoteGroupIds": {"$exists": true}}`
+	}
+	var cond condition.Base
+	require.NoError(t, json.Unmarshal([]byte(raw), &cond))
+	return cond
+}
+
+func TestRemoteGroupIdsReachExperimentConditions(t *testing.T) {
+	for _, state := range remoteIDStates {
+		t.Run(state.name, func(t *testing.T) {
+			client, _ := remoteClient(t, WithAttributes(Attributes{"id": "u1", "account_id": "a1"}), WithRemoteGroupIds(state.ids))
+			for _, in := range []bool{true, false} {
+				exp := &Experiment{Key: "e", Variations: []FeatureValue{0, 1}, Condition: remoteCondition(t, in)}
+				res := client.RunExperiment(context.Background(), exp)
+				require.Equal(t, map[bool]bool{true: state.in, false: state.notIn}[in], res.InExperiment, "in group: %v", in)
+			}
+		})
+	}
+}
+
+func TestRemoteGroupIdsReachExperimentRulesOfFeatures(t *testing.T) {
+	for _, state := range remoteIDStates {
+		t.Run(state.name, func(t *testing.T) {
+			var features FeatureMap
+			require.NoError(t, json.Unmarshal([]byte(`{
+				"exp_in_vip": {"defaultValue": "off", "rules": [{"key": "e1", "variations": ["a", "b"], "coverage": 1,
+					"condition": {"$savedGroup": {"id": "grp_vip"}}}]}
+			}`), &features))
+			client, _ := remoteClient(t, WithAttributes(Attributes{"id": "u1"}), WithFeatures(features), WithRemoteGroupIds(state.ids))
+			res := client.EvalFeature(context.Background(), "exp_in_vip")
+			require.Equal(t, state.in, res.Source == ExperimentResultSource, "source %s", res.Source)
+		})
+	}
+}
+
+func TestRemoteGroupIdsReachContextualBanditLeaves(t *testing.T) {
+	defs := mustBanditDefs(t, `{"cb-remote": {"contexts": [
+		{"leafId": 10, "condition": {"$savedGroup": {"id": "grp_vip"}}, "weights": [1, 0]},
+		{"leafId": 20, "condition": {"$not": {"$savedGroup": {"id": "grp_vip"}}, "__gb_remoteGroupIds": {"$exists": true}}, "weights": [0, 1]}
+	]}}`)
+	var features FeatureMap
+	require.NoError(t, json.Unmarshal([]byte(`{"bandit": {"defaultValue": "default", "rules": [{
+		"key": "bandit-exp", "coverage": 1, "contextualBanditRef": "cb-remote",
+		"contextualVariations": ["a", "b"], "weights": [0.5, 0.5]
+	}]}}`), &features))
+	for _, state := range remoteIDStates {
+		t.Run(state.name, func(t *testing.T) {
+			client, _ := remoteClient(t,
+				WithAttributes(Attributes{"id": "u1", "account_id": "a1"}),
+				WithFeatures(features),
+				WithContextualBandits(defs),
+				WithRemoteGroupIds(state.ids),
+			)
+			res := client.EvalFeature(context.Background(), "bandit")
+			require.NotNil(t, res.ExperimentResult)
+			// Unresolved ids match neither leaf, so the fallback leaf assigns
+			leaf := -1
+			switch {
+			case state.in:
+				leaf = 10
+			case state.notIn:
+				leaf = 20
+			}
+			require.Equal(t, leaf, *res.ExperimentResult.LeafId)
+		})
+	}
 }
 
 // fakeRedis records each SMEMBERS key
