@@ -158,7 +158,9 @@ Leave them nil while they are unresolved: rules that use remote groups then
 fail, including "not in group" rules, and one warning is logged. An empty
 slice means the user is in no group, which is what lets "not in group" rules
 match. If the resolver fails, `AddRemoteSavedGroups` returns the client
-unchanged with the error, so it stays usable and those rules fail closed.
+unchanged with the error, so it stays usable and those rules fail closed. It
+looks up again when the payload's remote groups change during a lookup, and
+returns `ErrRemoteSavedGroupsChanged` if they change during every attempt.
 
 ---
 
