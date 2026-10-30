@@ -2,6 +2,7 @@ package growthbook
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"math"
@@ -28,6 +29,15 @@ type RemoteSavedGroup struct {
 	// checks against its own attribute
 	ValuesFrom string `json:"valuesFrom,omitempty"`
 }
+
+// ErrRemoteSavedGroupsChanged is returned by AddRemoteSavedGroups when the
+// payload's remote saved groups kept changing while they were looked up, so no
+// lookup covers the groups the client evaluates against.
+var ErrRemoteSavedGroupsChanged = errors.New("growthbook: remote saved groups changed during every lookup")
+
+// maxRemoteSavedGroupsLookups bounds how often AddRemoteSavedGroups looks up
+// again when the payload changes during a lookup
+const maxRemoteSavedGroupsLookups = 3
 
 // SavedGroupResolver looks up which of groups a user is in. attributes holds
 // only the attributes the groups use, keyed by AttributeKey (which can be a
@@ -64,8 +74,9 @@ func (c *Client) RemoteGroupIds() []string {
 // and returns a child client with them as its remote group ids.
 //
 // When the payload has no remote groups it returns the client unchanged. When
-// the resolver fails it returns the client unchanged and the error, so the
-// client stays usable and rules using remote groups fail closed.
+// the resolver fails, or the payload's remote groups change during every
+// lookup (ErrRemoteSavedGroupsChanged), it returns the client unchanged and the
+// error, so the client stays usable and rules using remote groups fail closed.
 //
 // Requires a saved group references v2 payload for the group metadata. With
 // inline/v1 payloads, resolve membership in the app and use WithRemoteGroupIds.
@@ -74,25 +85,24 @@ func (c *Client) AddRemoteSavedGroups(ctx context.Context, resolver SavedGroupRe
 	// remote support check __gb_remoteGroupIds directly. Leaving it unset makes
 	// those rules fail closed; [] would let every "not in group" rule match.
 	groups, version := c.data.getRemoteGroups()
-	if len(groups) == 0 {
-		return c, nil
-	}
-	ids, err := c.resolveRemoteGroupIDs(ctx, groups, resolver)
-	if err != nil {
-		return c, err
-	}
-	// A payload update during the lookup can add groups the result doesn't
-	// cover, and a missing group would pass "not in group" rules. Look up once
-	// more for the new payload.
-	if current, currentVersion := c.data.getRemoteGroups(); currentVersion != version {
-		if len(current) == 0 {
+	for lookup := 0; lookup < maxRemoteSavedGroupsLookups; lookup++ {
+		if len(groups) == 0 {
 			return c, nil
 		}
-		if ids, err = c.resolveRemoteGroupIDs(ctx, current, resolver); err != nil {
+		ids, err := c.resolveRemoteGroupIDs(ctx, groups, resolver)
+		if err != nil {
 			return c, err
 		}
+		// A payload update during the lookup can add groups the result doesn't
+		// cover, and a missing group would pass "not in group" rules. Keep the
+		// result only if the remote groups are still the ones it looked up.
+		current, currentVersion := c.data.getRemoteGroups()
+		if currentVersion == version || slices.Equal(current, groups) {
+			return c.cloneWith(WithRemoteGroupIds(ids))
+		}
+		groups, version = current, currentVersion
 	}
-	return c.cloneWith(WithRemoteGroupIds(ids))
+	return c, ErrRemoteSavedGroupsChanged
 }
 
 func (c *Client) resolveRemoteGroupIDs(ctx context.Context, groups []condition.RemoteGroup, resolver SavedGroupResolver) ([]string, error) {
