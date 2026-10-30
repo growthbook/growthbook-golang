@@ -408,6 +408,34 @@ Good to know:
 
 ---
 
+### Reducing payloads for client SDKs
+
+When a server bootstraps a client SDK, it can send a smaller payload that
+evaluates the same for that user. `ReducePayload` drops rules and conditions
+already decided by the attributes the server knows, and can filter features
+and auto experiments by project, tag, or custom field (when the SDK
+Connection includes that metadata).
+
+```go
+client, _ := gb.NewClient(ctx,
+	gb.WithClientKey("sdk-abc123"),
+	gb.WithAttributes(gb.Attributes{"id": "123"}),
+)
+// Load the payload first, here with a one-off fetch. A client with a data
+// source can wait for it with client.EnsureLoaded(ctx) instead.
+if err := client.RefreshFeatures(ctx); err != nil {
+	log.Fatal(err)
+}
+// The client's current payload, reduced for its attributes
+bootstrap, err := client.ReducePayload(gb.ReducePayloadOptions{
+	Include: gb.PayloadFilters{Projects: []string{"mobile"}},
+})
+```
+
+The package-level `gb.ReducePayload(payload, attributes, opts)` reduces a
+decrypted payload you already have, and `gb.PruneCondition` partially
+evaluates a single condition.
+
 ## Documentation
 
 - [Usage Guide](https://docs.growthbook.io/lib/go)

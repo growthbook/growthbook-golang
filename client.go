@@ -127,6 +127,8 @@ func defaultClient() *Client {
 func (client *Client) SetFeatures(features FeatureMap) error {
 	client.data.withLock(func(d *data) error {
 		d.features = features
+		// Go values carry no payload JSON to reduce
+		d.payloadJSON = nil
 		return nil
 	})
 	return nil
@@ -136,6 +138,7 @@ func (client *Client) SetFeatures(features FeatureMap) error {
 func (client *Client) SetContextualBandits(bandits ContextualBanditDefinitions) error {
 	client.data.withLock(func(d *data) error {
 		d.contextualBandits = bandits
+		d.banditsFromCode = true
 		return nil
 	})
 	return nil
@@ -148,7 +151,20 @@ func (client *Client) SetJSONFeatures(featuresJSON string) error {
 	if err != nil {
 		return err
 	}
-	return client.SetFeatures(features)
+	var raw any
+	if err := json.Unmarshal([]byte(featuresJSON), &raw); err != nil {
+		return err
+	}
+	if raw == nil {
+		// null clears the features, as it does for evaluation
+		raw = map[string]any{}
+	}
+	client.data.withLock(func(d *data) error {
+		d.features = features
+		d.payloadJSON = mergePayloadJSON(d.payloadJSON, map[string]any{"features": raw})
+		return nil
+	})
+	return nil
 }
 
 // SetEncryptedJSONFeatures updates shared features from encrypted JSON.
@@ -233,20 +249,104 @@ func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
 			banditsPresent = true
 		}
 	}
+	payloadJSON := client.decryptedPayloadJSON(resp)
+	if payloadJSON != nil {
+		// Each section follows the decision above, so the JSON that
+		// ReducePayload reads never keeps data evaluation dropped, or drops
+		// data it uses. An absent section keeps the previous one.
+		if !featuresPresent {
+			delete(payloadJSON, "features")
+		}
+		delete(payloadJSON, "savedGroups")
+		if savedGroupsPresent {
+			groupsJSON, err := savedGroups.JSONValue()
+			if err != nil {
+				return err
+			}
+			payloadJSON["savedGroups"] = groupsJSON
+		}
+		if !banditsPresent {
+			delete(payloadJSON, "contextualBandits")
+		} else if _, ok := payloadJSON["contextualBandits"].(map[string]any); !ok {
+			// An explicit null, or junk the decoder reads as none, clears them
+			payloadJSON["contextualBandits"] = map[string]any{}
+		}
+	}
 	client.data.withLock(func(d *data) error {
+		if payloadJSON != nil {
+			d.payloadJSON = mergePayloadJSON(d.payloadJSON, payloadJSON)
+		} else {
+			// A response built from Go values carries no payload JSON
+			d.payloadJSON = nil
+		}
 		if featuresPresent {
 			d.features = features
 		}
 		if savedGroupsPresent {
 			d.savedGroups = savedGroups
+			d.savedGroupsFromCode = false
 		}
 		if banditsPresent {
 			d.contextualBandits = bandits
+			d.banditsFromCode = false
 		}
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
 	return nil
+}
+
+// decryptedPayloadJSON returns the response's JSON with its encrypted sections
+// decrypted, or nil when the response wasn't decoded from JSON. A section that
+// fails to decrypt is dropped, like an absent one.
+func (client *Client) decryptedPayloadJSON(resp *FeatureApiResponse) map[string]any {
+	if resp.raw == nil {
+		return nil
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(resp.raw, &payload); err != nil || payload == nil {
+		return nil
+	}
+	for section, encryptedKey := range map[string]string{
+		"features":          "encryptedFeatures",
+		"savedGroups":       "encryptedSavedGroups",
+		"contextualBandits": "encryptedContextualBandits",
+		"experiments":       "encryptedExperiments",
+	} {
+		encrypted, _ := payload[encryptedKey].(string)
+		delete(payload, encryptedKey)
+		if encrypted == "" {
+			continue
+		}
+		var decrypted any
+		plain, err := client.data.decrypt(encrypted)
+		if err == nil {
+			err = json.Unmarshal([]byte(plain), &decrypted)
+		}
+		if err == nil {
+			payload[section] = decrypted
+		}
+	}
+	return payload
+}
+
+// mergePayloadJSON applies an update with section-presence semantics, as
+// UpdateFromApiResponse does: a section the update doesn't carry keeps its
+// previous value. Callers remove the sections their update doesn't apply.
+// Auto experiments, which this SDK doesn't evaluate, also keep the previous
+// value on null.
+func mergePayloadJSON(prev, update map[string]any) map[string]any {
+	merged := make(map[string]any, len(update))
+	for k, v := range update {
+		merged[k] = v
+	}
+	for _, section := range []string{"features", "savedGroups", "contextualBandits", "experiments"} {
+		v, ok := merged[section]
+		if (!ok || (section == "experiments" && v == nil)) && prev[section] != nil {
+			merged[section] = prev[section]
+		}
+	}
+	return merged
 }
 
 func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {

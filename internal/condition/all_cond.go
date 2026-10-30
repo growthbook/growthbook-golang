@@ -7,26 +7,11 @@ import "github.com/growthbook/growthbook-golang/internal/value"
 type AllConds []Condition
 
 func (cs AllConds) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
-	arr, ok := actual.(value.ArrValue)
-	if !ok {
-		return false
-	}
-
-	for _, c := range cs {
-		if !check(c, arr, groups, visited) {
-			return false
-		}
-	}
-	return true
+	return cs.eval3(actual, groups, visited) == pass
 }
 
-func check(c Condition, arr value.ArrValue, groups SavedGroups, visited visitedGroups) bool {
-	for _, v := range arr {
-		if c.Eval(v, groups, visited) {
-			return true
-		}
-	}
-	return false
+func (cs AllConds) eval3(actual value.Value, groups SavedGroups, visited visitedGroups) result {
+	return evalEach(cs, actual, groups, visited)
 }
 
 // AlliConds checks each condition is true for at least
@@ -34,24 +19,40 @@ func check(c Condition, arr value.ArrValue, groups SavedGroups, visited visitedG
 type AlliConds []Condition
 
 func (cs AlliConds) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
-	arr, ok := actual.(value.ArrValue)
-	if !ok {
-		return false
-	}
-
-	for _, c := range cs {
-		if !checkCaseInsensitive(c, arr, groups, visited) {
-			return false
-		}
-	}
-	return true
+	return cs.eval3(actual, groups, visited) == pass
 }
 
-func checkCaseInsensitive(c Condition, arr value.ArrValue, groups SavedGroups, visited visitedGroups) bool {
-	for _, v := range arr {
-		if c.Eval(v, groups, visited) {
-			return true
+func (cs AlliConds) eval3(actual value.Value, groups SavedGroups, visited visitedGroups) result {
+	return evalEach(cs, actual, groups, visited)
+}
+
+// evalEach requires every condition to pass for at least one element. A
+// condition that no element passes, but some element leaves unknown, makes the
+// result unknown.
+func evalEach(cs []Condition, actual value.Value, groups SavedGroups, visited visitedGroups) result {
+	arr, ok := actual.(value.ArrValue)
+	if !ok {
+		return fail
+	}
+	res := pass
+	for _, c := range cs {
+		matched := fail
+		for _, v := range arr {
+			r := eval3(c, v, groups, visited)
+			if r == pass {
+				matched = pass
+				break
+			}
+			if r == unknown {
+				matched = unknown
+			}
+		}
+		if matched == fail {
+			return fail
+		}
+		if matched == unknown {
+			res = unknown
 		}
 	}
-	return false
+	return res
 }

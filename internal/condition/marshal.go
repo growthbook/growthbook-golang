@@ -1,6 +1,7 @@
 package condition
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -11,35 +12,137 @@ import (
 )
 
 type Base struct {
-	cond Condition
-	raw  json.RawMessage
+	cond      Condition
+	raw       json.RawMessage
+	malformed bool
 }
 
 // Eval starts a condition evaluation with no saved-group references visited.
+// Only a condition that passes matches: one that depends on an operator or
+// saved group type this SDK doesn't support fails, and so does one whose
+// evaluation reaches a malformed part.
 func (base Base) Eval(actual value.Value, groups SavedGroups) bool {
-	if base.cond == nil {
-		return true
-	}
-	return base.cond.Eval(actual, groups, nil)
+	match, _ := base.EvalSafely(actual, groups)
+	return match
 }
 
-func (base *Base) UnmarshalJSON(data []byte) error {
-	m := map[string]any{}
-	err := json.Unmarshal(data, &m)
-	if err != nil {
-		return err
+// EvalSafely is Eval that also reports whether the evaluation reached a
+// malformed part, where the JS SDK throws.
+func (base Base) EvalSafely(actual value.Value, groups SavedGroups) (match bool, threw bool) {
+	if base.cond == nil {
+		return true, false
 	}
-	val := value.New(m)
-	cond, err := buildBaseCond(val)
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(malformedPart); !ok {
+				panic(r)
+			}
+			match, threw = false, true
+		}
+	}()
+	return eval3(base.cond, actual, groups, nil) == pass, false
+}
+
+// Malformed reports whether the condition has a part that could not be
+// parsed. Evaluation fails when it reaches that part.
+func (base Base) Malformed() bool {
+	return base.malformed
+}
+
+// UnmarshalJSON parses a condition. A malformed part, such as `{"$not": null}`,
+// fails the condition when evaluation reaches it instead of failing the whole
+// payload, as in the JS SDK, where feature and experiment evaluation fail a
+// condition that throws.
+func (base *Base) UnmarshalJSON(data []byte) error {
+	if string(bytes.TrimSpace(data)) == "null" {
+		*base = Base{}
+		return nil
+	}
+	m := map[string]any{}
+	if err := json.Unmarshal(data, &m); err != nil {
+		*base = malformedBase(data)
+		return nil
+	}
+	cond, malformed, err := buildLazyBaseCond(value.New(m))
 	if err != nil {
-		return err
+		*base = malformedBase(data)
+		return nil
 	}
 	raw, err := json.Marshal(m)
 	if err != nil {
 		return err
 	}
-	*base = Base{cond: cond, raw: raw}
+	*base = Base{cond: cond, raw: raw, malformed: malformed}
 	return nil
+}
+
+// malformedPart is the panic value of throwCond, recovered by Base.EvalSafely.
+type malformedPart struct{}
+
+// throwCond stands in for a part of a condition that could not be parsed.
+// Reaching it fails the whole evaluation, like a thrown error in the JS SDK,
+// so it can't be negated into a match.
+type throwCond struct{}
+
+func (throwCond) Eval(value.Value, SavedGroups, visitedGroups) bool {
+	panic(malformedPart{})
+}
+
+func (throwCond) eval3(value.Value, SavedGroups, visitedGroups) result {
+	panic(malformedPart{})
+}
+
+// buildLazyBaseCond builds a condition whose malformed entries, including
+// those in $and, $or, $nor and $not, fail only when evaluation reaches them.
+// It reports whether there were any.
+func buildLazyBaseCond(json value.Value) (Condition, bool, error) {
+	obj, ok := json.(value.ObjValue)
+	if !ok {
+		return nil, false, fmt.Errorf("base expected to be an object")
+	}
+	malformed := false
+	conds := []Condition{}
+	for _, f := range orderedConditionKeys(obj) {
+		cond, m, err := buildLazyLogicCond(f, obj[f])
+		if err != nil {
+			cond, m = throwCond{}, true
+		}
+		malformed = malformed || m
+		conds = append(conds, cond)
+	}
+	if len(conds) == 1 {
+		return conds[0], malformed, nil
+	}
+	return AndConds(conds), malformed, nil
+}
+
+func buildLazyLogicCond(op string, arg value.Value) (Condition, bool, error) {
+	switch Operator(op) {
+	case andOp, orOp, norOp:
+		arr, ok := arg.(value.ArrValue)
+		if !ok {
+			return nil, false, fmt.Errorf("error parsing `%v` condition: array expected", op)
+		}
+		malformed := false
+		conds := make([]Condition, 0, len(arr))
+		for _, v := range arr {
+			cond, m, err := buildLazyBaseCond(v)
+			if err != nil {
+				cond, m = throwCond{}, true
+			}
+			malformed = malformed || m
+			conds = append(conds, cond)
+		}
+		return newLogicCond(op, conds), malformed, nil
+	case notOp:
+		cond, malformed, err := buildLazyBaseCond(arg)
+		if err != nil {
+			return nil, false, fmt.Errorf("error parsing `%v` condition: %w", op, err)
+		}
+		return NotCond{cond}, malformed, nil
+	}
+	cond, err := buildLogicCond(op, arg)
+	return cond, false, err
 }
 
 // MarshalJSON emits the parsed condition in canonical form, so conditions
@@ -284,8 +387,12 @@ func buildOpCond(op Operator, arg value.Value) (Condition, error) {
 			return nil, fmt.Errorf("Error parsing $not operator: %w", err)
 		}
 		return NotCond{cond}, nil
-	default:
+	case andOp, orOp, norOp, savedGroupOp:
+		// Keys this SDK knows, but on a condition rather than on a value,
+		// where they never match
 		return False{}, nil
+	default:
+		return unknownOpCond{}, nil
 	}
 }
 
@@ -331,18 +438,30 @@ func buildElemMatchCond(arg value.Value) (Condition, error) {
 	if !ok {
 		return nil, fmt.Errorf("ElemMatch arg is not an object: %v", arg)
 	}
-	if isOperatorObject(obj) {
+	// Operators test each element itself. A condition, including one that only
+	// uses $or, $and, $nor, or $savedGroup, tests each element's fields.
+	if isOperatorObject(obj) && !hasConditionOperator(obj) {
 		cond, err := buildObjCond(obj)
 		if err != nil {
 			return nil, fmt.Errorf("ElemMatch arg %v is invalid: %w", arg, err)
 		}
 		return NewElemMatchCond(cond), nil
 	}
-	cond, err := buildBaseCond(obj)
+	// Built lazily, so a malformed branch fails only when evaluation reaches it
+	cond, _, err := buildLazyBaseCond(obj)
 	if err != nil {
 		return nil, fmt.Errorf("ElemMatch arg %v is invalid: %w", arg, err)
 	}
 	return NewElemMatchCond(cond), nil
+}
+
+func hasConditionOperator(obj value.ObjValue) bool {
+	for _, op := range []Operator{orOp, norOp, andOp, savedGroupOp} {
+		if _, ok := obj[string(op)]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func buildAllConds(arg value.Value) (Condition, error) {
@@ -375,4 +494,10 @@ func buildAlliConds(arg value.Value) (Condition, error) {
 		res = append(res, c)
 	}
 	return res, nil
+}
+
+// malformedBase stands in for a condition that isn't an object. It fails when
+// evaluated and marshals back to raw.
+func malformedBase(raw json.RawMessage) Base {
+	return Base{cond: throwCond{}, raw: append(json.RawMessage(nil), raw...), malformed: true}
 }

@@ -2,6 +2,66 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased
+
+- **Changed (breaking, targeting compatibility):** condition operators use
+  strict types, matching the JS SDK 2.0.0 and spec 0.10.0. An attribute whose
+  type differs from the condition's fails the positive operator and matches
+  its negation; there is no coercion, so `"10"` does not equal `10`, `0` does
+  not match null or missing, and `false` does not match `""`. Two strings
+  compare as text (`"10" < "9"`). `$gt`/`$gte`/`$lt`/`$lte` fail on booleans
+  and on missing attributes. Version operators need both sides to be strings
+  or both numbers; otherwise only `$vne` matches. `$exists` and `$type` are
+  unchanged. Existing rules relying on coercion can target different users
+  after upgrading.
+- **Changed (spec 0.11.0, JS #7346):** a condition that depends on an operator
+  or saved group type this SDK doesn't support now fails even under `$not` or
+  `$nor`, including `$inGroup`/`$notInGroup` on such a group. Before, the
+  unsupported part counted as false, so negating it matched everyone.
+  `$elemMatch` with `$or`, `$and`, `$nor` or `$savedGroup` tests each
+  element's fields, and skips only null elements.
+- **Fixed:** a malformed condition (for example `{"$not": null}`) on a
+  prerequisite, rule or experiment no longer fails to load the whole features
+  payload. As in the JS SDK, where it throws, a malformed part fails the
+  condition only when evaluation reaches it, so `{"$or": [{"id": "123"},
+  {"$not": null}]}` still matches id 123, and it can't be negated into a
+  match. A contextual bandit context whose condition reaches a malformed part
+  falls back to the default weights.
+- **Changed (breaking, bucketing; spec 0.11.1, JS #7425):** a percentage
+  rollout includes a user only when their hash is below the coverage
+  (`n < coverage`). Before, `n <= coverage` included one extra hash bucket, so
+  a coverage of k/10000 included k+1 buckets. Existing partial rollouts whose
+  coverage is exactly a bucket value lose that bucket.
+- **Added (spec 0.11.0, JS #7238):** `ReducePayload`, `Client.ReducePayload`
+  and `PruneCondition` shrink a payload for a user whose attributes are only
+  partly known, e.g. on a server bootstrapping a client SDK. They prune
+  decided conditions, filter by project, tag or custom field, and drop the
+  saved groups and contextual bandits nothing references any more. The client
+  keeps the decrypted payload JSON it loads to support this, in step with what
+  evaluation uses: a section an update clears or ignores is cleared or ignored
+  there too, and saved groups and contextual bandits set in Go code
+  (`WithSavedGroups`, `WithContextualBandits`, `SetContextualBandits`) are
+  part of the reduced payload.
+- **Fixed (spec 0.11.3, JS #7452):** `ReducePayload` keeps a condition saved
+  group as written when `$elemMatch` or a prerequisite references it, since
+  those evaluate it against an item or the parent's value rather than the
+  user, along with the groups it references and any group on a reference
+  cycle. An auto experiment keeps its forced variation when its condition can
+  never pass, since a sticky bucketed user skips the condition. A contextual
+  bandit definition that isn't an object is kept as it is.
+- **Changed (breaking, bucketing; spec 0.12.0, JS #7507):** hashing runs
+  FNV-1a over UTF-16 code units, like JS, instead of UTF-8 bytes. Bucketing
+  changes only when the hashed value or seed contains non-ASCII characters.
+- **Changed (breaking, bucketing; spec 0.12.0, JS #7507):** only a non-empty
+  string or a finite, non-zero number is a hash attribute. `true`, arrays and
+  objects now count as missing, like `false`, `0`, `""` and null: the
+  fallback attribute is used where one applies, otherwise the user is not in
+  the experiment or rollout. Before, they were hashed.
+- **Fixed (spec 0.12.0):** `$type: "undefined"` or an unknown type name no
+  longer matches a missing or null attribute, and strings order by UTF-16
+  code units in `$lt`/`$gt`/`$lte`/`$gte`, as in JS.
+- Conformance corpus synced to spec 0.12.0.
+
 ## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
 
 - **Added: saved-group references v2** (JS parity): `$savedGroup` supports

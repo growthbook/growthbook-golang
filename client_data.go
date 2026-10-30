@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"encoding/json"
 	"net/http"
 	"sync"
 	"time"
@@ -13,17 +14,25 @@ type data struct {
 	features          FeatureMap
 	savedGroups       condition.SavedGroups
 	contextualBandits ContextualBanditDefinitions
-	dateUpdated       time.Time
-	apiHost           string
-	clientKey         string
-	decryptionKey     string
-	httpClient        *http.Client
-	dataSource        DataSource
-	dsStarted         bool
-	dsStartWait       chan struct{}
-	dsStartErr        error
-	plugins           []Plugin
-	subscribers       subscriberRegistry
+	// payloadJSON is the decrypted payload as JSON values, when the features
+	// came from JSON. ReducePayload reads it.
+	payloadJSON   map[string]any
+	dateUpdated   time.Time
+	apiHost       string
+	clientKey     string
+	decryptionKey string
+	httpClient    *http.Client
+	dataSource    DataSource
+	dsStarted     bool
+	dsStartWait   chan struct{}
+	dsStartErr    error
+	plugins       []Plugin
+	subscribers   subscriberRegistry
+
+	// savedGroupsFromCode and banditsFromCode mark sections set from Go
+	// values, which payloadJSON doesn't hold
+	savedGroupsFromCode bool
+	banditsFromCode     bool
 }
 
 func newData() *data {
@@ -44,6 +53,54 @@ func (d *data) getFeatures() FeatureMap {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.features
+}
+
+// getReducibleJSON returns the payload JSON that ReducePayload reduces: the
+// stored JSON, with the saved groups and contextual bandits set from Go values
+// in place of its sections, since evaluation uses those. It's nil when the
+// features were set from Go values.
+func (d *data) getReducibleJSON() (map[string]any, error) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	if d.payloadJSON == nil {
+		return nil, nil
+	}
+	payload := make(map[string]any, len(d.payloadJSON))
+	for k, v := range d.payloadJSON {
+		payload[k] = v
+	}
+	if d.savedGroupsFromCode {
+		delete(payload, "savedGroups")
+		if d.savedGroups != nil {
+			groups, err := d.savedGroups.JSONValue()
+			if err != nil {
+				return nil, err
+			}
+			payload["savedGroups"] = groups
+		}
+	}
+	if d.banditsFromCode {
+		delete(payload, "contextualBandits")
+		if d.contextualBandits != nil {
+			bandits, err := jsonValue(d.contextualBandits)
+			if err != nil {
+				return nil, err
+			}
+			payload["contextualBandits"] = bandits
+		}
+	}
+	return payload, nil
+}
+
+// jsonValue converts a Go value to its decoded JSON form.
+func jsonValue(v any) (any, error) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var out any
+	err = json.Unmarshal(data, &out)
+	return out, err
 }
 
 func (d *data) getApiUrl() string {

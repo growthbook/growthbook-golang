@@ -12,8 +12,12 @@ func NewSizeCond(cond Condition) SizeCond {
 }
 
 func (c SizeCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
+	return c.eval3(actual, groups, visited) == pass
+}
+
+func (c SizeCond) eval3(actual value.Value, groups SavedGroups, visited visitedGroups) result {
 	if arr, ok := actual.(value.ArrValue); ok {
-		return c.cond.Eval(value.New(len(arr)), groups, visited)
+		return eval3(c.cond, value.New(len(arr)), groups, visited)
 	}
-	return false
+	return fail
 }

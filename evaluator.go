@@ -3,6 +3,7 @@ package growthbook
 import (
 	"context"
 	"fmt"
+	"math"
 	"slices"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -147,14 +148,18 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 		attributes := make(map[string]string)
 		attributes[hashAttribute] = hashValue
 
-		// Also add any fallback if different. Like getHashAttribute, falsy
-		// values count as missing — JS resolves the fallback through
-		// getHashAttribute and skips falsy values (sdk-js core.ts
-		// getStickyBucketAssignments), so no sticky doc is looked up under
-		// degenerate keys like "anonymousId||0".
-		if exp.FallbackAttribute != "" && exp.FallbackAttribute != exp.HashAttribute {
-			if fallbackValue, ok := e.client.attributes[exp.FallbackAttribute]; ok && value.Truthy(fallbackValue) {
-				attributes[exp.FallbackAttribute] = fallbackValue.String()
+		// Also look up the fallback doc. JS resolves it with
+		// getHashAttribute(ctx, expFallbackAttribute) (sdk-js core.ts
+		// getStickyBucketAssignments), so without a fallbackAttribute it reads
+		// the "id" doc, and an unusable value reads no doc, never a degenerate
+		// key like "anonymousId||0". The hash attribute's doc wins on conflicts.
+		stickyFallback := exp.FallbackAttribute
+		if stickyFallback == "" {
+			stickyFallback = "id"
+		}
+		if stickyFallback != hashAttribute {
+			if fallbackValue, ok := hashString(e.client.attributes[stickyFallback]); ok {
+				attributes[stickyFallback] = fallbackValue
 			}
 		}
 
@@ -175,7 +180,7 @@ func (e *evaluator) runExperiment(exp *Experiment, featureId string) *Experiment
 			exp.Meta,
 			e.client.stickyBucketService,
 			hashAttribute,
-			exp.FallbackAttribute,
+			stickyFallback,
 			attributes,
 			e.client.stickyBucketAssignments,
 		)
@@ -504,8 +509,10 @@ func (e *evaluator) isIncludedInRollout(featureId string, rule *FeatureRule) boo
 		return rule.Range.InRange(*n)
 	}
 
+	// Half-open, like InRange: a coverage of k/10000 includes exactly k of
+	// hash v2's 10000 buckets
 	if rule.Coverage != nil {
-		return *n <= *rule.Coverage
+		return *n < *rule.Coverage
 	}
 
 	return true
@@ -550,22 +557,41 @@ func hasMatchingGroup(expGroups []string, userGroups map[string]bool) bool {
 }
 
 // getHashAttribute mirrors the JS SDK's getHashAttribute (sdk-js core.ts):
-// attribute values are checked for JS truthiness, so 0, false, "" and null
-// count as missing and trigger the fallback attribute (or skip the rule).
+// only a non-empty string or a finite, non-zero number is usable; anything
+// else counts as missing and triggers the fallback attribute (or skips the
+// rule).
 func (e *evaluator) getHashAttribute(key string, fallback string) (string, string) {
 	if key == "" {
 		key = "id"
 	}
 
-	if hashValue, ok := e.client.attributes[key]; ok && value.Truthy(hashValue) {
-		return key, hashValue.String()
+	if hashValue, ok := hashString(e.client.attributes[key]); ok {
+		return key, hashValue
 	}
 
 	if fallback != "" {
-		if hashValue, ok := e.client.attributes[fallback]; ok && value.Truthy(hashValue) {
-			return fallback, hashValue.String()
+		if hashValue, ok := hashString(e.client.attributes[fallback]); ok {
+			return fallback, hashValue
 		}
 	}
 
 	return key, ""
+}
+
+// hashString returns the string a hash attribute value is hashed as, and
+// false when the value is unusable: booleans, null, "", 0, NaN, infinities,
+// arrays, objects and missing values.
+func hashString(v value.Value) (string, bool) {
+	switch v := v.(type) {
+	case value.StrValue:
+		return string(v), v != ""
+	case value.NumValue:
+		n := float64(v)
+		if n == 0 || math.IsNaN(n) || math.IsInf(n, 0) {
+			return "", false
+		}
+		return v.String(), true
+	default:
+		return "", false
+	}
 }
