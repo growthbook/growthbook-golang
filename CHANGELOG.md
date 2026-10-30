@@ -2,7 +2,24 @@
 
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [0.7.0](https://github.com/growthbook/growthbook-golang/compare/v0.6.0...v0.7.0) (2026-10-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* Targeting conditions are strict about types: values are no longer converted between types, negated operators always give the opposite result of their positive form, booleans are not ordered, and version operators need two strings or two numbers. Conditions that use an operator or saved group type the SDK does not support always fail, even under $not or $nor. Only strings and numbers can be hash attributes; other values (booleans, arrays, objects, 0 and "") count as missing. Percentage rollouts no longer include one extra hash bucket. Hashing uses UTF-16 code units, like the JavaScript SDK, which changes bucketing only for ids and experiment or feature keys that contain non-ASCII characters (such as é, CJK or emoji); ASCII ids and keys are unaffected.
+
+### Features
+
+* add ReducePayload, Client.ReducePayload and PruneCondition to shrink a payload to what one user needs ([bd5eff2](https://github.com/growthbook/growthbook-golang/commit/bd5eff2e0444359425c4ca1e52226e6a12edf331))
+* align with spec 0.12.0 (strict types, condition edge cases, bucketing, payload reduction) ([#106](https://github.com/growthbook/growthbook-golang/issues/106)) ([bd5eff2](https://github.com/growthbook/growthbook-golang/commit/bd5eff2e0444359425c4ca1e52226e6a12edf331))
+
+
+### Bug Fixes
+
+* prevent FMA fusion in getBucketRanges ([#103](https://github.com/growthbook/growthbook-golang/issues/103)) ([0793fae](https://github.com/growthbook/growthbook-golang/commit/0793faef39175d8c349f96562e3ea5ab500d5fd4))
+
+### Details
 
 - **Changed (breaking, targeting compatibility):** condition operators use
   strict types, matching the JS SDK 2.0.0 and spec 0.10.0. An attribute whose
@@ -61,23 +78,6 @@ All notable changes to this project will be documented in this file.
   longer matches a missing or null attribute, and strings order by UTF-16
   code units in `$lt`/`$gt`/`$lte`/`$gte`, as in JS.
 - Conformance corpus synced to spec 0.12.0.
-
-## [0.7.0](https://github.com/growthbook/growthbook-golang/compare/v0.6.0...v0.7.0) (2026-10-30)
-
-
-### ⚠ BREAKING CHANGES
-
-* Targeting conditions are strict about types: values are no longer converted between types, negated operators always give the opposite result of their positive form, booleans are not ordered, and version operators need two strings or two numbers. Conditions that use an operator or saved group type the SDK does not support always fail, even under $not or $nor. Only strings and numbers can be hash attributes; other values (booleans, arrays, objects, 0 and "") count as missing. Percentage rollouts no longer include one extra hash bucket. Hashing uses UTF-16 code units, like the JavaScript SDK, which changes bucketing only for ids and experiment or feature keys that contain non-ASCII characters (such as é, CJK or emoji); ASCII ids and keys are unaffected.
-
-### Features
-
-* add ReducePayload, Client.ReducePayload and PruneCondition to shrink a payload to what one user needs ([bd5eff2](https://github.com/growthbook/growthbook-golang/commit/bd5eff2e0444359425c4ca1e52226e6a12edf331))
-* align with spec 0.12.0 (strict types, condition edge cases, bucketing, payload reduction) ([#106](https://github.com/growthbook/growthbook-golang/issues/106)) ([bd5eff2](https://github.com/growthbook/growthbook-golang/commit/bd5eff2e0444359425c4ca1e52226e6a12edf331))
-
-
-### Bug Fixes
-
-* prevent FMA fusion in getBucketRanges ([#103](https://github.com/growthbook/growthbook-golang/issues/103)) ([0793fae](https://github.com/growthbook/growthbook-golang/commit/0793faef39175d8c349f96562e3ea5ab500d5fd4))
 
 ## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
 
