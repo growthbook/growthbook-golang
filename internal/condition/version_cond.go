@@ -43,7 +43,6 @@ func (c VersionCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bo
 }
 
 var (
-	replaceRe      = regexp.MustCompile(`(^v|\+.*$)`)
 	versionSplitRe = regexp.MustCompile(`[-.]`)
 	versionNumRe   = regexp.MustCompile(`^[0-9]+$`)
 )
@@ -57,7 +56,10 @@ func paddedVersionString(input value.Value) string {
 	if version == "" {
 		version = "0"
 	}
-	version = replaceRe.ReplaceAllString(version, "")
+	// Remove a leading `v` and the build metadata, which starts at the first `+`.
+	// No regex: `.` doesn't match a line break, so `\+.*$` kept "+build\nx".
+	version = strings.TrimPrefix(version, "v")
+	version, _, _ = strings.Cut(version, "+")
 	parts := versionSplitRe.Split(version, -1)
 	if len(parts) == 3 {
 		parts = append(parts, "~")

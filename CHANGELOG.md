@@ -61,6 +61,9 @@ All notable changes to this project will be documented in this file.
   longer matches a missing or null attribute, and strings order by UTF-16
   code units in `$lt`/`$gt`/`$lte`/`$gte`, as in JS.
 - Conformance corpus synced to spec 0.12.0.
+- **Fixed (JS #7401):** version operators strip build metadata at the first
+  `+` even when a line break follows it, so `"1.2.3+build\nx"` equals
+  `"1.2.3"`.
 
 ## [v0.6.0](https://pkg.go.dev/github.com/growthbook/growthbook-golang@v0.6.0) - 2026-10-05
 
