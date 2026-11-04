@@ -61,6 +61,7 @@ func WithAttributes(attributes Attributes) ClientOption {
 func WithContextualBandits(bandits ContextualBanditDefinitions) ClientOption {
 	return func(c *Client) error {
 		c.data.contextualBandits = bandits
+		c.data.banditsFromCode = true
 		return nil
 	}
 }
@@ -73,6 +74,7 @@ func WithSavedGroups(savedGroups condition.SavedGroups) ClientOption {
 			return err
 		}
 		c.data.savedGroups = parsed
+		c.data.savedGroupsFromCode = true
 		return nil
 	}
 }
