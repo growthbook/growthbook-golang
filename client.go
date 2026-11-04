@@ -32,6 +32,7 @@ type Client struct {
 	featureUsageCallback FeatureUsageCallback
 	eventLogger          EventLogger
 	logger               *slog.Logger
+	isRoot               bool
 	extraData            any
 	// StickyBucketService for storing experiment assignments
 	stickyBucketService StickyBucketService
@@ -92,8 +93,14 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	return client, nil
 }
 
-// Close client's background goroutines and plugins.
+// Close the root client's background goroutines and plugins.
+// Closing a derived client is a no-op; shared resources belong to the root client.
 func (client *Client) Close() error {
+	if !client.isRoot {
+		// Derived clients defer cleanup to the root client.
+		return nil
+	}
+
 	var errs []error
 
 	// Close plugins first so they can flush remaining events.
@@ -119,6 +126,7 @@ func defaultClient() *Client {
 		enabled:                 true,
 		qaMode:                  false,
 		logger:                  slog.Default(),
+		isRoot:                  true,
 		attributes:              value.ObjValue{},
 		stickyBucketAssignments: newStickyBucketCache(defaultStickyBucketCacheSize),
 	}
@@ -558,6 +566,7 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 
 func (client *Client) clone() *Client {
 	c := *client
+	c.isRoot = false
 	return &c
 }
 
