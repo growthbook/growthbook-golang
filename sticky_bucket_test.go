@@ -760,6 +760,76 @@ func TestStickyBucketFalsyFallbackAttributeIgnored(t *testing.T) {
 		"sticky doc keyed by falsy fallback value must not be applied")
 }
 
+func TestStickyBucketFallbackDefaultsToIDDoc(t *testing.T) {
+	// JS parity: getStickyBucketAssignments resolves the fallback doc with
+	// getHashAttribute(ctx, expFallbackAttribute), so a rule with a custom
+	// hashAttribute and no fallbackAttribute still reads the "id" doc.
+	ctx := context.TODO()
+	service := NewInMemoryStickyBucketService()
+	require.NoError(t, service.SaveAssignments(&StickyBucketAssignmentDoc{
+		AttributeName:  "id",
+		AttributeValue: "u1",
+		Assignments:    map[string]string{"feature__0": "1"},
+	}))
+
+	client, err := NewClient(ctx,
+		WithAttributes(Attributes{"id": "u1", "company": "acme"}),
+		WithFeatures(FeatureMap{
+			"feature": {
+				DefaultValue: -1,
+				Rules: []FeatureRule{{
+					Variations:    []FeatureValue{0, 1},
+					Meta:          []VariationMeta{{Key: "0"}, {Key: "1"}},
+					HashAttribute: "company",
+				}},
+			},
+		}),
+		WithStickyBucketService(service),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	res := client.EvalFeature(ctx, "feature")
+	require.NotNil(t, res.ExperimentResult)
+	require.True(t, res.ExperimentResult.StickyBucketUsed)
+	require.Equal(t, 1, res.Value)
+	require.Equal(t, "company", res.ExperimentResult.HashAttribute)
+}
+
+func TestStickyBucketHashAttributeDocWinsOverFallbackDoc(t *testing.T) {
+	ctx := context.TODO()
+	service := NewInMemoryStickyBucketService()
+	require.NoError(t, service.SaveAssignments(&StickyBucketAssignmentDoc{
+		AttributeName: "id", AttributeValue: "u1",
+		Assignments: map[string]string{"feature__0": "0"},
+	}))
+	require.NoError(t, service.SaveAssignments(&StickyBucketAssignmentDoc{
+		AttributeName: "company", AttributeValue: "acme",
+		Assignments: map[string]string{"feature__0": "1"},
+	}))
+
+	client, err := NewClient(ctx,
+		WithAttributes(Attributes{"id": "u1", "company": "acme"}),
+		WithFeatures(FeatureMap{
+			"feature": {
+				DefaultValue: -1,
+				Rules: []FeatureRule{{
+					Variations:    []FeatureValue{0, 1},
+					Meta:          []VariationMeta{{Key: "0"}, {Key: "1"}},
+					HashAttribute: "company",
+				}},
+			},
+		}),
+		WithStickyBucketService(service),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+
+	res := client.EvalFeature(ctx, "feature")
+	require.True(t, res.ExperimentResult.StickyBucketUsed)
+	require.Equal(t, 1, res.Value)
+}
+
 // Steady state: once an assignment is saved and cached, repeat evaluations
 // must not touch the sticky bucket service at all — JS/Python answer
 // "unchanged?" from memory, and the save is skipped entirely when the

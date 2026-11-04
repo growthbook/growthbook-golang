@@ -76,6 +76,9 @@ func TestJsonUnmarshaling(t *testing.T) {
 	var apiResp FeatureApiResponse
 	err := json.Unmarshal([]byte(apiJson), &apiResp)
 	require.Nil(t, err)
+	// The JSON is kept for ReducePayload
+	require.JSONEq(t, apiJson, string(apiResp.raw))
+	apiResp.raw = nil
 	require.Equal(t,
 		FeatureApiResponse{
 			Features:    FeatureMap{"foo": &Feature{DefaultValue: "api"}},
