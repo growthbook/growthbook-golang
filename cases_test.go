@@ -32,6 +32,8 @@ type cases struct {
 	StickyBucket           JsonTuples[stickyBucketTestCase]       `json:"stickyBucket"`
 	ContextualBandit       JsonTuples[featureCase]                `json:"contextualBandit"`
 	SavedGroupReferencesV2 savedGroupReferencesV2Cases            `json:"savedGroupReferencesV2"`
+	PruneCondition         JsonTuples[pruneConditionCase]         `json:"pruneCondition"`
+	ReducePayload          JsonTuples[reducePayloadCase]          `json:"reducePayload"`
 }
 
 type savedGroupReferencesV2Cases struct {
@@ -46,6 +48,40 @@ type evalConditionCase struct {
 	Attrs  map[string]any
 	Res    bool
 	Groups condition.SavedGroups
+}
+
+type pruneConditionCase struct {
+	Name        string
+	Cond        map[string]any
+	Attrs       Attributes
+	Expected    any
+	SavedGroups map[string]any
+}
+
+type reducePayloadCase struct {
+	Name  string
+	Input struct {
+		Payload          json.RawMessage `json:"payload"`
+		GlobalAttributes Attributes      `json:"globalAttributes"`
+		Attributes       Attributes      `json:"attributes"`
+		Include          *payloadFilters `json:"include"`
+		Exclude          *payloadFilters `json:"exclude"`
+		Prerequisites    string          `json:"prerequisites"`
+	}
+	Expected json.RawMessage
+}
+
+type payloadFilters struct {
+	Projects     []string         `json:"projects"`
+	Tags         []string         `json:"tags"`
+	CustomFields map[string][]any `json:"customFields"`
+}
+
+func (f *payloadFilters) filters() PayloadFilters {
+	if f == nil {
+		return PayloadFilters{}
+	}
+	return PayloadFilters{Projects: f.Projects, Tags: f.Tags, CustomFields: f.CustomFields}
 }
 
 type chooseVariationCase struct {
@@ -226,6 +262,8 @@ func TestCasesJson(t *testing.T) {
 	cases.Decrypt.run("decrypt", t)
 	cases.StickyBucket.run("stickyBucket", t)
 	cases.ContextualBandit.run("contextualBandit", t)
+	cases.PruneCondition.run("pruneCondition", t)
+	cases.ReducePayload.run("reducePayload", t)
 	t.Run("savedGroupReferencesV2", func(t *testing.T) {
 		require.NotEmpty(t, cases.SavedGroupReferencesV2.EvalCondition)
 		require.NotEmpty(t, cases.SavedGroupReferencesV2.Feature)
@@ -236,8 +274,8 @@ func TestCasesJson(t *testing.T) {
 	})
 }
 
-// stringifyTopLevelHashValue converts a numeric top-level "hashValue" in an
-// ExperimentResult JSON blob to a string. The JS corpus stores hashValue with
+// stringifyTopLevelHashValue converts a non-string top-level "hashValue" in
+// an ExperimentResult JSON blob to a string. The JS corpus stores hashValue with
 // the raw attribute type, while ExperimentResult.HashValue is a string. Only
 // the blob's own hashValue key is touched — nested values that happen to
 // contain a hashValue key are left as-is.
@@ -246,11 +284,23 @@ func stringifyTopLevelHashValue(data []byte) ([]byte, error) {
 	if err := json.Unmarshal(data, &obj); err != nil || obj == nil {
 		return data, err
 	}
-	var num float64
-	if err := json.Unmarshal(obj["hashValue"], &num); err != nil {
+	raw, ok := obj["hashValue"]
+	if !ok {
 		return data, nil
 	}
-	quoted, err := json.Marshal(strconv.FormatFloat(num, 'f', -1, 64))
+	var str string
+	if json.Unmarshal(raw, &str) == nil {
+		return data, nil
+	}
+	// A number is formatted like JS String(); any other non-string value
+	// keeps its JSON text so the case fails on comparison instead of
+	// aborting the decode of the whole file.
+	text := string(raw)
+	var num float64
+	if json.Unmarshal(raw, &num) == nil {
+		text = strconv.FormatFloat(num, 'f', -1, 64)
+	}
+	quoted, err := json.Marshal(text)
 	if err != nil {
 		return nil, err
 	}
@@ -262,6 +312,34 @@ func (c evalConditionCase) test(t *testing.T) {
 	t.Run(c.Name, func(t *testing.T) {
 		attrs := value.Obj(c.Attrs)
 		require.Equal(t, c.Res, c.Cond.Eval(attrs, c.Groups))
+	})
+}
+
+func (c pruneConditionCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		res, err := PruneCondition(c.Cond, c.Attrs, c.SavedGroups)
+		require.NoError(t, err)
+		require.Equal(t, c.Expected, res)
+	})
+}
+
+func (c reducePayloadCase) test(t *testing.T) {
+	t.Run(c.Name, func(t *testing.T) {
+		// The user's attributes take precedence over the global ones
+		attrs := Attributes{}
+		for k, v := range c.Input.GlobalAttributes {
+			attrs[k] = v
+		}
+		for k, v := range c.Input.Attributes {
+			attrs[k] = v
+		}
+		res, err := ReducePayload(c.Input.Payload, attrs, ReducePayloadOptions{
+			Include:       c.Input.Include.filters(),
+			Exclude:       c.Input.Exclude.filters(),
+			Prerequisites: PrerequisiteMode(c.Input.Prerequisites),
+		})
+		require.NoError(t, err)
+		require.JSONEq(t, string(c.Expected), string(res))
 	})
 }
 
