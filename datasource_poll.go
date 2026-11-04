@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/http"
 	"sync"
 	"time"
 )
@@ -82,6 +81,9 @@ func (ds *PollDataSource) startPolling(ctx context.Context) {
 			ds.logger.InfoContext(ctx, "Finished polling due to context")
 			return
 		case <-ticker.C:
+			if ds.client.data.isFresh(time.Now()) {
+				continue
+			}
 			err := ds.loadData(ctx)
 			if err != nil {
 				ds.logger.ErrorContext(ctx, "Error loading features", "error", err)
@@ -99,7 +101,7 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 	etag := ds.etag
 	ds.mu.RUnlock()
 
-	resp, err := ds.client.CallFeatureApi(ctx, etag)
+	resp, err := ds.client.fetchFeatures(ctx, etag, RefreshDefault)
 	if err != nil {
 		return err
 	}
@@ -110,18 +112,5 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 		ds.mu.Unlock()
 	}
 
-	// Skip only genuine no-update responses. A 200 payload always applies:
-	// UpdateFromApiResponse preserves omitted sections, so a bandit-only or
-	// saved-groups-only response updates just what it carries (a features-only
-	// guard here used to drop those updates entirely).
-	if resp.Status == http.StatusNotModified {
-		return nil
-	}
-
-	err = ds.client.UpdateFromApiResponse(resp)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return ds.client.applyFetched(resp)
 }

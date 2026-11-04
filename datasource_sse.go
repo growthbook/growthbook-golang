@@ -66,7 +66,7 @@ func (ds *SseDataSource) Start(ctx context.Context) error {
 	ctx, cancel := context.WithCancel(ctx)
 	ds.cancel = cancel
 
-	err := ds.loadData(ctx)
+	err := ds.loadData(ctx, ds.client.data.getRetryPolicy())
 	if err != nil {
 		return err
 	}
@@ -122,7 +122,8 @@ func (ds *SseDataSource) connect(ctx context.Context) error {
 func (ds *SseDataSource) onRetry(ctx context.Context) func(err error, delay time.Duration) {
 	return func(err error, delay time.Duration) {
 		ds.logger.InfoContext(ctx, "Reconnect", "reason", err, "delay", delay)
-		if err := ds.loadData(ctx); err != nil {
+		// The reconnect backoff already repeats this
+		if err := ds.loadData(ctx, noRetry); err != nil {
 			ds.logger.ErrorContext(ctx, "Error loading features", "error", err)
 		}
 	}
@@ -139,27 +140,15 @@ func (ds *SseDataSource) processEvent(event sse.Event) {
 	}
 }
 
-func (ds *SseDataSource) loadData(ctx context.Context) error {
-	resp, err := ds.client.CallFeatureApi(ctx, "")
+func (ds *SseDataSource) loadData(ctx context.Context, policy RetryPolicy) error {
+	resp, err := ds.client.fetchFeaturesWith(ctx, "", RefreshDefault, policy)
 	if err != nil {
 		return err
 	}
-
 	if !resp.SseSupport {
 		return fmt.Errorf("sse is not supported")
 	}
-
-	// A 200 payload always applies: UpdateFromApiResponse preserves omitted
-	// sections, so partial responses update just what they carry (a
-	// features-only guard here used to drop bandit- or saved-groups-only
-	// updates entirely). This path never sends an ETag, so there is no 304
-	// to skip.
-	err = ds.client.UpdateFromApiResponse(resp)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return ds.client.applyFetched(resp)
 }
 
 func (ds *SseDataSource) setReqHeaders(req *http.Request) {
