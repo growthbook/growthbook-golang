@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0](https://github.com/growthbook/growthbook-golang/compare/v0.7.0...v0.8.0) (2026-11-04)
+
+
+### Features
+
+* add FeaturesRefreshHandler for refresh lifecycle observability ([#71](https://github.com/growthbook/growthbook-golang/issues/71)) ([69af82f](https://github.com/growthbook/growthbook-golang/commit/69af82f30d71114f57e2ea86edb7c434cbe923c3))
+
 ## [0.7.0](https://github.com/growthbook/growthbook-golang/compare/v0.6.0...v0.7.0) (2026-10-30)
 
 
