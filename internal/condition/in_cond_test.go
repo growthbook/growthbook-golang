@@ -1,6 +1,7 @@
 package condition
 
 import (
+	"math"
 	"testing"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -18,6 +19,17 @@ func TestInCond(t *testing.T) {
 		require.False(t, c.Eval(value.New(true), nil, nil))
 		require.True(t, c.Eval(value.New(200), nil, nil))
 		require.False(t, c.Eval(value.New(400), nil, nil))
+	})
+	t.Run("NaN is in an array holding NaN, as with JS Array.includes", func(t *testing.T) {
+		c := NewInCond(value.Arr(math.NaN(), 1))
+		require.True(t, c.Eval(value.New(math.NaN()), nil, nil))
+		require.True(t, c.Eval(value.Arr(2, math.NaN()), nil, nil))
+		require.True(t, c.Eval(value.New(1), nil, nil))
+		require.False(t, NewNotInCond(value.Arr(math.NaN())).Eval(value.New(math.NaN()), nil, nil))
+		require.True(t, NewInCond(value.Arr(math.Copysign(0, -1))).Eval(value.New(0), nil, nil))
+	})
+	t.Run("NaN is never in a case-insensitive array", func(t *testing.T) {
+		require.False(t, NewIniCond(value.Arr(math.NaN())).Eval(value.New(math.NaN()), nil, nil))
 	})
 	t.Run("all-string array uses set lookup", func(t *testing.T) {
 		c := NewInCond(value.Arr("a", "b", "c"))
