@@ -10,15 +10,21 @@ import (
 // VersionCond compares version numbers
 type VersionCond struct {
 	op      Operator
+	arg     value.Value
 	version string
 }
 
 func NewVersionCond(op Operator, arg any) VersionCond {
-	version := paddedVersionString(value.New(arg))
-	return VersionCond{op, version}
+	v := value.New(arg)
+	return VersionCond{op, v, paddedVersionString(v)}
 }
 
 func (c VersionCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
+	// Both sides must be strings, or both numbers. On a type mismatch every
+	// operator fails except $vne, the negation of $veq.
+	if !isOrderable(actual, c.arg) {
+		return c.op == vneOp
+	}
 	switch c.op {
 	case veqOp:
 		return paddedVersionString(actual) == c.version

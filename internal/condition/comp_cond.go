@@ -1,10 +1,15 @@
 package condition
 
 import (
+	"cmp"
+	"math"
+	"unicode/utf16"
+	"unicode/utf8"
+
 	"github.com/growthbook/growthbook-golang/internal/value"
 )
 
-// CompCond compares values using JS comparison
+// CompCond compares values with $eq, $ne, $lt, $lte, $gt and $gte
 type CompCond struct {
 	op  Operator
 	arg value.Value
@@ -17,57 +22,78 @@ func NewCompCond(op Operator, arg any) CompCond {
 func (c CompCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bool {
 	switch c.op {
 	case eqOp:
-		return value.Equal(c.arg, actual)
+		return strictEqual(c.arg, actual)
 	case neOp:
-		return !value.Equal(c.arg, actual)
+		return !strictEqual(c.arg, actual)
 	}
-	cmp := jsCompare(actual, c.arg)
+	// Only numbers with numbers and strings with strings are ordered;
+	// any other pair fails, including booleans and null/missing values.
+	if !isOrderable(actual, c.arg) {
+		return false
+	}
+	// NaN is unordered, so every ordering with it fails, as in JS
+	if isNaN(actual) || isNaN(c.arg) {
+		return false
+	}
+	cmp := compare(actual, c.arg)
 	switch c.op {
 	case ltOp:
-		return cmp == -1
+		return cmp < 0
 	case lteOp:
-		return cmp == -1 || cmp == 0
+		return cmp <= 0
 	case gtOp:
-		return cmp == 1
+		return cmp > 0
 	case gteOp:
-		return cmp == 1 || cmp == 0
+		return cmp >= 0
 	}
 	return false
 }
 
-// JsCompare implements JS comparison algorithm, returns:
-//   - 0, a ==b
-//   - 1, a > b
-//   - -1, a < b
-//   - 2, a and b are not comparable
-func jsCompare(a, b value.Value) int {
-	if value.IsNull(a) && value.IsNull(b) {
+// compare orders two values of the same orderable type (see isOrderable).
+// Strings compare as text, so "10" < "9".
+func compare(a, b value.Value) int {
+	if sa, ok := a.(value.StrValue); ok {
+		return compareUTF16(string(sa), string(b.(value.StrValue)))
+	}
+	na, nb := a.(value.NumValue), b.(value.NumValue)
+	switch {
+	case na < nb:
+		return -1
+	case na > nb:
+		return 1
+	default:
 		return 0
 	}
-	sa, oka := a.(value.StrValue)
-	sb, okb := b.(value.StrValue)
-	if oka && okb {
-		switch {
-		case sa < sb:
-			return -1
-		case sa == sb:
-			return 0
-		default:
-			return 1
+}
+
+func isNaN(v value.Value) bool {
+	n, ok := v.(value.NumValue)
+	return ok && math.IsNaN(float64(n))
+}
+
+// compareUTF16 orders strings by UTF-16 code units, like JS. This differs
+// from byte (code point) order only when an astral character, a surrogate
+// pair in UTF-16, meets a character in U+E000..U+FFFF.
+func compareUTF16(a, b string) int {
+	for a != "" && b != "" {
+		ra, na := utf8.DecodeRuneInString(a)
+		rb, nb := utf8.DecodeRuneInString(b)
+		if ra != rb {
+			if ua, ub := firstUnit(ra), firstUnit(rb); ua != ub {
+				return cmp.Compare(ua, ub)
+			}
+			return cmp.Compare(ra, rb)
 		}
+		a, b = a[na:], b[nb:]
 	}
-	a, b = a.Cast(value.NumType), b.Cast(value.NumType)
-	na, oka := a.(value.NumValue)
-	nb, okb := b.(value.NumValue)
-	if oka && okb {
-		switch {
-		case na < nb:
-			return -1
-		case na == nb:
-			return 0
-		default:
-			return 1
-		}
+	return cmp.Compare(len(a), len(b))
+}
+
+// firstUnit returns the first UTF-16 code unit of r.
+func firstUnit(r rune) rune {
+	if r >= 0x10000 {
+		hi, _ := utf16.EncodeRune(r)
+		return hi
 	}
-	return 2
+	return r
 }
