@@ -7,6 +7,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -200,6 +201,8 @@ func TestTrackingPluginBatching(t *testing.T) {
 			IngestorHost: srv.URL,
 			BatchSize:    5,
 			BatchTimeout: 1 * time.Hour, // effectively disable timer
+			// Repeated identical evaluations fill the batch.
+			DedupeCacheSize: -1,
 		}),
 	)
 	require.NoError(t, err)
@@ -280,6 +283,8 @@ func TestTrackingPluginCloseFlushesRemaining(t *testing.T) {
 			IngestorHost: srv.URL,
 			BatchSize:    100,           // won't trigger on size
 			BatchTimeout: 1 * time.Hour, // won't trigger on time
+			// Repeated identical evaluations fill the batch.
+			DedupeCacheSize: -1,
 		}),
 	)
 	require.NoError(t, err)
@@ -506,6 +511,8 @@ func TestTrackingPluginCloseRace(t *testing.T) {
 			IngestorHost: srv.URL,
 			BatchSize:    5,
 			BatchTimeout: 1 * time.Hour,
+			// Repeated identical evaluations fill the batch.
+			DedupeCacheSize: -1,
 		}),
 	)
 	require.NoError(t, err)
@@ -762,4 +769,206 @@ func TestTrackingPluginNumericIdentifiers(t *testing.T) {
 	event := byName["numeric_ids"][0]
 	require.Equal(t, "42", event["user_id"])
 	require.Equal(t, "100", event["device_id"])
+}
+
+// newDedupeTestClient returns a client whose tracking plugin flushes only on
+// Close, so every event logged before Close lands in one capture.
+func newDedupeTestClient(t *testing.T, srvURL string, config TrackingPluginConfig) *Client {
+	t.Helper()
+	config.IngestorHost = srvURL
+	config.BatchSize = 1000
+	config.BatchTimeout = time.Hour
+	client, err := NewClient(context.Background(),
+		WithClientKey("sdk-test-key"),
+		WithGrowthBookTracking(config),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.SetJSONFeatures(`{"feature": {"defaultValue": true}}`))
+	return client
+}
+
+// Identical evaluations by different users are not duplicates; repeats by
+// the same user are (sdk-js 012752c, "logs automatic events from
+// GrowthBookClient evaluations").
+func TestTrackingPluginDedupesPerUser(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := newDedupeTestClient(t, srv.URL, TrackingPluginConfig{})
+
+	exp := &Experiment{Key: "my-experiment", Variations: []FeatureValue{false, true}, HashAttribute: "user_id", HashVersion: 2}
+	user1, err := client.WithAttributes(Attributes{"user_id": "1"})
+	require.NoError(t, err)
+	user2, err := client.WithAttributes(Attributes{"user_id": "2"})
+	require.NoError(t, err)
+	for _, user := range []*Client{user1, user2, user1} {
+		user.EvalFeature(ctx, "feature")
+		user.RunExperiment(ctx, exp)
+	}
+	require.NoError(t, client.Close())
+
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+	for _, name := range []string{EventFeatureEvaluated, EventExperimentViewed} {
+		require.Len(t, byName[name], 2, name)
+		require.Equal(t, "1", byName[name][0]["user_id"], name)
+		require.Equal(t, "2", byName[name][1]["user_id"], name)
+	}
+}
+
+// Feature usage is de-duped per user even when the bucketing unit is none of
+// the payload's identity fields (sdk-js 012752c).
+func TestTrackingPluginDedupesFeatureUsageForAnyBucketingUnit(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := newDedupeTestClient(t, srv.URL, TrackingPluginConfig{})
+
+	for _, spaceId := range []string{"a", "b", "a"} {
+		child, err := client.WithAttributes(Attributes{"spaceId": spaceId})
+		require.NoError(t, err)
+		child.EvalFeature(ctx, "feature")
+	}
+	require.NoError(t, client.Close())
+
+	events := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")[EventFeatureEvaluated]
+	require.Len(t, events, 2)
+	require.Equal(t, map[string]any{"spaceId": "a"}, events[0]["context_json"])
+	require.Equal(t, map[string]any{"spaceId": "b"}, events[1]["context_json"])
+}
+
+// Two users in one account bucket into an account-level experiment
+// together: one exposure for the account, feature usage for each user
+// (sdk-js 012752c).
+func TestTrackingPluginOneExposurePerBucketingUnit(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := newDedupeTestClient(t, srv.URL, TrackingPluginConfig{})
+
+	exp := &Experiment{Key: "my-experiment", Variations: []FeatureValue{false, true}, HashAttribute: "company_id", HashVersion: 2}
+	for _, userId := range []string{"1", "2"} {
+		child, err := client.WithAttributes(Attributes{"user_id": userId, "company_id": "acme"})
+		require.NoError(t, err)
+		child.EvalFeature(ctx, "feature")
+		child.RunExperiment(ctx, exp)
+	}
+	require.NoError(t, client.Close())
+
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+	require.Len(t, byName[EventExperimentViewed], 1)
+	require.Len(t, byName[EventFeatureEvaluated], 2)
+	require.Equal(t, "1", byName[EventFeatureEvaluated][0]["user_id"])
+	require.Equal(t, "2", byName[EventFeatureEvaluated][1]["user_id"])
+}
+
+// DedupeKeyAttributes replaces the default identity for both event types.
+func TestTrackingPluginDedupeKeyAttributes(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := newDedupeTestClient(t, srv.URL, TrackingPluginConfig{DedupeKeyAttributes: []string{"company_id"}})
+
+	for _, attrs := range []Attributes{
+		{"user_id": "1", "company_id": "acme"},
+		{"user_id": "2", "company_id": "acme"},
+		{"user_id": "3", "company_id": "globex"},
+		{"user_id": "4"},
+		{"user_id": "5"},
+	} {
+		child, err := client.WithAttributes(attrs)
+		require.NoError(t, err)
+		child.EvalFeature(ctx, "feature")
+	}
+	require.NoError(t, client.Close())
+
+	events := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")[EventFeatureEvaluated]
+	require.Len(t, events, 3, "one per company_id, and one for users without it")
+	require.Equal(t, "1", events[0]["user_id"])
+	require.Equal(t, "3", events[1]["user_id"])
+	require.Equal(t, "4", events[2]["user_id"])
+}
+
+// A changed feature value is a new event, not a repeat.
+func TestTrackingPluginDedupeValueChange(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := newDedupeTestClient(t, srv.URL, TrackingPluginConfig{})
+
+	client.EvalFeature(ctx, "feature")
+	require.NoError(t, client.SetJSONFeatures(`{"feature": {"defaultValue": false}}`))
+	client.EvalFeature(ctx, "feature")
+	client.EvalFeature(ctx, "feature")
+	require.NoError(t, client.Close())
+
+	events := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")[EventFeatureEvaluated]
+	require.Len(t, events, 2)
+	require.Equal(t, true, events[0]["properties_json"].(map[string]any)["value"])
+	require.Equal(t, false, events[1]["properties_json"].(map[string]any)["value"])
+}
+
+// The cache is an LRU: an evicted event is logged again.
+func TestTrackingPluginDedupeCacheEviction(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := newDedupeTestClient(t, srv.URL, TrackingPluginConfig{DedupeCacheSize: 1})
+
+	for _, id := range []string{"a", "a", "b", "a"} {
+		child, err := client.WithAttributes(Attributes{"id": id})
+		require.NoError(t, err)
+		child.EvalFeature(ctx, "feature")
+	}
+	require.NoError(t, client.Close())
+
+	events := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")[EventFeatureEvaluated]
+	require.Len(t, events, 3)
+	require.Equal(t, []any{"a", "b", "a"}, []any{events[0]["device_id"], events[1]["device_id"], events[2]["device_id"]})
+}
+
+// Concurrent evaluations through child clients log each user's event once.
+func TestTrackingPluginDedupeConcurrent(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := newDedupeTestClient(t, srv.URL, TrackingPluginConfig{})
+
+	var wg sync.WaitGroup
+	for g := 0; g < 16; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 200; i++ {
+				child, err := client.WithAttributes(Attributes{"id": strconv.Itoa(i % 50)})
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				child.EvalFeature(ctx, "feature")
+			}
+		}()
+	}
+	wg.Wait()
+	require.NoError(t, client.Close())
+
+	require.Len(t, eventsByName(t, getRequests(reqs, mu), "sdk-test-key")[EventFeatureEvaluated], 50)
+}
+
+// A negative DedupeCacheSize disables de-duping; custom events are never
+// de-duped.
+func TestTrackingPluginDedupeDisabled(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := newDedupeTestClient(t, srv.URL, TrackingPluginConfig{DedupeCacheSize: -1})
+
+	client.EvalFeature(ctx, "feature")
+	client.EvalFeature(ctx, "feature")
+	client.LogEvent(ctx, "Custom", EventProperties{"k": "v"})
+	client.LogEvent(ctx, "Custom", EventProperties{"k": "v"})
+	require.NoError(t, client.Close())
+
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+	require.Len(t, byName[EventFeatureEvaluated], 2)
+	require.Len(t, byName["Custom"], 2)
 }

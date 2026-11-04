@@ -155,11 +155,23 @@ The plugin batches events and sends them in the background. Configuration option
 | `BatchTimeout` | `10s` | Max wait time before auto-flush |
 | `HTTPClient` | Client's HTTP client | Custom HTTP client for sending events |
 | `Logger` | Client's logger | Custom logger for error reporting |
+| `DedupeCacheSize` | `1000` | Recent events remembered to drop repeats; negative disables |
+| `DedupeKeyAttributes` | none | Attributes that identify a user when de-duping |
 
 Events tracked automatically (standard GrowthBook event names, shared with
 the JS SDK):
 - **`Experiment Viewed`** — when a user is bucketed into an experiment
-- **`Feature Evaluated`** — every time a feature flag is evaluated
+- **`Feature Evaluated`** — when a feature flag is evaluated
+
+Like the JS plugin, repeats are dropped: an `Experiment Viewed` event is sent
+once per experiment, variation and bucketing unit (hash attribute value), and
+a `Feature Evaluated` event once per feature value and user. Without
+`DedupeKeyAttributes`, a user is identified by all of the evaluating client's
+attributes, so identical evaluations by different child clients are all
+sent. If attributes hold per-request values (request IDs, timestamps), set
+`DedupeKeyAttributes` to the stable ones (e.g. `[]string{"id"}`) — otherwise
+every evaluation counts as new. Only a hash of each event is kept in memory,
+not attribute values.
 
 Events are sent in the ingestor's standard `EventPayload` shape (`POST
 {IngestorHost}/track?client_key=...` with a JSON array), carrying the
