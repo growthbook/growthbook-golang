@@ -12,23 +12,30 @@ type savedGroupCond struct {
 }
 
 func (c savedGroupCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
+	return c.eval3(actual, groups, visited) == pass
+}
+
+func (c savedGroupCond) eval3(actual value.Value, groups SavedGroups, visited visitedGroups) result {
 	group, ok := groups[c.id].(savedGroup)
 	if !ok || group.cond == nil {
-		return false
+		return fail
 	}
 	for _, id := range visited {
 		if id == c.id {
-			return false
+			return fail
 		}
+	}
+	if group.newType {
+		return unknown
 	}
 	// Each caller retains its slice length, so siblings do not inherit this ID.
 	next := append(visited, c.id)
 	// Overrides apply only to lists, without modifying the shared definition.
 	if c.overridePath != nil && group.membership != nil {
-		return (savedGroupListCond{path: c.overridePath, membership: *group.membership}).Eval(actual, groups, next)
+		return resultOf((savedGroupListCond{path: c.overridePath, membership: *group.membership}).Eval(actual, groups, next))
 	}
 	// The group's list/condition evaluator was selected when the payload loaded.
-	return group.cond.Eval(actual, groups, next)
+	return eval3(group.cond, actual, groups, next)
 }
 
 // savedGroupListCond evaluates a v2 list group by looking up its attribute path

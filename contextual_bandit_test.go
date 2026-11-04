@@ -278,6 +278,26 @@ func TestContextualBanditRobustness(t *testing.T) {
 		require.Equal(t, []float64{0.5, 0.5}, res.ExperimentResult.VariationWeights)
 	})
 
+	t.Run("a malformed condition part aborts leaf selection only when reached", func(t *testing.T) {
+		// As in the JS SDK, where the condition throws only when evaluation
+		// reaches the malformed branch.
+		defs := `{
+			"cb-1": {"contexts": [
+				{"leafId": 10, "condition": {"$or": [{"country": "us"}, {"$not": null}]}, "weights": [1, 0]},
+				{"leafId": 20, "condition": {}, "weights": [0, 1]}
+			]}
+		}`
+		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
+			WithContextualBandits(mustBanditDefs(t, defs)))
+		res := client.EvalFeature(ctx, "bandit-flag")
+		require.Equal(t, 10, *res.ExperimentResult.LeafId, "the passing branch decides before the malformed one")
+
+		client = newBanditTestClient(t, Attributes{"id": "u1", "country": "nz"},
+			WithContextualBandits(mustBanditDefs(t, defs)))
+		res = client.EvalFeature(ctx, "bandit-flag")
+		require.Equal(t, -1, *res.ExperimentResult.LeafId, "reaching the malformed branch falls back")
+	})
+
 	t.Run("a junk banditVersion is omitted without dropping the definition", func(t *testing.T) {
 		client := newBanditTestClient(t, Attributes{"id": "u1", "country": "us"},
 			WithContextualBandits(mustBanditDefs(t, `{

@@ -16,8 +16,15 @@ func NewNotInGroupCond(group string) Condition {
 }
 
 func (c InGroupCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
+	return c.eval3(actual, groups, visited) == pass
+}
+
+func (c InGroupCond) eval3(actual value.Value, groups SavedGroups, visited visitedGroups) result {
+	if isNewGroupType(groups, c.group) {
+		return unknown
+	}
 	membership, ok := savedGroupMembership(groups, c.group)
-	return ok && membership.Eval(actual, groups, visited)
+	return resultOf(ok && membership.Eval(actual, groups, visited))
 }
 
 type notInGroupCond struct {
@@ -25,8 +32,20 @@ type notInGroupCond struct {
 }
 
 func (c notInGroupCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
+	return c.eval3(actual, groups, visited) == pass
+}
+
+func (c notInGroupCond) eval3(actual value.Value, groups SavedGroups, visited visitedGroups) result {
+	if isNewGroupType(groups, c.group) {
+		return unknown
+	}
 	membership, ok := savedGroupMembership(groups, c.group)
-	return ok && !membership.Eval(actual, groups, visited)
+	return resultOf(ok && !membership.Eval(actual, groups, visited))
+}
+
+func isNewGroupType(groups SavedGroups, id string) bool {
+	group, ok := groups[id].(savedGroup)
+	return ok && group.newType
 }
 
 func savedGroupMembership(groups SavedGroups, id string) (InCond, bool) {
