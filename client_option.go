@@ -5,6 +5,7 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -139,6 +140,29 @@ func WithQaMode(qaMode bool) ClientOption {
 func WithHttpClient(httpClient *http.Client) ClientOption {
 	return func(c *Client) error {
 		c.data.httpClient = httpClient
+		return nil
+	}
+}
+
+// WithRetryPolicy sets the bounded exponential backoff used when fetching
+// features from the API. Default is DefaultRetryPolicy().
+func WithRetryPolicy(policy RetryPolicy) ClientOption {
+	return func(c *Client) error {
+		if err := policy.validate(); err != nil {
+			return err
+		}
+		c.data.retryPolicy = policy
+		return nil
+	}
+}
+
+// WithBackgroundFetchInterval sets the minimum time between non-forced
+// fetches: polling and RefreshFeatures skip the fetch while the last
+// successful one is newer. RefreshFeaturesWithMode(ctx, RefreshForce) always
+// fetches. Non-positive values disable the check, which is the default.
+func WithBackgroundFetchInterval(interval time.Duration) ClientOption {
+	return func(c *Client) error {
+		c.data.backgroundFetchInterval = interval
 		return nil
 	}
 }
