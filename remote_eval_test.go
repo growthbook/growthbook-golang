@@ -882,3 +882,51 @@ func TestRemoteEvalLazyLoadsDoNotReportToTheRefreshHandler(t *testing.T) {
 	client.EvalFeature(ctx, "exp-flag")
 	require.Zero(t, calls)
 }
+
+func TestRemoteEvalRefreshDiscardedForANewerLoadReportsNotModified(t *testing.T) {
+	// The first request (the refresh) is held until released; any later
+	// request (an ordinary load) is answered at once with newer features.
+	var count atomic.Int32
+	started := make(chan struct{})
+	release := make(chan struct{})
+	releaseOnce := releaser(release)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if count.Add(1) == 1 {
+			close(started)
+			<-release
+			_, _ = w.Write([]byte(`{"features":{"feat":{"defaultValue":"older"}},"dateUpdated":"2026-01-01T00:00:00Z"}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"features":{"feat":{"defaultValue":"newer"}},"dateUpdated":"2026-01-02T00:00:00Z"}`))
+	}))
+	defer srv.Close()
+	defer releaseOnce()
+
+	var results []RefreshResult
+	client := newRemoteEvalClient(t, &testServer{http: srv},
+		WithAttributes(Attributes{"id": "1"}),
+		WithFeaturesRefreshHandler(func(_ context.Context, r RefreshResult) { results = append(results, r) }))
+
+	done := make(chan error, 1)
+	go func() { done <- client.RefreshFeatures(context.Background()) }()
+	<-started
+
+	// The load starts after the refresh and caches its newer features first
+	require.NoError(t, client.EnsureLoaded(ctx))
+	require.Equal(t, "newer", client.EvalFeature(ctx, "feat").Value)
+
+	releaseOnce()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		require.Fail(t, "the refresh never finished")
+	}
+
+	// The refresh response was discarded: nothing was applied
+	require.Equal(t, "newer", client.EvalFeature(ctx, "feat").Value)
+	require.Len(t, results, 1)
+	require.True(t, results[0].NotModified)
+	require.False(t, results[0].Updated)
+	require.True(t, results[0].DateUpdated.IsZero())
+}

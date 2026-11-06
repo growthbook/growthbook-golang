@@ -60,8 +60,11 @@ type data struct {
 // the same key while it is in flight. done is closed once features and err are
 // set; they are read-only afterwards.
 type remoteEvalCall struct {
-	done        chan struct{}
-	features    FeatureMap
+	done     chan struct{}
+	features FeatureMap
+	// stored is whether the fetched response was cached, rather than
+	// discarded for newer features a later-started request already cached
+	stored      bool
 	dateUpdated time.Time
 	err         error
 }
@@ -172,12 +175,13 @@ func (d *data) getRemoteEval(key string) (*remoteEvalEntry, bool) {
 }
 
 // setRemoteEval stores features fetched by request seq under key as the most
-// recently fetched entry, and returns the features now cached for key. A
-// response from a request that started before the cached entry's request is
-// discarded, so the newer cached features are returned instead. When
+// recently fetched entry, and returns the features now cached for key and
+// whether it stored them. A response from a request that started before the
+// cached entry's request is discarded, so the newer cached features are
+// returned instead, and stored is false. When
 // maxSize > 0 the oldest-fetched entries are evicted to keep the cache bounded.
 // Reads do not affect eviction order.
-func (d *data) setRemoteEval(key string, features FeatureMap, seq uint64, maxSize int) FeatureMap {
+func (d *data) setRemoteEval(key string, features FeatureMap, seq uint64, maxSize int) (FeatureMap, bool) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.remoteEvalCache == nil {
@@ -186,14 +190,14 @@ func (d *data) setRemoteEval(key string, features FeatureMap, seq uint64, maxSiz
 	}
 	if elem, ok := d.remoteEvalCache[key]; ok {
 		if cached := elem.Value.(*remoteEvalEntry); cached.seq > seq {
-			return cached.features
+			return cached.features, false
 		}
 		// Replace the pointer instead of mutating in place: getRemoteEval hands
 		// the entry to callers that read it after releasing the RLock, so the
 		// entry must be an immutable snapshot.
 		elem.Value = &remoteEvalEntry{key: key, features: features, fetchedAt: d.now(), seq: seq}
 		d.remoteEvalOrder.MoveToFront(elem)
-		return features
+		return features, true
 	}
 	elem := d.remoteEvalOrder.PushFront(&remoteEvalEntry{key: key, features: features, fetchedAt: d.now(), seq: seq})
 	d.remoteEvalCache[key] = elem
@@ -207,7 +211,7 @@ func (d *data) setRemoteEval(key string, features FeatureMap, seq uint64, maxSiz
 		d.remoteEvalOrder.Remove(back)
 		delete(d.remoteEvalCache, evicted.key)
 	}
-	return features
+	return features, true
 }
 
 func (d *data) getDsStartErr() error {
