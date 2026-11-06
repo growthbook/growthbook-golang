@@ -85,11 +85,127 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 		}
 	}
 
+	// Seed features from the cache before starting the data source so they are
+	// available immediately and survive an initial API failure (offline
+	// resilience).
+	client.seedFromCache(ctx)
+
 	if client.data.dataSource != nil {
 		go client.startDataSource(ctx)
 	}
 
 	return client, nil
+}
+
+// seedFromCache populates features from the configured FeatureCache when the
+// client has no features yet, parsing the stored raw payload through the normal
+// update path. It is a no-op when no cache is configured or features are already
+// set (so an inline WithFeatures is respected).
+func (client *Client) seedFromCache(ctx context.Context) {
+	cache := client.data.getFeatureCache()
+	if cache == nil || client.data.getFeatures() != nil {
+		return
+	}
+	entry, found, err := cache.Get(ctx, client.data.cacheKey())
+	if err != nil {
+		client.logger.WarnContext(ctx, "Feature cache read failed on startup, continuing without it", "error", err)
+		return
+	}
+	if !found || entry == nil || len(entry.Payload) == 0 {
+		return
+	}
+	var resp FeatureApiResponse
+	if err := json.Unmarshal(entry.Payload, &resp); err != nil {
+		client.logger.WarnContext(ctx, "Failed to parse cached features", "error", err)
+		return
+	}
+	resp.raw = entry.Payload
+	resp.Etag = entry.Etag
+	d := client.data
+	d.updateMu.Lock()
+	defer d.updateMu.Unlock()
+	// Apply without writing back: a seed must not refresh a TTL backend's expiry.
+	applied, _, err := client.applyApiResponseData(&resp)
+	if err != nil {
+		client.logger.WarnContext(ctx, "Failed to seed features from cache", "error", err)
+		return
+	}
+	if applied == nil {
+		return
+	}
+	// Start the cache snapshot from the seed, so later partial updates merge
+	// into what the cache already holds.
+	d.cacheSnapshot = mergeCacheSnapshot(nil, client.rawSections(ctx, resp.raw), *applied)
+	d.cacheEtag = entry.Etag
+	// Record the etag we actually seeded with so the poll data source can issue a
+	// conditional first request. Only set when the cache was adopted, so inline
+	// features (WithFeatures) never reuse an unrelated cached etag.
+	d.withLock(func(d *data) error {
+		d.seededEtag = entry.Etag
+		return nil
+	})
+}
+
+// writeCache merges the sections an accepted response applied into the cache
+// snapshot and persists it. The latest known etag is kept when this response
+// carries none (e.g. SSE events), so conditional requests still work after a
+// restart. The snapshot is written only once it holds features. The caller
+// must hold updateMu.
+func (client *Client) writeCache(ctx context.Context, resp *FeatureApiResponse, applied appliedSections) {
+	cache := client.data.getFeatureCache()
+	if cache == nil {
+		return
+	}
+	d := client.data
+	if resp.Etag != "" {
+		d.cacheEtag = resp.Etag
+	}
+	d.cacheSnapshot = mergeCacheSnapshot(d.cacheSnapshot, client.rawSections(ctx, resp.raw), applied)
+	if !snapshotHasFeatures(d.cacheSnapshot) {
+		return
+	}
+	payload, err := json.Marshal(d.cacheSnapshot)
+	if err != nil {
+		client.logger.WarnContext(ctx, "Failed to encode features for cache", "error", err)
+		return
+	}
+	// The client's dateUpdated is the one this update just applied, which is
+	// also the dateUpdated the snapshot carries (or zero when it has none).
+	entry := &FeatureCacheEntry{
+		Payload:     payload,
+		Etag:        d.cacheEtag,
+		DateUpdated: d.getDateUpdated(),
+		UpdatedAt:   time.Now().UTC(),
+	}
+	if err := cache.Set(ctx, client.data.cacheKey(), entry); err != nil {
+		client.logger.WarnContext(ctx, "Failed to write features to cache", "error", err)
+	}
+}
+
+// rawSections splits a raw payload into its top-level sections, or returns nil
+// when there is none to split (e.g. a response passed to UpdateFromApiResponse).
+func (client *Client) rawSections(ctx context.Context, raw json.RawMessage) map[string]json.RawMessage {
+	if len(raw) == 0 {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		client.logger.WarnContext(ctx, "Failed to split payload for cache", "error", err)
+		return nil
+	}
+	return fields
+}
+
+// setDirectly applies sections set through the Set* methods rather than from
+// an API payload. They have no raw form to cache, so they are dropped from the
+// cache snapshot: the cache never pairs stale copies of them with newer
+// sections, and is not written again until a payload supplies features.
+func (client *Client) setDirectly(sections appliedSections, update dataUpdate) {
+	d := client.data
+	d.updateMu.Lock()
+	defer d.updateMu.Unlock()
+	d.withLock(update)
+	d.cacheSnapshot = mergeCacheSnapshot(d.cacheSnapshot, nil, sections)
 }
 
 // Close client's background goroutines and plugins.
@@ -126,7 +242,7 @@ func defaultClient() *Client {
 
 // SetFeatures updates shared client features.
 func (client *Client) SetFeatures(features FeatureMap) error {
-	client.data.withLock(func(d *data) error {
+	client.setDirectly(appliedSections{features: true}, func(d *data) error {
 		d.features = features
 		// Go values carry no payload JSON to reduce
 		d.payloadJSON = nil
@@ -137,7 +253,7 @@ func (client *Client) SetFeatures(features FeatureMap) error {
 
 // SetContextualBandits updates the shared contextual bandit definitions.
 func (client *Client) SetContextualBandits(bandits ContextualBanditDefinitions) error {
-	client.data.withLock(func(d *data) error {
+	client.setDirectly(appliedSections{bandits: true}, func(d *data) error {
 		d.contextualBandits = bandits
 		d.banditsFromCode = true
 		return nil
@@ -181,18 +297,38 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 	return client.SetJSONFeatures(featuresJSON)
 }
 
-// applyApiResponse applies an API response to the shared client data. It
-// reports whether anything was applied and the dateUpdated the client holds
-// afterwards: the response's own timestamp when it was applied, and the
-// currently stored one when it was not, so a refresh handler never publishes a
-// timestamp the client did not adopt.
-func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Time, error) {
+// applyApiResponse applies an API response to the shared client data and
+// writes through to the feature cache, using ctx for the cache backend.
+// Updates are serialized with their cache writes, so accepted responses reach
+// the cache in order and a rejected one never reaches it. It reports whether
+// anything was applied and the dateUpdated the client holds afterwards: the
+// response's own timestamp when it was applied, and the currently stored one
+// when it was not, so a refresh handler never publishes a timestamp the client
+// did not adopt.
+func (client *Client) applyApiResponse(ctx context.Context, resp *FeatureApiResponse) (bool, time.Time, error) {
+	client.data.updateMu.Lock()
+	defer client.data.updateMu.Unlock()
+	sections, dateUpdated, err := client.applyApiResponseData(resp)
+	if err != nil || sections == nil {
+		return false, dateUpdated, err
+	}
+	client.writeCache(ctx, resp, *sections)
+	return sections.features || sections.savedGroups || sections.bandits, dateUpdated, nil
+}
+
+// applyApiResponseData updates the client's shared data from an API response
+// without writing through to the feature cache. Seeding uses this so a cache
+// read never turns into a cache write (which would refresh a TTL backend's
+// expiry). It reports which sections it applied, or nil when it rejected an
+// older response, and the dateUpdated the client holds afterwards. The caller
+// must hold updateMu.
+func (client *Client) applyApiResponseData(resp *FeatureApiResponse) (*appliedSections, time.Time, error) {
 	dataUpdated := client.data.getDateUpdated()
 	apiUpdated := resp.DateUpdated
 	if apiUpdated.Before(dataUpdated) {
 		client.logger.Warn("Api response is older then current data, refuse to update",
 			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
-		return false, dataUpdated, nil
+		return nil, dataUpdated, nil
 	}
 	// Section-presence semantics (Python setPayload parity): a partial
 	// payload — e.g. a bandit-only update — must never wipe sections it did
@@ -206,7 +342,7 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 	if resp.EncryptedFeatures != "" {
 		features, err = client.DecryptFeatures(resp.EncryptedFeatures)
 		if err != nil {
-			return false, dataUpdated, err
+			return nil, dataUpdated, err
 		}
 		featuresPresent = true
 	} else if resp.Features != nil {
@@ -233,7 +369,7 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 	// Direct callers may supply native Go definitions instead of decoded JSON.
 	savedGroups, err = savedGroups.Normalize()
 	if err != nil {
-		return false, dataUpdated, err
+		return nil, dataUpdated, err
 	}
 	savedGroupsPresent := savedGroups != nil
 	// Section-presence semantics: an absent contextualBandits section
@@ -276,7 +412,7 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 		if savedGroupsPresent {
 			groupsJSON, err := savedGroups.JSONValue()
 			if err != nil {
-				return false, dataUpdated, err
+				return nil, dataUpdated, err
 			}
 			payloadJSON["savedGroups"] = groupsJSON
 		}
@@ -308,20 +444,28 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
-	return applied, resp.DateUpdated, nil
+	return &appliedSections{
+		features:    featuresPresent,
+		savedGroups: savedGroupsPresent,
+		bandits:     banditsPresent,
+	}, resp.DateUpdated, nil
 }
 
-func (client *Client) applyApiResponseJSON(respJSON string) (bool, time.Time, error) {
+// applyApiResponseJSON parses and applies a JSON API response, using ctx for
+// the cache backend so data sources can cancel a stalled write.
+func (client *Client) applyApiResponseJSON(ctx context.Context, respJSON string) (bool, time.Time, error) {
 	var resp FeatureApiResponse
 	if err := json.Unmarshal([]byte(respJSON), &resp); err != nil {
 		return false, client.data.getDateUpdated(), err
 	}
-	return client.applyApiResponse(&resp)
+	// Preserve the raw payload so it can be persisted verbatim to the cache.
+	resp.raw = json.RawMessage(respJSON)
+	return client.applyApiResponse(ctx, &resp)
 }
 
 // UpdateFromApiResponse updates shared data from Growthbook API response
 func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
-	_, _, err := client.applyApiResponse(resp)
+	_, _, err := client.applyApiResponse(context.Background(), resp)
 	return err
 }
 
@@ -392,7 +536,7 @@ func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
 }
 
 func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
-	_, _, err := client.applyApiResponseJSON(respJSON)
+	_, _, err := client.applyApiResponseJSON(context.Background(), respJSON)
 	return err
 }
 
@@ -409,7 +553,7 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 	// sections, so a bandit-only or saved-groups-only response updates just
 	// what it carries. (An early return on absent features predated that
 	// gating and left manual-mode clients with stale bandit definitions.)
-	applied, dateUpdated, err := client.applyApiResponse(resp)
+	applied, dateUpdated, err := client.applyApiResponse(ctx, resp)
 	client.notifyRefreshOutcome(ctx, RefreshSourceManual, applied, dateUpdated, err)
 	return err
 }
