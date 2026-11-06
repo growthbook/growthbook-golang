@@ -129,7 +129,7 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 		return nil
 	}
 
-	applied, dateUpdated, err := ds.client.applyApiResponse(resp)
+	applied, dateUpdated, err := ds.client.applyApiResponse(ctx, resp)
 	ds.client.notifyRefreshOutcome(ctx, RefreshSourcePoll, applied, dateUpdated, err)
 	return err
 }

@@ -86,6 +86,7 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	}
 
 	if client.data.dataSource != nil {
+		client.data.refreshSubscribers.holdUntilStarted()
 		go client.startDataSource(ctx)
 	}
 
@@ -186,7 +187,7 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 // afterwards: the response's own timestamp when it was applied, and the
 // currently stored one when it was not, so a refresh handler never publishes a
 // timestamp the client did not adopt.
-func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Time, error) {
+func (client *Client) applyApiResponse(ctx context.Context, resp *FeatureApiResponse) (bool, time.Time, error) {
 	dataUpdated := client.data.getDateUpdated()
 	apiUpdated := resp.DateUpdated
 	if apiUpdated.Before(dataUpdated) {
@@ -308,20 +309,28 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
+
+	// Subscribers hear about applied payloads only: a response that changed no
+	// definitions - only dateUpdated, or only a section that could not be
+	// decoded - must not make them clear caches or publish an update.
+	if applied {
+		client.notifyFeatureRefreshSubscribers(ctx, resp)
+	}
+
 	return applied, resp.DateUpdated, nil
 }
 
-func (client *Client) applyApiResponseJSON(respJSON string) (bool, time.Time, error) {
+func (client *Client) applyApiResponseJSON(ctx context.Context, respJSON string) (bool, time.Time, error) {
 	var resp FeatureApiResponse
 	if err := json.Unmarshal([]byte(respJSON), &resp); err != nil {
 		return false, client.data.getDateUpdated(), err
 	}
-	return client.applyApiResponse(&resp)
+	return client.applyApiResponse(ctx, &resp)
 }
 
-// UpdateFromApiResponse updates shared data from Growthbook API response
+// UpdateFromApiResponse applies a feature payload to the client.
 func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
-	_, _, err := client.applyApiResponse(resp)
+	_, _, err := client.applyApiResponse(context.Background(), resp)
 	return err
 }
 
@@ -391,8 +400,9 @@ func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
 	return features, err
 }
 
+// UpdateFromApiResponseJSON applies a feature payload, given as the raw API response JSON.
 func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
-	_, _, err := client.applyApiResponseJSON(respJSON)
+	_, _, err := client.applyApiResponseJSON(context.Background(), respJSON)
 	return err
 }
 
@@ -409,7 +419,7 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 	// sections, so a bandit-only or saved-groups-only response updates just
 	// what it carries. (An early return on absent features predated that
 	// gating and left manual-mode clients with stale bandit definitions.)
-	applied, dateUpdated, err := client.applyApiResponse(resp)
+	applied, dateUpdated, err := client.applyApiResponse(ctx, resp)
 	client.notifyRefreshOutcome(ctx, RefreshSourceManual, applied, dateUpdated, err)
 	return err
 }
