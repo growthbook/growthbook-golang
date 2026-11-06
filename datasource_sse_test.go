@@ -638,3 +638,77 @@ func TestSseKeepsRetryingTheInitialLoadAfterAnEventWithoutFeatures(t *testing.T)
 		3*time.Second, 20*time.Millisecond,
 		"an update that carried no features must not count as the initial load having landed")
 }
+
+// featuresServer answers the features API from responses in turn, repeating the last one, behind a
+// stream that stays quiet.
+func featuresServer(t *testing.T, apiCalls *atomic.Int32, responses ...func(w http.ResponseWriter)) *httptest.Server {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/features/somekey":
+			n := int(apiCalls.Add(1))
+			responses[min(n, len(responses))-1](w)
+		case "/sub/somekey":
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.(http.Flusher).Flush()
+			<-r.Context().Done()
+		}
+	}))
+	t.Cleanup(server.Close)
+	return server
+}
+
+func failWith500(w http.ResponseWriter) { w.WriteHeader(http.StatusInternalServerError) }
+
+func respondWith(body string) func(w http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		w.Header().Add("x-sse-support", "enabled")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(body))
+	}
+}
+
+const savedGroupsOnly = `{"savedGroups":{"admins":["user-1"]}}`
+
+func TestSseKeepsRetryingTheInitialLoadAfterAResponseWithoutFeatures(t *testing.T) {
+	var apiCalls atomic.Int32
+	server := featuresServer(t, &apiCalls,
+		failWith500,
+		respondWith(savedGroupsOnly),
+		respondWith(`{"features":{"feature":{"defaultValue":1}}}`),
+	)
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.URL),
+		WithClientKey("somekey"),
+		WithSseDataSource(WithSseMaxRetryInterval(300*time.Millisecond)),
+	)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	require.Eventually(t, func() bool { return client.EvalFeature(ctx, "feature").Value != nil },
+		5*time.Second, 20*time.Millisecond,
+		"a retry that succeeded without features must not end the retries")
+	require.GreaterOrEqual(t, apiCalls.Load(), int32(3))
+}
+
+func TestSseRetriesAFirstLoadThatSucceededWithoutFeatures(t *testing.T) {
+	var apiCalls atomic.Int32
+	server := featuresServer(t, &apiCalls,
+		respondWith(savedGroupsOnly),
+		respondWith(`{"features":{"feature":{"defaultValue":1}}}`),
+	)
+
+	client, err := NewClient(ctx,
+		WithApiHost(server.URL),
+		WithClientKey("somekey"),
+		WithSseDataSource(WithSseMaxRetryInterval(300*time.Millisecond)),
+	)
+	require.NoError(t, err)
+	defer func() { _ = client.Close() }()
+
+	require.Eventually(t, func() bool { return client.EvalFeature(ctx, "feature").Value != nil },
+		5*time.Second, 20*time.Millisecond,
+		"a first load without features must start the retries")
+}

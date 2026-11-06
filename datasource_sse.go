@@ -45,6 +45,9 @@ const defaultMaxRetryInterval = 30 * time.Second
 // features it carried have still been applied by the time this is returned.
 var errSseUnsupported = errors.New("sse is not supported")
 
+// errNoFeaturesLoaded reports, for the retry log, a load that succeeded without a features section.
+var errNoFeaturesLoaded = errors.New("response carried no features")
+
 func WithSseDataSource(opts ...SseOption) ClientOption {
 	return func(c *Client) error {
 		ds := newSseDataSource(c)
@@ -74,7 +77,8 @@ func (ds *SseDataSource) Start(ctx context.Context) error {
 
 	err := ds.loadData(ctx)
 
-	if err == nil {
+	loaded := ds.hasLoaded()
+	if loaded {
 		ds.logger.InfoContext(ctx, "First load finished")
 	}
 
@@ -84,9 +88,10 @@ func (ds *SseDataSource) Start(ctx context.Context) error {
 
 	// The stream carries updates only, and a reload happens on reconnect alone, so a connection
 	// that succeeds on the first try leaves the client empty until the next feature change -
-	// hours, on a stable set of flags. Retry the initial load on its own. A load that delivered
-	// features before failing (an SSE-less host) needs no retry.
-	if err != nil && !ds.hasLoaded() {
+	// hours, on a stable set of flags. Retry the initial load on its own until features land: a
+	// response that succeeded without them (saved groups or bandits only) leaves the client just as
+	// empty. A load that delivered features before failing (an SSE-less host) needs no retry.
+	if !loaded {
 		go ds.retryFirstLoad(ctx)
 	}
 
@@ -111,11 +116,12 @@ func (ds *SseDataSource) Close() error {
 	return nil
 }
 
-// retryFirstLoad reloads the features until one attempt lands, backing off between them. It stops as
-// soon as any other path - a reconnect's reload, or a features event - has filled the client data,
-// and gives up on a response the host will never answer differently.
+// retryFirstLoad reloads the features until an attempt applies them, backing off between them. A
+// response without a features section - saved groups or bandits only - is not enough, however
+// successful. It stops as soon as any other path - a reconnect's reload, or a features event - has
+// filled the client data, and gives up on a response the host will never answer differently.
 func (ds *SseDataSource) retryFirstLoad(ctx context.Context) {
-	failures := 1 // Start's own attempt already failed.
+	failures := 1 // Start's own attempt did not load features.
 
 	timer := time.NewTimer(sseRetryDelay(ds.maxRetryInterval, failures))
 	defer timer.Stop()
@@ -132,9 +138,14 @@ func (ds *SseDataSource) retryFirstLoad(ctx context.Context) {
 		}
 
 		err := ds.loadData(ctx)
-		if err == nil {
+		if ds.hasLoaded() {
+			// Also after errSseUnsupported: the features it carried were applied first.
 			ds.logger.InfoContext(ctx, "First load finished")
 			return
+		}
+
+		if err == nil {
+			err = errNoFeaturesLoaded
 		}
 
 		if errors.Is(err, context.Canceled) {
@@ -183,7 +194,8 @@ func sseRetryDelay(max time.Duration, failures int) time.Duration {
 
 // markLoadedIfFeatures records that the initial load has landed, once an applied payload carried a
 // features section. A bandit- or saved-groups-only update leaves the features absent, so it must not
-// stop retryFirstLoad.
+// stop retryFirstLoad. Call it only for a payload applyApiResponse applied: one refused as older
+// than the current data never stored its features.
 func (ds *SseDataSource) markLoadedIfFeatures(resp *FeatureApiResponse) {
 	if resp.Features == nil && resp.EncryptedFeatures == "" {
 		return
@@ -253,7 +265,7 @@ func (ds *SseDataSource) processEvent(ctx context.Context, event sse.Event) {
 		ds.logger.Error("Error updating features", "error", err)
 	}
 	ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, applied, dateUpdated, err)
-	if err != nil {
+	if err != nil || !applied {
 		return
 	}
 	ds.markLoadedIfFeatures(&resp)
@@ -286,7 +298,9 @@ func (ds *SseDataSource) loadData(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	ds.markLoadedIfFeatures(resp)
+	if applied {
+		ds.markLoadedIfFeatures(resp)
+	}
 
 	if !resp.SseSupport {
 		return errSseUnsupported
