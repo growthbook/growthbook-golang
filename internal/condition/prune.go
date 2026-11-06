@@ -165,8 +165,9 @@ func pruneList(attrs value.ObjValue, v any, groups SavedGroups, visited visitedG
 }
 
 // pruneSavedGroup resolves a $savedGroup reference like savedGroupCond, but
-// returns nil for a list group whose attribute is unknown, and the pruned
-// condition of a condition group. Anything unrecognized matches nobody.
+// returns nil for a list group whose attribute is unknown or a remote group
+// while __gb_remoteGroupIds is unknown, and the pruned condition of a
+// condition group. Anything unrecognized matches nobody.
 func pruneSavedGroup(attrs value.ObjValue, ref any, groups SavedGroups, visited visitedGroups) (any, error) {
 	reference, ok := ref.(map[string]any)
 	if !ok {
@@ -221,6 +222,15 @@ func pruneSavedGroup(attrs value.ObjValue, ref any, groups SavedGroups, visited 
 		}
 		// Each caller retains its slice length, so siblings do not inherit this ID.
 		return pruneEntries(attrs, cond, groups, append(visited, id))
+	case "remote":
+		// Another attribute needs a derived group, which isn't supported yet
+		if key, _ := attributeKey.(string); overridden && (group.attributeKey == nil || key != *group.attributeKey) {
+			return false, nil
+		}
+		if !isKnown(attrs, RemoteGroupIDsAttribute) {
+			return nil, nil
+		}
+		return hasRemoteGroupID(attrs[RemoteGroupIDsAttribute], id), nil
 	}
 	return false, nil
 }

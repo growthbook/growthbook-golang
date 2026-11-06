@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
@@ -34,6 +35,31 @@ type data struct {
 	// values, which payloadJSON doesn't hold
 	savedGroupsFromCode bool
 	banditsFromCode     bool
+
+	// remoteGroups are the saved groups' remote groups, listed once per
+	// payload; savedGroupsVersion counts saved group updates, so a lookup can
+	// tell the payload changed while it ran
+	remoteGroups       []condition.RemoteGroup
+	savedGroupsVersion uint64
+	// warnedMissingRemoteGroupIDs is set once the missing ids warning is
+	// logged, for the client and all its children
+	warnedMissingRemoteGroupIDs atomic.Bool
+}
+
+// setSavedGroups replaces the saved groups. Call it with the lock held, or
+// before the client is shared.
+func (d *data) setSavedGroups(groups condition.SavedGroups) {
+	d.savedGroups = groups
+	d.remoteGroups = groups.RemoteGroups()
+	d.savedGroupsVersion++
+}
+
+// getRemoteGroups returns the payload's remote saved groups and the saved
+// groups version they belong to
+func (d *data) getRemoteGroups() ([]condition.RemoteGroup, uint64) {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.remoteGroups, d.savedGroupsVersion
 }
 
 func newData() *data {
@@ -59,10 +85,18 @@ func (d *data) getFeatures() FeatureMap {
 // getReducibleJSON returns the payload JSON that ReducePayload reduces: the
 // stored JSON, with the saved groups and contextual bandits set from Go values
 // in place of its sections, since evaluation uses those. It's nil when the
-// features were set from Go values.
-func (d *data) getReducibleJSON() (map[string]any, error) {
+// features were set from Go values. It also returns the payload's remote
+// groups and saved groups version, read under the same lock, so remote group
+// ids can be checked against the payload being reduced.
+func (d *data) getReducibleJSON() (map[string]any, []condition.RemoteGroup, uint64, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+	payload, err := d.reducibleJSON()
+	return payload, d.remoteGroups, d.savedGroupsVersion, err
+}
+
+// reducibleJSON is getReducibleJSON without the lock
+func (d *data) reducibleJSON() (map[string]any, error) {
 	if d.payloadJSON == nil {
 		return nil, nil
 	}

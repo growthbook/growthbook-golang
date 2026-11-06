@@ -19,21 +19,27 @@ import (
 )
 
 type cases struct {
-	EvalCondition          JsonTuples[evalConditionCase]          `json:"evalCondition"`
-	ChooseVariation        JsonTuples[chooseVariationCase]        `json:"chooseVariation"`
-	Hash                   JsonTuples[hashCase]                   `json:"hash"`
-	Run                    JsonTuples[runCase]                    `json:"run"`
-	Feature                JsonTuples[featureCase]                `json:"feature"`
-	GetBucketRange         JsonTuples[getBucketRangeCase]         `json:"getBucketRange"`
-	GetQueryStringOverride JsonTuples[getQueryStringOverrideCase] `json:"getQueryStringOverride"`
-	InNamespace            JsonTuples[inNamespaceCase]            `json:"inNamespace"`
-	GetEqualWeights        JsonTuples[getEqualWeightsCase]        `json:"getEqualWeights"`
-	Decrypt                JsonTuples[decryptCase]                `json:"decrypt"`
-	StickyBucket           JsonTuples[stickyBucketTestCase]       `json:"stickyBucket"`
-	ContextualBandit       JsonTuples[featureCase]                `json:"contextualBandit"`
-	SavedGroupReferencesV2 savedGroupReferencesV2Cases            `json:"savedGroupReferencesV2"`
-	PruneCondition         JsonTuples[pruneConditionCase]         `json:"pruneCondition"`
-	ReducePayload          JsonTuples[reducePayloadCase]          `json:"reducePayload"`
+	EvalCondition              JsonTuples[evalConditionCase]          `json:"evalCondition"`
+	ChooseVariation            JsonTuples[chooseVariationCase]        `json:"chooseVariation"`
+	Hash                       JsonTuples[hashCase]                   `json:"hash"`
+	Run                        JsonTuples[runCase]                    `json:"run"`
+	Feature                    JsonTuples[featureCase]                `json:"feature"`
+	GetBucketRange             JsonTuples[getBucketRangeCase]         `json:"getBucketRange"`
+	GetQueryStringOverride     JsonTuples[getQueryStringOverrideCase] `json:"getQueryStringOverride"`
+	InNamespace                JsonTuples[inNamespaceCase]            `json:"inNamespace"`
+	GetEqualWeights            JsonTuples[getEqualWeightsCase]        `json:"getEqualWeights"`
+	Decrypt                    JsonTuples[decryptCase]                `json:"decrypt"`
+	StickyBucket               JsonTuples[stickyBucketTestCase]       `json:"stickyBucket"`
+	ContextualBandit           JsonTuples[featureCase]                `json:"contextualBandit"`
+	SavedGroupReferencesV2     savedGroupReferencesV2Cases            `json:"savedGroupReferencesV2"`
+	SavedGroupReferencesRemote savedGroupReferencesRemoteCases        `json:"savedGroupReferencesRemote"`
+	PruneCondition             JsonTuples[pruneConditionCase]         `json:"pruneCondition"`
+	ReducePayload              JsonTuples[reducePayloadCase]          `json:"reducePayload"`
+}
+
+type savedGroupReferencesRemoteCases struct {
+	EvalCondition JsonTuples[evalConditionCase] `json:"evalCondition"`
+	Feature       JsonTuples[featureCase]       `json:"feature"`
 }
 
 type savedGroupReferencesV2Cases struct {
@@ -205,6 +211,7 @@ type env struct {
 	QaMode            *bool                       `json:"qaMode"`
 	SavedGroups       condition.SavedGroups       `json:"savedGroups"`
 	ContextualBandits ContextualBanditDefinitions `json:"contextualBandits"`
+	RemoteGroupIds    []string                    `json:"remoteGroupIds"`
 }
 
 type JsonTuple[T any] struct {
@@ -271,6 +278,12 @@ func TestCasesJson(t *testing.T) {
 		cases.SavedGroupReferencesV2.EvalCondition.run("evalCondition", t)
 		cases.SavedGroupReferencesV2.Feature.run("feature", t)
 		cases.SavedGroupReferencesV2.Run.run("run", t)
+	})
+	t.Run("savedGroupReferencesRemote", func(t *testing.T) {
+		require.NotEmpty(t, cases.SavedGroupReferencesRemote.EvalCondition)
+		require.NotEmpty(t, cases.SavedGroupReferencesRemote.Feature)
+		cases.SavedGroupReferencesRemote.EvalCondition.run("evalCondition", t)
+		cases.SavedGroupReferencesRemote.Feature.run("feature", t)
 	})
 }
 
@@ -512,6 +525,7 @@ func (e *env) client() (*Client, error) {
 		WithFeatures(e.Features),
 		WithSavedGroups(e.SavedGroups),
 		WithContextualBandits(e.ContextualBandits),
+		WithRemoteGroupIds(e.RemoteGroupIds),
 		withSilentTestLogger(),
 	)
 	if err != nil {
