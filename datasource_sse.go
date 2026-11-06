@@ -133,33 +133,44 @@ func (ds *SseDataSource) processEvent(ctx context.Context, event sse.Event) {
 		return
 	}
 	ds.logger.Info("Updating features")
-	err := ds.client.updateFromApiResponseJSON(ctx, event.Data)
+	applied, dateUpdated, err := ds.client.applyApiResponseJSON(ctx, event.Data)
 	if err != nil {
 		ds.logger.Error("Error updating features", "error", err)
 	}
+	ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, applied, dateUpdated, err)
 }
 
 func (ds *SseDataSource) loadData(ctx context.Context) error {
 	resp, err := ds.client.CallFeatureApi(ctx, "")
 	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourceSSE,
+				Error:  err,
+			})
 		return err
 	}
 
 	if !resp.SseSupport {
-		return fmt.Errorf("sse is not supported")
+		err := fmt.Errorf("sse is not supported")
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourceSSE,
+				Error:  err,
+			})
+		return err
 	}
 
-	// A 200 payload always applies: UpdateFromApiResponse preserves omitted
+	// A 200 payload always applies: applyApiResponse preserves omitted
 	// sections, so partial responses update just what they carry (a
 	// features-only guard here used to drop bandit- or saved-groups-only
 	// updates entirely). This path never sends an ETag, so there is no 304
 	// to skip.
-	err = ds.client.updateFromApiResponse(ctx, resp)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	applied, dateUpdated, err := ds.client.applyApiResponse(ctx, resp)
+	ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, applied, dateUpdated, err)
+	return err
 }
 
 func (ds *SseDataSource) setReqHeaders(req *http.Request) {

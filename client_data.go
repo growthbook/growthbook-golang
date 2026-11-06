@@ -29,6 +29,7 @@ type data struct {
 	plugins            []Plugin
 	subscribers        subscriberRegistry
 	refreshSubscribers refreshSubscriberRegistry
+	refreshHandler     FeaturesRefreshHandler
 
 	// savedGroupsFromCode and banditsFromCode mark sections set from Go
 	// values, which payloadJSON doesn't hold
@@ -156,4 +157,10 @@ func (d *data) decrypt(encrypted string) (string, error) {
 		return "", ErrNoDecryptionKey
 	}
 	return decrypt(encrypted, key)
+}
+
+func (d *data) getRefreshHandler() FeaturesRefreshHandler {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.refreshHandler
 }
