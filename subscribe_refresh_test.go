@@ -163,6 +163,31 @@ func TestFeatureRefreshSubscribersAreNotCalledOnMalformedPayload(t *testing.T) {
 	require.Equal(t, 0, recorder.count())
 }
 
+func TestFeatureRefreshSubscribersAreNotCalledWhenNothingWasApplied(t *testing.T) {
+	cases := map[string]string{
+		"only dateUpdated": `{"dateUpdated": "2026-01-02T00:00:00Z"}`,
+		"only an undecodable encrypted saved groups section": `{
+    "encryptedSavedGroups": "not-a-valid-ciphertext",
+    "dateUpdated": "2026-01-02T00:00:00Z"
+  }`,
+	}
+
+	for name, payload := range cases {
+		t.Run(name, func(t *testing.T) {
+			recorder := &refreshRecorder{}
+
+			client, err := NewClient(ctx, WithDecryptionKey("Ns04T5n9+59rl2x3SlNHtQ=="))
+			require.NoError(t, err)
+
+			defer client.SubscribeFeatureRefresh(recorder.subscriber())()
+
+			require.NoError(t, client.UpdateFromApiResponseJSON(payload))
+
+			require.Equal(t, 0, recorder.count(), "a response that applied no section changed nothing to report")
+		})
+	}
+}
+
 func TestFeatureRefreshSubscriberSeesTheNewPayloadAlreadyApplied(t *testing.T) {
 	var observed FeatureResult
 	var client *Client

@@ -310,7 +310,12 @@ func (client *Client) applyApiResponse(ctx context.Context, resp *FeatureApiResp
 		return nil
 	})
 
-	client.notifyFeatureRefreshSubscribers(ctx, resp)
+	// Subscribers hear about applied payloads only: a response that changed no
+	// definitions - only dateUpdated, or only a section that could not be
+	// decoded - must not make them clear caches or publish an update.
+	if applied {
+		client.notifyFeatureRefreshSubscribers(ctx, resp)
+	}
 
 	return applied, resp.DateUpdated, nil
 }
