@@ -83,7 +83,8 @@ func TestWriteThroughToCacheOnUpdate(t *testing.T) {
 	payload := `{"features":{"feat":{"defaultValue":"fromApi"}},"dateUpdated":"2020-01-01T00:00:00Z"}`
 	resp := &FeatureApiResponse{Etag: "etag123", raw: json.RawMessage(payload)}
 	require.NoError(t, json.Unmarshal([]byte(payload), resp))
-	require.NoError(t, client.updateFromApiResponse(ctx, resp))
+	_, _, err = client.applyApiResponse(ctx, resp)
+	require.NoError(t, err)
 
 	entry, ok, err := cache.Get(ctx, "https://example.com::k")
 	require.NoError(t, err)
@@ -104,7 +105,8 @@ func TestWriteThroughPreservesEtagWhenUpdateHasNone(t *testing.T) {
 	p1 := `{"features":{"feat":{"defaultValue":1}},"dateUpdated":"2020-01-01T00:00:00Z"}`
 	r1 := &FeatureApiResponse{Etag: "etag-1", raw: json.RawMessage(p1)}
 	require.NoError(t, json.Unmarshal([]byte(p1), r1))
-	require.NoError(t, client.updateFromApiResponse(ctx, r1))
+	_, _, err = client.applyApiResponse(ctx, r1)
+	require.NoError(t, err)
 
 	// Second update has no etag (e.g. an SSE event) — must not clobber it.
 	p2 := `{"features":{"feat":{"defaultValue":2}},"dateUpdated":"2020-01-02T00:00:00Z"}`

@@ -125,7 +125,7 @@ func (client *Client) seedFromCache(ctx context.Context) {
 	d.updateMu.Lock()
 	defer d.updateMu.Unlock()
 	// Apply without writing back: a seed must not refresh a TTL backend's expiry.
-	applied, err := client.applyApiResponse(&resp)
+	applied, _, err := client.applyApiResponseData(&resp)
 	if err != nil {
 		client.logger.WarnContext(ctx, "Failed to seed features from cache", "error", err)
 		return
@@ -297,38 +297,38 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 	return client.SetJSONFeatures(featuresJSON)
 }
 
-// UpdateFromApiResponse updates shared data from Growthbook API response
-func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
-	return client.updateFromApiResponse(context.Background(), resp)
-}
-
-// updateFromApiResponse applies an API response and writes through to the
-// feature cache, using ctx for the cache backend. Updates are serialized with
-// their cache writes, so accepted responses reach the cache in order and a
-// rejected one never reaches it.
-func (client *Client) updateFromApiResponse(ctx context.Context, resp *FeatureApiResponse) error {
+// applyApiResponse applies an API response to the shared client data and
+// writes through to the feature cache, using ctx for the cache backend.
+// Updates are serialized with their cache writes, so accepted responses reach
+// the cache in order and a rejected one never reaches it. It reports whether
+// anything was applied and the dateUpdated the client holds afterwards: the
+// response's own timestamp when it was applied, and the currently stored one
+// when it was not, so a refresh handler never publishes a timestamp the client
+// did not adopt.
+func (client *Client) applyApiResponse(ctx context.Context, resp *FeatureApiResponse) (bool, time.Time, error) {
 	client.data.updateMu.Lock()
 	defer client.data.updateMu.Unlock()
-	applied, err := client.applyApiResponse(resp)
-	if err != nil || applied == nil {
-		return err
+	sections, dateUpdated, err := client.applyApiResponseData(resp)
+	if err != nil || sections == nil {
+		return false, dateUpdated, err
 	}
-	client.writeCache(ctx, resp, *applied)
-	return nil
+	client.writeCache(ctx, resp, *sections)
+	return sections.features || sections.savedGroups || sections.bandits, dateUpdated, nil
 }
 
-// applyApiResponse updates the client's shared data from an API response without
-// writing through to the feature cache. Seeding uses this so a cache read never
-// turns into a cache write (which would refresh a TTL backend's expiry). It
-// reports which sections it applied, or nil when it rejected an older response.
-// The caller must hold updateMu.
-func (client *Client) applyApiResponse(resp *FeatureApiResponse) (*appliedSections, error) {
+// applyApiResponseData updates the client's shared data from an API response
+// without writing through to the feature cache. Seeding uses this so a cache
+// read never turns into a cache write (which would refresh a TTL backend's
+// expiry). It reports which sections it applied, or nil when it rejected an
+// older response, and the dateUpdated the client holds afterwards. The caller
+// must hold updateMu.
+func (client *Client) applyApiResponseData(resp *FeatureApiResponse) (*appliedSections, time.Time, error) {
 	dataUpdated := client.data.getDateUpdated()
 	apiUpdated := resp.DateUpdated
 	if apiUpdated.Before(dataUpdated) {
 		client.logger.Warn("Api response is older then current data, refuse to update",
 			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
-		return nil, nil
+		return nil, dataUpdated, nil
 	}
 	// Section-presence semantics (Python setPayload parity): a partial
 	// payload — e.g. a bandit-only update — must never wipe sections it did
@@ -342,7 +342,7 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (*appliedSectio
 	if resp.EncryptedFeatures != "" {
 		features, err = client.DecryptFeatures(resp.EncryptedFeatures)
 		if err != nil {
-			return nil, err
+			return nil, dataUpdated, err
 		}
 		featuresPresent = true
 	} else if resp.Features != nil {
@@ -369,7 +369,7 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (*appliedSectio
 	// Direct callers may supply native Go definitions instead of decoded JSON.
 	savedGroups, err = savedGroups.Normalize()
 	if err != nil {
-		return nil, err
+		return nil, dataUpdated, err
 	}
 	savedGroupsPresent := savedGroups != nil
 	// Section-presence semantics: an absent contextualBandits section
@@ -390,6 +390,16 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (*appliedSectio
 			banditsPresent = true
 		}
 	}
+	// A payload that carries no section at all - or only a section that could
+	// not be decoded - applies nothing. It is still a valid no-op response
+	// (section-presence semantics), so it is not an error, but it must not be
+	// reported as an update: a malformed SSE event that omits "features" would
+	// otherwise look like a successful refresh to the refresh handler.
+	applied := featuresPresent || savedGroupsPresent || banditsPresent
+	if !applied {
+		client.logger.Warn("Api response contains nothing to apply, keeping current data",
+			"dateUpdated", resp.DateUpdated)
+	}
 	payloadJSON := client.decryptedPayloadJSON(resp)
 	if payloadJSON != nil {
 		// Each section follows the decision above, so the JSON that
@@ -402,7 +412,7 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (*appliedSectio
 		if savedGroupsPresent {
 			groupsJSON, err := savedGroups.JSONValue()
 			if err != nil {
-				return nil, err
+				return nil, dataUpdated, err
 			}
 			payloadJSON["savedGroups"] = groupsJSON
 		}
@@ -438,7 +448,25 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (*appliedSectio
 		features:    featuresPresent,
 		savedGroups: savedGroupsPresent,
 		bandits:     banditsPresent,
-	}, nil
+	}, resp.DateUpdated, nil
+}
+
+// applyApiResponseJSON parses and applies a JSON API response, using ctx for
+// the cache backend so data sources can cancel a stalled write.
+func (client *Client) applyApiResponseJSON(ctx context.Context, respJSON string) (bool, time.Time, error) {
+	var resp FeatureApiResponse
+	if err := json.Unmarshal([]byte(respJSON), &resp); err != nil {
+		return false, client.data.getDateUpdated(), err
+	}
+	// Preserve the raw payload so it can be persisted verbatim to the cache.
+	resp.raw = json.RawMessage(respJSON)
+	return client.applyApiResponse(ctx, &resp)
+}
+
+// UpdateFromApiResponse updates shared data from Growthbook API response
+func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+	_, _, err := client.applyApiResponse(context.Background(), resp)
+	return err
 }
 
 // decryptedPayloadJSON returns the response's JSON with its encrypted sections
@@ -508,20 +536,8 @@ func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
 }
 
 func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
-	return client.updateFromApiResponseJSON(context.Background(), respJSON)
-}
-
-// updateFromApiResponseJSON parses and applies a JSON API response, using ctx
-// for the cache backend so data sources can cancel a stalled write.
-func (client *Client) updateFromApiResponseJSON(ctx context.Context, respJSON string) error {
-	var resp FeatureApiResponse
-	err := json.Unmarshal([]byte(respJSON), &resp)
-	if err != nil {
-		return err
-	}
-	// Preserve the raw payload so it can be persisted verbatim to the cache.
-	resp.raw = json.RawMessage(respJSON)
-	return client.updateFromApiResponse(ctx, &resp)
+	_, _, err := client.applyApiResponseJSON(context.Background(), respJSON)
+	return err
 }
 
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
@@ -530,13 +546,16 @@ func (client *Client) updateFromApiResponseJSON(ctx context.Context, respJSON st
 func (client *Client) RefreshFeatures(ctx context.Context) error {
 	resp, err := client.CallFeatureApi(ctx, "")
 	if err != nil {
+		client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, Error: err})
 		return err
 	}
-	// Apply partial responses too: UpdateFromApiResponse preserves omitted
+	// Apply partial responses too: applyApiResponse preserves omitted
 	// sections, so a bandit-only or saved-groups-only response updates just
 	// what it carries. (An early return on absent features predated that
 	// gating and left manual-mode clients with stale bandit definitions.)
-	return client.updateFromApiResponse(ctx, resp)
+	applied, dateUpdated, err := client.applyApiResponse(ctx, resp)
+	client.notifyRefreshOutcome(ctx, RefreshSourceManual, applied, dateUpdated, err)
+	return err
 }
 
 // EvalFeature evaluates feature based on attributes and features map
