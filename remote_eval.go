@@ -210,6 +210,19 @@ func (client *Client) loadRemoteEval(ctx context.Context, force bool) (FeatureMa
 		}
 	}
 
+	call, err := client.awaitRemoteEvalCall(ctx, key, force)
+	if err != nil {
+		return client.remoteEvalCached(key), err
+	}
+	if call.err == nil && call.features != nil {
+		return call.features, nil
+	}
+	return client.remoteEvalCached(key), call.err
+}
+
+// awaitRemoteEvalCall joins, or starts, the shared fetch for key and waits for
+// it to finish, or returns ctx's error when ctx ends first.
+func (client *Client) awaitRemoteEvalCall(ctx context.Context, key string, force bool) (*remoteEvalCall, error) {
 	call, leader := client.data.joinRemoteEvalCall(remoteEvalFlightKey(key, force))
 	if leader {
 		go client.runRemoteEvalCall(ctx, key, force, call)
@@ -217,13 +230,29 @@ func (client *Client) loadRemoteEval(ctx context.Context, force bool) (FeatureMa
 
 	select {
 	case <-call.done:
-		if call.err == nil && call.features != nil {
-			return call.features, nil
-		}
-		return client.remoteEvalCached(key), call.err
+		return call, nil
 	case <-ctx.Done():
-		return client.remoteEvalCached(key), ctx.Err()
+		return nil, ctx.Err()
 	}
+}
+
+// refreshRemoteEval re-fetches the server-evaluated features for the client's
+// inputs, bypassing the TTL, and reports for the refresh handler whether the
+// fetch brought features and the response's dateUpdated (zero when it brought
+// none).
+func (client *Client) refreshRemoteEval(ctx context.Context) (bool, time.Time, error) {
+	key, err := client.remoteEvalCacheKey()
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	call, err := client.awaitRemoteEvalCall(ctx, key, true)
+	if err != nil {
+		return false, time.Time{}, err
+	}
+	if call.err != nil || call.features == nil {
+		return false, time.Time{}, call.err
+	}
+	return true, call.dateUpdated, nil
 }
 
 // remoteEvalFlightKey keys the in-flight map. Forced refreshes get their own
@@ -239,19 +268,20 @@ func remoteEvalFlightKey(key string, force bool) string {
 
 // fetchRemoteEval performs one remote-eval request, caches its result and
 // returns the features now cached for key: the fetched ones, or newer ones a
-// later-started request already cached (nil for a response without features).
-func (client *Client) fetchRemoteEval(ctx context.Context, key string) (FeatureMap, error) {
+// later-started request already cached (nil for a response without features),
+// with the response's dateUpdated.
+func (client *Client) fetchRemoteEval(ctx context.Context, key string) (FeatureMap, time.Time, error) {
 	seq := client.data.remoteEvalSeq.Add(1)
 	resp, err := client.callEvalApi(ctx)
 	if err != nil {
-		return nil, err
+		return nil, time.Time{}, err
 	}
 	if resp.Features == nil {
 		// A missing "features" key is a malformed response; don't cache it.
 		client.logger.WarnContext(ctx, "Remote eval response contains no features")
-		return nil, nil
+		return nil, time.Time{}, nil
 	}
-	return client.data.setRemoteEval(key, resp.Features, seq, client.remoteEvalCacheSize), nil
+	return client.data.setRemoteEval(key, resp.Features, seq, client.remoteEvalCacheSize), resp.DateUpdated, nil
 }
 
 // runRemoteEvalCall performs the fetch for a shared call and publishes its
@@ -272,7 +302,7 @@ func (client *Client) runRemoteEvalCall(ctx context.Context, key string, force b
 		fetchCtx, cancel = context.WithTimeout(fetchCtx, client.remoteEvalTimeout)
 		defer cancel()
 	}
-	call.features, call.err = client.fetchRemoteEval(fetchCtx, key)
+	call.features, call.dateUpdated, call.err = client.fetchRemoteEval(fetchCtx, key)
 }
 
 // remoteEvalFresh returns the cached features for key when they have not

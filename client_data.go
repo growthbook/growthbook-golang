@@ -60,9 +60,10 @@ type data struct {
 // the same key while it is in flight. done is closed once features and err are
 // set; they are read-only afterwards.
 type remoteEvalCall struct {
-	done     chan struct{}
-	features FeatureMap
-	err      error
+	done        chan struct{}
+	features    FeatureMap
+	dateUpdated time.Time
+	err         error
 }
 
 // remoteEvalEntry is a cached server-evaluated feature set with its fetch time.

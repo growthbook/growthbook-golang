@@ -427,7 +427,8 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 // for the client's attributes, bypassing the TTL.
 func (client *Client) RefreshFeatures(ctx context.Context) error {
 	if client.remoteEval {
-		_, err := client.loadRemoteEval(ctx, true)
+		applied, dateUpdated, err := client.refreshRemoteEval(ctx)
+		client.notifyRefreshOutcome(ctx, RefreshSourceManual, applied, dateUpdated, err)
 		return err
 	}
 	resp, err := client.CallFeatureApi(ctx, "")

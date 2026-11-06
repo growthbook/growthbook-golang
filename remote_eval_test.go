@@ -837,3 +837,48 @@ func TestRemoteEvalSendsForcedVariationsOnlyWhenTheyCanApply(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteEvalRefreshFeaturesReportsToTheRefreshHandler(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		check  func(t *testing.T, r RefreshResult)
+	}{
+		{"features fetched", http.StatusOK, trackedExperimentResponse, func(t *testing.T, r RefreshResult) {
+			require.True(t, r.Updated)
+			require.Equal(t, time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), r.DateUpdated)
+		}},
+		{"no features", http.StatusOK, `{}`, func(t *testing.T, r RefreshResult) {
+			require.True(t, r.NotModified)
+			require.True(t, r.DateUpdated.IsZero())
+		}},
+		{"request failed", http.StatusInternalServerError, `{}`, func(t *testing.T, r RefreshResult) {
+			require.Error(t, r.Error)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts, _ := remoteEvalRecordingServer(t, tc.status, tc.body)
+			var results []RefreshResult
+			client := newRemoteEvalClient(t, ts, WithFeaturesRefreshHandler(func(_ context.Context, r RefreshResult) {
+				results = append(results, r)
+			}))
+
+			err := client.RefreshFeatures(ctx)
+			require.Equal(t, tc.status != http.StatusOK, err != nil)
+			require.Len(t, results, 1)
+			require.Equal(t, RefreshSourceManual, results[0].Source)
+			tc.check(t, results[0])
+		})
+	}
+}
+
+func TestRemoteEvalLazyLoadsDoNotReportToTheRefreshHandler(t *testing.T) {
+	ts, _ := remoteEvalRecordingServer(t, http.StatusOK, trackedExperimentResponse)
+	calls := 0
+	client := newRemoteEvalClient(t, ts, WithFeaturesRefreshHandler(func(context.Context, RefreshResult) { calls++ }))
+	require.NoError(t, client.EnsureLoaded(ctx))
+	client.EvalFeature(ctx, "exp-flag")
+	require.Zero(t, calls)
+}

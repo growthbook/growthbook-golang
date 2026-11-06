@@ -43,7 +43,9 @@ type RefreshResult struct {
 	// a timestamp it refused: the payload's own value when the payload was
 	// processed, and the currently stored value on a 304 or when the response
 	// was refused as older than the current data. It is the zero time when
-	// Error is set.
+	// Error is set. In remote-eval mode, where results are kept per set of
+	// attributes, it is the remote response's dateUpdated when features were
+	// fetched, and the zero time otherwise.
 	DateUpdated time.Time
 }
 
