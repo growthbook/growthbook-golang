@@ -2,7 +2,8 @@ package growthbook
 
 import (
 	"context"
-	"fmt"
+	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -15,6 +16,7 @@ type SseDataSource struct {
 	client           *Client
 	cancel           context.CancelFunc
 	ready            bool
+	loaded           bool
 	maxRetryInterval time.Duration
 	logger           *slog.Logger
 	mu               sync.RWMutex
@@ -38,6 +40,13 @@ const maxbufsize = 10 * 1024 * 1024
 
 // defaultMaxRetryInterval is the default cap for backoff delay between SSE reconnects.
 const defaultMaxRetryInterval = 30 * time.Second
+
+// errSseUnsupported reports a features response from a host that does not serve the stream. The
+// features it carried have still been applied by the time this is returned.
+var errSseUnsupported = errors.New("sse is not supported")
+
+// errNoFeaturesLoaded reports, for the retry log, a load that succeeded without a features section.
+var errNoFeaturesLoaded = errors.New("response carried no features")
 
 func WithSseDataSource(opts ...SseOption) ClientOption {
 	return func(c *Client) error {
@@ -67,18 +76,29 @@ func (ds *SseDataSource) Start(ctx context.Context) error {
 	ds.cancel = cancel
 
 	err := ds.loadData(ctx)
-	if err != nil {
-		return err
+
+	loaded := ds.hasLoaded()
+	if loaded {
+		ds.logger.InfoContext(ctx, "First load finished")
 	}
-	ds.logger.InfoContext(ctx, "First load finished")
 
 	ds.mu.Lock()
 	ds.ready = true
 	ds.mu.Unlock()
+
+	// The stream carries updates only, and a reload happens on reconnect alone, so a connection
+	// that succeeds on the first try leaves the client empty until the next feature change -
+	// hours, on a stable set of flags. Retry the initial load on its own until features land: a
+	// response that succeeded without them (saved groups or bandits only) leaves the client just as
+	// empty. A load that delivered features before failing (an SSE-less host) needs no retry.
+	if !loaded {
+		go ds.retryFirstLoad(ctx)
+	}
+
 	go ds.connect(ctx)
 	ds.logger.InfoContext(ctx, "Started")
 
-	return nil
+	return err
 }
 
 func (ds *SseDataSource) Close() error {
@@ -86,12 +106,111 @@ func (ds *SseDataSource) Close() error {
 	ready := ds.ready
 	ds.mu.RUnlock()
 
+	// Not ready means never started, so there is nothing to stop. Closing it is not a failure, the
+	// same as for PollDataSource.
 	if !ready {
-		return fmt.Errorf("datasource is not ready")
+		return nil
 	}
 	ds.logger.Info("Closing")
 	ds.cancel()
 	return nil
+}
+
+// retryFirstLoad reloads the features until an attempt applies them, backing off between them. A
+// response without a features section - saved groups or bandits only - is not enough, however
+// successful. It stops as soon as any other path - a reconnect's reload, or a features event - has
+// filled the client data, and gives up on a response the host will never answer differently.
+func (ds *SseDataSource) retryFirstLoad(ctx context.Context) {
+	failures := 1 // Start's own attempt did not load features.
+
+	timer := time.NewTimer(sseRetryDelay(ds.maxRetryInterval, failures))
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timer.C:
+		}
+
+		if ds.hasLoaded() {
+			return
+		}
+
+		err := ds.loadData(ctx)
+		if ds.hasLoaded() {
+			// Also after errSseUnsupported: the features it carried were applied first.
+			ds.logger.InfoContext(ctx, "First load finished")
+			return
+		}
+
+		if err == nil {
+			err = errNoFeaturesLoaded
+		}
+
+		if errors.Is(err, context.Canceled) {
+			return
+		}
+
+		var apiErr *FeatureApiError
+		if errors.As(err, &apiErr) && !apiErr.Retryable() {
+			ds.logger.ErrorContext(ctx, "Initial feature load cannot succeed, giving up", "error", err)
+			return
+		}
+
+		failures++
+		wait := sseRetryDelay(ds.maxRetryInterval, failures)
+		ds.logger.WarnContext(ctx, "Initial feature load failed",
+			"attempt", failures, "nextAttemptIn", wait, "error", err)
+		timer.Reset(wait)
+	}
+}
+
+// sseRetryDelay backs off 1s, 2s, 4s ... and settles at max. The poller's retryDelay is wrong here:
+// it clips the delay to its steady polling interval, and an SSE source has no such interval to fall
+// back on - maxRetryInterval is a ceiling, so the wait has to grow towards it rather than be capped
+// into a fixed cadence by it.
+func sseRetryDelay(max time.Duration, failures int) time.Duration {
+	if max <= 0 {
+		max = defaultMaxRetryInterval
+	}
+
+	// Beyond this the shift below would overflow, and the answer is max either way.
+	if failures > 30 {
+		return max
+	}
+
+	if failures < 1 {
+		failures = 1
+	}
+
+	delay := baseRetryDelay << (failures - 1)
+	if delay > max {
+		return max
+	}
+
+	return delay
+}
+
+// markLoadedIfFeatures records that the initial load has landed, once an applied payload carried a
+// features section. A bandit- or saved-groups-only update leaves the features absent, so it must not
+// stop retryFirstLoad. Call it only for a payload applyApiResponse applied: one refused as older
+// than the current data never stored its features.
+func (ds *SseDataSource) markLoadedIfFeatures(resp *FeatureApiResponse) {
+	if resp.Features == nil && resp.EncryptedFeatures == "" {
+		return
+	}
+
+	ds.mu.Lock()
+	ds.loaded = true
+	ds.mu.Unlock()
+}
+
+func (ds *SseDataSource) hasLoaded() bool {
+	ds.mu.RLock()
+	defer ds.mu.RUnlock()
+
+	return ds.loaded
 }
 
 func (ds *SseDataSource) connect(ctx context.Context) error {
@@ -133,11 +252,23 @@ func (ds *SseDataSource) processEvent(ctx context.Context, event sse.Event) {
 		return
 	}
 	ds.logger.Info("Updating features")
-	applied, dateUpdated, err := ds.client.applyApiResponseJSON(event.Data)
+	// Decoded here rather than by applyApiResponseJSON, since markLoadedIfFeatures needs to see
+	// which sections the event carried.
+	var resp FeatureApiResponse
+	if err := json.Unmarshal([]byte(event.Data), &resp); err != nil {
+		ds.logger.Error("Error updating features", "error", err)
+		ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, false, ds.client.data.getDateUpdated(), err)
+		return
+	}
+	applied, dateUpdated, err := ds.client.applyApiResponse(&resp)
 	if err != nil {
 		ds.logger.Error("Error updating features", "error", err)
 	}
 	ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, applied, dateUpdated, err)
+	if err != nil || !applied {
+		return
+	}
+	ds.markLoadedIfFeatures(&resp)
 }
 
 func (ds *SseDataSource) loadData(ctx context.Context) error {
@@ -152,25 +283,30 @@ func (ds *SseDataSource) loadData(ctx context.Context) error {
 		return err
 	}
 
-	if !resp.SseSupport {
-		err := fmt.Errorf("sse is not supported")
-		ds.client.notifyRefresh(
-			ctx,
-			RefreshResult{
-				Source: RefreshSourceSSE,
-				Error:  err,
-			})
-		return err
-	}
-
 	// A 200 payload always applies: applyApiResponse preserves omitted
 	// sections, so partial responses update just what they carry (a
 	// features-only guard here used to drop bandit- or saved-groups-only
 	// updates entirely). This path never sends an ETag, so there is no 304
 	// to skip.
+	//
+	// Applied before the stream is judged below: the features are valid whether or not the host
+	// serves SSE, and discarding them over a missing header - a proxy that strips it, say - left
+	// the client empty while holding a perfectly good payload. The refresh handler hears about
+	// this load alone; the missing stream is reported by Start's error.
 	applied, dateUpdated, err := ds.client.applyApiResponse(resp)
 	ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, applied, dateUpdated, err)
-	return err
+	if err != nil {
+		return err
+	}
+	if applied {
+		ds.markLoadedIfFeatures(resp)
+	}
+
+	if !resp.SseSupport {
+		return errSseUnsupported
+	}
+
+	return nil
 }
 
 func (ds *SseDataSource) setReqHeaders(req *http.Request) {
