@@ -3,8 +3,10 @@ package growthbook
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
 	"github.com/stretchr/testify/require"
@@ -246,6 +248,88 @@ func TestRefreshFeatures(t *testing.T) {
 		err = client.RefreshFeatures(ctx)
 		require.Error(t, err)
 		require.Empty(t, client.Features())
+	})
+
+	t.Run("Fires Updated event on manual refresh", func(t *testing.T) {
+		ts := startServer(http.StatusOK, featuresJSON)
+		defer ts.http.Close()
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+		)
+		require.Nil(t, err)
+		require.Nil(t, client.RefreshFeatures(ctx))
+
+		requireEvents(t, c.all(),
+			RefreshResult{Source: RefreshSourceManual, Updated: true, DateUpdated: time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)},
+		)
+	})
+
+	// Manual refresh classifies a refused payload exactly like polling and SSE:
+	// NotModified, carrying the timestamp the client kept.
+	t.Run("Fires NotModified with the stored timestamp on a stale manual refresh", func(t *testing.T) {
+		staleJSON := []byte(`{"features": {"foo": {"defaultValue": "stale"}}, "dateUpdated": "1999-01-01T00:00:00Z"}`)
+		ts := startServer(http.StatusOK, staleJSON)
+		defer ts.http.Close()
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+		)
+		require.Nil(t, err)
+		stored := time.Date(2000, 5, 1, 0, 0, 12, 0, time.UTC)
+		require.Nil(t, client.UpdateFromApiResponseJSON(
+			`{"features": {"foo": {"defaultValue": "current"}}, "dateUpdated": "2000-05-01T00:00:12Z"}`))
+
+		require.Nil(t, client.RefreshFeatures(ctx))
+
+		require.Equal(t, FeatureValue("current"), client.Features()["foo"].DefaultValue)
+		requireEvents(t, c.all(),
+			RefreshResult{Source: RefreshSourceManual, NotModified: true, DateUpdated: stored},
+		)
+	})
+
+	// Every refresh attempt produces exactly one event, on every path: a
+	// response with nothing to apply must not return silently without one.
+	t.Run("Fires exactly one event for a payload with nothing to apply", func(t *testing.T) {
+		ts := startServer(http.StatusOK, []byte(`{"dateUpdated": "2000-05-01T00:00:12Z"}`))
+		defer ts.http.Close()
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+		)
+		require.Nil(t, err)
+		require.Nil(t, client.RefreshFeatures(ctx))
+
+		requireEvents(t, c.all(),
+			RefreshResult{Source: RefreshSourceManual, NotModified: true, DateUpdated: time.Date(2000, 5, 1, 0, 0, 12, 0, time.UTC)},
+		)
+	})
+
+	t.Run("Fires Error event on failed manual refresh", func(t *testing.T) {
+		ts := startServer(http.StatusNotFound, []byte(""))
+		defer ts.http.Close()
+		var c refreshCollector
+		client, err := NewClient(ctx,
+			WithHttpClient(ts.http.Client()),
+			WithApiHost(ts.http.URL),
+			WithClientKey("somekey"),
+			WithFeaturesRefreshHandler(c.handler()),
+		)
+		require.Nil(t, err)
+		require.Error(t, client.RefreshFeatures(ctx))
+
+		requireEvents(t, c.all(),
+			RefreshResult{Source: RefreshSourceManual, Error: errors.New("any")},
+		)
 	})
 }
 
