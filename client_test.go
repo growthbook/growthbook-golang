@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"sync"
 	"testing"
 	"time"
 
@@ -364,4 +365,33 @@ func TestClientExperimentTracking(t *testing.T) {
 	require.Equal(t, 1.0, res.Value)
 	require.Equal(t, 1, count)
 	require.Equal(t, "extra data", extraData)
+}
+
+// An older response that passed the dateUpdated check before a newer one was stored must not
+// overwrite it: the check is repeated under the write lock.
+func TestClientOlderResponseNeverOverwritesANewerOneStoredConcurrently(t *testing.T) {
+	older := `{"features": {"foo": {"defaultValue": "older"}}, "dateUpdated": "2000-05-01T00:00:12Z"}`
+	newer := `{"features": {"foo": {"defaultValue": "newer"}}, "dateUpdated": "2000-05-02T00:00:12Z"}`
+	newerDate := time.Date(2000, 5, 2, 0, 0, 12, 0, time.UTC)
+
+	for i := 0; i < 500; i++ {
+		client, err := NewClient(context.TODO())
+		require.NoError(t, err)
+
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		for _, payload := range []string{older, newer} {
+			wg.Add(1)
+			go func(payload string) {
+				defer wg.Done()
+				<-start
+				_ = client.UpdateFromApiResponseJSON(payload)
+			}(payload)
+		}
+		close(start)
+		wg.Wait()
+
+		require.Equal(t, &Feature{DefaultValue: "newer"}, client.data.features["foo"], "iteration %d", i)
+		require.Equal(t, newerDate, client.data.getDateUpdated(), "iteration %d", i)
+	}
 }
