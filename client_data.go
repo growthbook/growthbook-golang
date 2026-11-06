@@ -85,10 +85,18 @@ func (d *data) getFeatures() FeatureMap {
 // getReducibleJSON returns the payload JSON that ReducePayload reduces: the
 // stored JSON, with the saved groups and contextual bandits set from Go values
 // in place of its sections, since evaluation uses those. It's nil when the
-// features were set from Go values.
-func (d *data) getReducibleJSON() (map[string]any, error) {
+// features were set from Go values. It also returns the payload's remote
+// groups and saved groups version, read under the same lock, so remote group
+// ids can be checked against the payload being reduced.
+func (d *data) getReducibleJSON() (map[string]any, []condition.RemoteGroup, uint64, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
+	payload, err := d.reducibleJSON()
+	return payload, d.remoteGroups, d.savedGroupsVersion, err
+}
+
+// reducibleJSON is getReducibleJSON without the lock
+func (d *data) reducibleJSON() (map[string]any, error) {
 	if d.payloadJSON == nil {
 		return nil, nil
 	}

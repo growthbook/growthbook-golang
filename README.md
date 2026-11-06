@@ -161,6 +161,9 @@ match. If the resolver fails, `AddRemoteSavedGroups` returns the client
 unchanged with the error, so it stays usable and those rules fail closed. It
 looks up again when the payload's remote groups change during a lookup, and
 returns `ErrRemoteSavedGroupsChanged` if they change during every attempt.
+The ids it returns cover the remote groups it looked up: once a refresh
+changes those, they count as unresolved until you call `AddRemoteSavedGroups`
+again. Ids set with `WithRemoteGroupIds` stay as set.
 
 ---
 

@@ -51,9 +51,20 @@ type SavedGroupResolver func(ctx context.Context, attributes Attributes, groups 
 // Leave them nil while the groups are unresolved: rules that use remote groups
 // then fail, including "not in group". Don't pass an empty slice for that: it
 // means "in no group", so "not in group" rules match.
+//
+// The ids stay as set when the payload's remote groups change: keeping them
+// up to date is up to the app. AddRemoteSavedGroups does that check itself.
 func WithRemoteGroupIds(ids []string) ClientOption {
+	return withRemoteGroupIDs(ids, nil, 0)
+}
+
+// withRemoteGroupIDs sets the remote group ids and the remote groups (at the
+// saved groups version) they were looked up for, nil for ids the app set
+func withRemoteGroupIDs(ids []string, lookedUp []condition.RemoteGroup, version uint64) ClientOption {
 	return func(c *Client) error {
 		c.remoteGroupIDs = slices.Clone(ids)
+		c.remoteGroupsLookedUp = lookedUp
+		c.remoteGroupsLookedUpVersion = version
 		return nil
 	}
 }
@@ -65,9 +76,23 @@ func (c *Client) WithRemoteGroupIds(ids []string) (*Client, error) {
 }
 
 // RemoteGroupIds returns the remote saved groups the user is in, or nil while
-// they are unresolved.
+// they are unresolved. Ids AddRemoteSavedGroups looked up count as unresolved
+// once the payload's remote groups change.
 func (c *Client) RemoteGroupIds() []string {
-	return slices.Clone(c.remoteGroupIDs)
+	return slices.Clone(c.currentRemoteGroupIDs(c.data.getRemoteGroups()))
+}
+
+// currentRemoteGroupIDs returns the remote group ids that apply to the
+// payload's remote groups at version: nil once those changed since
+// AddRemoteSavedGroups looked the ids up, since then the ids may miss a group
+// the user is in and pass a "not in group" rule for it. Read groups and
+// version under one lock.
+func (c *Client) currentRemoteGroupIDs(groups []condition.RemoteGroup, version uint64) []string {
+	if c.remoteGroupsLookedUp == nil || version == c.remoteGroupsLookedUpVersion ||
+		slices.Equal(groups, c.remoteGroupsLookedUp) {
+		return c.remoteGroupIDs
+	}
+	return nil
 }
 
 // AddRemoteSavedGroups looks up the user's remote saved groups with resolver
@@ -98,7 +123,9 @@ func (c *Client) AddRemoteSavedGroups(ctx context.Context, resolver SavedGroupRe
 		// result only if the remote groups are still the ones it looked up.
 		current, currentVersion := c.data.getRemoteGroups()
 		if currentVersion == version || slices.Equal(current, groups) {
-			return c.cloneWith(WithRemoteGroupIds(ids))
+			// The child shares the live payload: keep what the ids cover, so a
+			// later change to the remote groups makes them unresolved
+			return c.cloneWith(withRemoteGroupIDs(ids, current, currentVersion))
 		}
 		groups, version = current, currentVersion
 	}
@@ -127,18 +154,19 @@ func (c *Client) resolveRemoteGroupIDs(ctx context.Context, groups []condition.R
 }
 
 // conditionAttributes returns the attributes targeting conditions see: the
-// client's, with its remote group ids (when set) as __gb_remoteGroupIds. A
-// copy, so the client's attributes are left as they were.
-func (c *Client) conditionAttributes() value.ObjValue {
-	if c.remoteGroupIDs == nil {
+// client's, with remoteGroupIDs (from currentRemoteGroupIDs, when set) as
+// __gb_remoteGroupIds. A copy, so the client's attributes are left as they
+// were.
+func (c *Client) conditionAttributes(remoteGroupIDs []string) value.ObjValue {
+	if remoteGroupIDs == nil {
 		return c.attributes
 	}
 	attrs := maps.Clone(c.attributes)
 	if attrs == nil {
 		attrs = value.ObjValue{}
 	}
-	ids := make([]any, len(c.remoteGroupIDs))
-	for i, id := range c.remoteGroupIDs {
+	ids := make([]any, len(remoteGroupIDs))
+	for i, id := range remoteGroupIDs {
 		ids[i] = id
 	}
 	attrs[condition.RemoteGroupIDsAttribute] = value.New(ids)
@@ -147,16 +175,18 @@ func (c *Client) conditionAttributes() value.ObjValue {
 
 // warnIfRemoteGroupIDsMissing logs once, for the client and its children,
 // when the payload has remote saved groups but the user has no remote group
-// ids, since every rule using them will then fail. Logs no attribute values.
-func (c *Client) warnIfRemoteGroupIDsMissing(groups []condition.RemoteGroup) {
-	if len(groups) == 0 || c.remoteGroupIDs != nil || c.data.warnedMissingRemoteGroupIDs.Load() {
+// ids for them (remoteGroupIDs, from currentRemoteGroupIDs), since every rule
+// using them will then fail. Logs no attribute values.
+func (c *Client) warnIfRemoteGroupIDsMissing(groups []condition.RemoteGroup, remoteGroupIDs []string) {
+	if len(groups) == 0 || remoteGroupIDs != nil || c.data.warnedMissingRemoteGroupIDs.Load() {
 		return
 	}
 	if _, ok := c.attributes[condition.RemoteGroupIDsAttribute].(value.ArrValue); ok {
 		return
 	}
 	if c.data.warnedMissingRemoteGroupIDs.CompareAndSwap(false, true) && c.logger != nil {
-		c.logger.Warn("The payload has remote saved groups, but the user has no remote group ids. " +
+		c.logger.Warn("The payload has remote saved groups, but the user has no remote group ids for them, " +
+			"or they were looked up before the remote groups changed. " +
 			"Rules using them won't match. See AddRemoteSavedGroups.")
 	}
 }

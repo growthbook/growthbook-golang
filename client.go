@@ -51,6 +51,13 @@ type Client struct {
 	// remoteGroupIDs are the remote saved groups the user is in. nil means
 	// unresolved, which is not the same as no groups (see WithRemoteGroupIds).
 	remoteGroupIDs []string
+	// remoteGroupsLookedUp are the payload's remote groups AddRemoteSavedGroups
+	// looked remoteGroupIDs up for, at savedGroupsVersion
+	// remoteGroupsLookedUpVersion. The child shares the live payload, so once
+	// its remote groups change the ids no longer cover them and count as
+	// unresolved. nil when the app set the ids with WithRemoteGroupIds.
+	remoteGroupsLookedUp        []condition.RemoteGroup
+	remoteGroupsLookedUpVersion uint64
 }
 
 // ForcedVariationsMap is a map that forces an Experiment to always assign a specific variation. Useful for QA.
@@ -544,14 +551,15 @@ func (client *Client) Logger() *slog.Logger {
 func (client *Client) evaluator(ctx context.Context) *evaluator {
 	client.data.mu.RLock()
 	e := evaluator{
-		features:            client.data.features,
-		savedGroups:         client.data.savedGroups,
-		contextualBandits:   client.data.contextualBandits,
-		client:              client,
-		ctx:                 ctx,
-		conditionAttributes: client.conditionAttributes(),
+		features:          client.data.features,
+		savedGroups:       client.data.savedGroups,
+		contextualBandits: client.data.contextualBandits,
+		client:            client,
+		ctx:               ctx,
 	}
 	remoteGroups := client.data.remoteGroups
+	remoteGroupIDs := client.currentRemoteGroupIDs(remoteGroups, client.data.savedGroupsVersion)
+	e.conditionAttributes = client.conditionAttributes(remoteGroupIDs)
 	// Plugins and the event logger consume both exposures and feature usage;
 	// the tracking buffer and ExperimentCallback only exposures, and
 	// FeatureUsageCallback only feature usage (see fireTracking).
@@ -559,7 +567,7 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 	e.recordingExperiments = both || client.experimentCallback != nil || client.trackingBuffer != nil
 	e.recordingFeatureUsage = both || client.featureUsageCallback != nil
 	client.data.mu.RUnlock()
-	client.warnIfRemoteGroupIDsMissing(remoteGroups)
+	client.warnIfRemoteGroupIDsMissing(remoteGroups, remoteGroupIDs)
 	return &e
 }
 

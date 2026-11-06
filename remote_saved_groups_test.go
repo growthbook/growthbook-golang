@@ -306,6 +306,89 @@ func TestAddRemoteSavedGroupsLeavesTheIdsWhenTheNewSavedGroupsHaveNoRemoteGroups
 	require.Nil(t, child.RemoteGroupIds())
 }
 
+// staleRemoteGroupsPayload adds the remote group grp_new and a guarded
+// "not in grp_new" feature to the remote groups payload, keeping "in grp_vip"
+const staleRemoteGroupsPayload = `{
+	"features": {
+	"in_vip": {"defaultValue": false, "rules": [{"condition": {"$savedGroup": {"id": "grp_vip"}}, "force": true}]},
+	"not_in_new": {"defaultValue": false, "rules": [{"condition": {
+		"$not": {"$savedGroup": {"id": "grp_new"}},
+		"__gb_remoteGroupIds": {"$exists": true}
+	}, "force": true}]}},
+	"savedGroups": {
+		"grp_vip": {"type": "remote", "attributeKey": "account_id"},
+		"grp_vip:parent_id": {"type": "remote", "attributeKey": "parent_id", "valuesFrom": "grp_vip"},
+		"grp_new": {"type": "remote", "attributeKey": "account_id"}
+	}
+}`
+
+func lookUpVip(context.Context, Attributes, []RemoteSavedGroup) ([]string, error) {
+	return []string{"grp_vip"}, nil
+}
+
+func TestAddRemoteSavedGroupsIdsAreUnresolvedOnceTheRemoteGroupsChange(t *testing.T) {
+	client, logs := remoteClient(t)
+	child, err := client.AddRemoteSavedGroups(context.Background(), lookUpVip)
+	require.NoError(t, err)
+	require.True(t, on(child, "in_vip"))
+
+	// The user may be in grp_new, which the lookup didn't cover, so its
+	// "not in group" rule must not match
+	require.NoError(t, client.UpdateFromApiResponseJSON(staleRemoteGroupsPayload))
+	require.Nil(t, child.RemoteGroupIds())
+	require.False(t, on(child, "not_in_new"))
+	require.False(t, on(child, "in_vip"))
+	require.Contains(t, logs.String(), "before the remote groups changed")
+
+	// Looking up again covers grp_new
+	fresh, err := child.AddRemoteSavedGroups(context.Background(), lookUpVip)
+	require.NoError(t, err)
+	require.Equal(t, []string{"grp_vip"}, fresh.RemoteGroupIds())
+	require.True(t, on(fresh, "not_in_new"))
+	require.True(t, on(fresh, "in_vip"))
+}
+
+func TestAddRemoteSavedGroupsIdsStayWhenOnlyOtherSavedGroupsChange(t *testing.T) {
+	client, _ := remoteClient(t)
+	child, err := client.AddRemoteSavedGroups(context.Background(), lookUpVip)
+	require.NoError(t, err)
+	require.NoError(t, client.UpdateFromApiResponseJSON(`{"savedGroups": {
+		"grp_vip": {"type": "remote", "attributeKey": "account_id"},
+		"grp_vip:parent_id": {"type": "remote", "attributeKey": "parent_id", "valuesFrom": "grp_vip"},
+		"grp_list2": {"type": "list", "attributeKey": "id", "values": ["u_2"]}
+	}}`))
+	require.Equal(t, []string{"grp_vip"}, child.RemoteGroupIds())
+	require.True(t, on(child, "in_vip"))
+}
+
+func TestRemoteGroupIdsSetByTheAppStayWhenTheRemoteGroupsChange(t *testing.T) {
+	client, _ := remoteClient(t, WithRemoteGroupIds([]string{"grp_vip"}))
+	require.NoError(t, client.UpdateFromApiResponseJSON(staleRemoteGroupsPayload))
+	require.Equal(t, []string{"grp_vip"}, client.RemoteGroupIds())
+	require.True(t, on(client, "not_in_new"))
+}
+
+func TestClientReducePayloadKeepsRulesWhenTheIdsAreStale(t *testing.T) {
+	client, _ := remoteClient(t)
+	payload := `{"features": ` + remoteFeaturesJSON + `, "savedGroups": ` + remoteSavedGroupsJSON + `}`
+	require.NoError(t, client.UpdateFromApiResponseJSON(payload))
+	child, err := client.AddRemoteSavedGroups(context.Background(), func(context.Context, Attributes, []RemoteSavedGroup) ([]string, error) {
+		return []string{}, nil
+	})
+	require.NoError(t, err)
+	require.NoError(t, client.UpdateFromApiResponseJSON(staleRemoteGroupsPayload))
+
+	out, err := child.ReducePayload(ReducePayloadOptions{})
+	require.NoError(t, err)
+	var reduced map[string]any
+	require.NoError(t, json.Unmarshal(out, &reduced))
+	// With ids for the old groups, "not in grp_new" would be pruned to always
+	// match; unresolved, the rule and grp_new stay
+	rule := reduced["features"].(map[string]any)["not_in_new"].(map[string]any)["rules"].([]any)[0].(map[string]any)
+	require.Contains(t, rule, "condition")
+	require.Contains(t, reduced["savedGroups"], "grp_new")
+}
+
 func TestPruneLeavesARemoteGroupUndecidedWhileTheIdsAreUnknown(t *testing.T) {
 	var groups map[string]any
 	require.NoError(t, json.Unmarshal([]byte(remoteSavedGroupsJSON), &groups))
