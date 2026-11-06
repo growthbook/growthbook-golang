@@ -459,9 +459,18 @@ func (e *evaluator) evalRule(featureId string, rule *FeatureRule) *FeatureResult
 			return nil
 		}
 
-		// A remotely evaluated experiment: report the assignments the server
-		// made (JS SDK parity, core.ts evalFeature fires onExperimentViewed
-		// for each of rule.tracks).
+		// A remotely evaluated experiment: the server assigned a variation
+		// without knowing this client is disabled or in QA mode, where
+		// runExperiment puts the user in no variation. Skip the rule like a
+		// local experiment rule the user is not in, so the feature falls
+		// through to its later rules or default, and nothing is tracked.
+		if len(rule.Tracks) > 0 && (!e.client.enabled || e.client.qaMode) {
+			return nil
+		}
+
+		// Otherwise report the assignments the server made (JS SDK parity,
+		// core.ts evalFeature fires onExperimentViewed for each of
+		// rule.tracks).
 		for _, t := range rule.Tracks {
 			if t.Experiment != nil && t.Result != nil {
 				e.recordExperiment(t.Experiment, t.Result)

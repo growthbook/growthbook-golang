@@ -742,3 +742,98 @@ func TestRemoteEvalOlderResponseDoesNotOverwriteRefresh(t *testing.T) {
 	<-loadDone
 	require.Equal(t, "new", client.EvalFeature(ctx, "feat").Value)
 }
+
+// trackedExperimentResponse is a remote-eval response whose feature is an
+// experiment the server resolved into a force rule carrying its tracks, in
+// front of a feature default of 0.
+const trackedExperimentResponse = `{"features":{"exp-flag":{"defaultValue":0,"rules":[{"force":2,"tracks":[{
+	"experiment":{"key":"exp-key","variations":[0,1,2],"hashAttribute":"id"},
+	"result":{"key":"2","featureId":"exp-flag","inExperiment":true,"hashUsed":true,"variationId":2,"value":2,"hashAttribute":"id","hashValue":"u1"}
+}]}]}},"dateUpdated":"2026-01-02T00:00:00Z"}`
+
+// remoteEvalRecordingServer answers every remote-eval request with body and
+// records the forcedVariations each request sent.
+func remoteEvalRecordingServer(t *testing.T, status int, body string) (*testServer, func() []map[string]int) {
+	t.Helper()
+	var mu sync.Mutex
+	var sent []map[string]int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			ForcedVariations map[string]int `json:"forcedVariations"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&payload)
+		mu.Lock()
+		sent = append(sent, payload.ForcedVariations)
+		mu.Unlock()
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(srv.Close)
+	return &testServer{http: srv}, func() []map[string]int {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]map[string]int(nil), sent...)
+	}
+}
+
+func TestRemoteEvalSkipsServerAssignedExperimentsWhenDisabledOrInQAMode(t *testing.T) {
+	for name, opt := range map[string]ClientOption{
+		"disabled": WithEnabled(false),
+		"qa mode":  WithQaMode(true),
+	} {
+		t.Run(name, func(t *testing.T) {
+			ts, _ := remoteEvalRecordingServer(t, http.StatusOK, trackedExperimentResponse)
+			buf := NewTrackingBuffer()
+			exposures := 0
+			client := newRemoteEvalClient(t, ts, opt,
+				WithAttributes(Attributes{"id": "u1"}),
+				WithTrackingBuffer(buf),
+				WithExperimentCallback(func(context.Context, *Experiment, *ExperimentResult, *TrackingUserContext, any) {
+					exposures++
+				}),
+			)
+
+			// Like a local experiment the user is not in: the default, untracked
+			res := client.EvalFeature(ctx, "exp-flag")
+			require.Equal(t, 0.0, res.Value)
+			require.Equal(t, DefaultValueResultSource, res.Source)
+			require.Zero(t, exposures)
+			require.Empty(t, buf.TrackingCalls())
+		})
+	}
+}
+
+func TestRemoteEvalDisabledChildSkipsTheExperimentFromItsParentsCache(t *testing.T) {
+	ts, sent := remoteEvalRecordingServer(t, http.StatusOK, trackedExperimentResponse)
+	parent := newRemoteEvalClient(t, ts, WithAttributes(Attributes{"id": "u1"}))
+	require.Equal(t, 2.0, parent.EvalFeature(ctx, "exp-flag").Value)
+
+	child, err := parent.WithEnabled(false)
+	require.NoError(t, err)
+	require.Equal(t, 0.0, child.EvalFeature(ctx, "exp-flag").Value)
+	require.Len(t, sent(), 1, "the child reuses the parent's cached result")
+}
+
+func TestRemoteEvalSendsForcedVariationsOnlyWhenTheyCanApply(t *testing.T) {
+	forced := ForcedVariationsMap{"exp-key": 1}
+	cases := []struct {
+		name string
+		opts []ClientOption
+		want map[string]int
+	}{
+		{"enabled", nil, map[string]int{"exp-key": 1}},
+		// runExperiment checks enabled before forced variations
+		{"disabled", []ClientOption{WithEnabled(false)}, map[string]int{}},
+		// and QA mode after them, so they still apply
+		{"qa mode", []ClientOption{WithQaMode(true)}, map[string]int{"exp-key": 1}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ts, sent := remoteEvalRecordingServer(t, http.StatusOK, `{"features":{}}`)
+			opts := append([]ClientOption{WithForcedVariations(forced)}, tc.opts...)
+			client := newRemoteEvalClient(t, ts, opts...)
+			require.NoError(t, client.EnsureLoaded(ctx))
+			require.Equal(t, []map[string]int{tc.want}, sent())
+		})
+	}
+}

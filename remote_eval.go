@@ -163,11 +163,22 @@ func (client *Client) remoteEvalCacheKey() (string, error) {
 		Attributes       Attributes          `json:"attributes"`
 		ForcedVariations ForcedVariationsMap `json:"forcedVariations"`
 		URL              string              `json:"url"`
-	}{attributesFromValue(attrs), client.forcedVariations, pageURL})
+	}{attributesFromValue(attrs), client.remoteEvalForcedVariations(), pageURL})
 	if err != nil {
 		return "", err
 	}
 	return string(b), nil
+}
+
+// remoteEvalForcedVariations returns the forced variations sent to the
+// remote-eval endpoint: none for a disabled client, since runExperiment checks
+// enabled before forced variations, so they never apply to it locally either.
+// QA mode keeps them: locally they still apply in QA mode, untracked.
+func (client *Client) remoteEvalForcedVariations() ForcedVariationsMap {
+	if !client.enabled {
+		return nil
+	}
+	return client.forcedVariations
 }
 
 // maybeLoadRemoteEval returns the remote-eval features for the current
@@ -309,7 +320,7 @@ func (client *Client) callEvalApi(ctx context.Context) (*FeatureApiResponse, err
 	}
 	// Send an empty object rather than null when no forced variations are set,
 	// matching the other SDKs' wire shape.
-	forcedVariations := client.forcedVariations
+	forcedVariations := client.remoteEvalForcedVariations()
 	if forcedVariations == nil {
 		forcedVariations = ForcedVariationsMap{}
 	}
