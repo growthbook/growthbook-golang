@@ -220,7 +220,7 @@ func (ds *SseDataSource) connect(ctx context.Context) error {
 	buf := make([]byte, minbufsize)
 	sseConn.Buffer(buf, maxbufsize)
 	sseConn.SubscribeEvent("features", func(event sse.Event) {
-		ds.processEvent(event)
+		ds.processEvent(ctx, event)
 	})
 	sseConn.Connect()
 	return nil
@@ -235,18 +235,25 @@ func (ds *SseDataSource) onRetry(ctx context.Context) func(err error, delay time
 	}
 }
 
-func (ds *SseDataSource) processEvent(event sse.Event) {
+func (ds *SseDataSource) processEvent(ctx context.Context, event sse.Event) {
 	if event.Data == "" {
 		return
 	}
 	ds.logger.Info("Updating features")
+	// Decoded here rather than by applyApiResponseJSON, since markLoadedIfFeatures needs to see
+	// which sections the event carried.
 	var resp FeatureApiResponse
-	err := json.Unmarshal([]byte(event.Data), &resp)
-	if err == nil {
-		err = ds.client.UpdateFromApiResponse(&resp)
+	if err := json.Unmarshal([]byte(event.Data), &resp); err != nil {
+		ds.logger.Error("Error updating features", "error", err)
+		ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, false, ds.client.data.getDateUpdated(), err)
+		return
 	}
+	applied, dateUpdated, err := ds.client.applyApiResponse(&resp)
 	if err != nil {
 		ds.logger.Error("Error updating features", "error", err)
+	}
+	ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, applied, dateUpdated, err)
+	if err != nil {
 		return
 	}
 	ds.markLoadedIfFeatures(&resp)
@@ -255,10 +262,16 @@ func (ds *SseDataSource) processEvent(event sse.Event) {
 func (ds *SseDataSource) loadData(ctx context.Context) error {
 	resp, err := ds.client.CallFeatureApi(ctx, "")
 	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourceSSE,
+				Error:  err,
+			})
 		return err
 	}
 
-	// A 200 payload always applies: UpdateFromApiResponse preserves omitted
+	// A 200 payload always applies: applyApiResponse preserves omitted
 	// sections, so partial responses update just what they carry (a
 	// features-only guard here used to drop bandit- or saved-groups-only
 	// updates entirely). This path never sends an ETag, so there is no 304
@@ -266,8 +279,10 @@ func (ds *SseDataSource) loadData(ctx context.Context) error {
 	//
 	// Applied before the stream is judged below: the features are valid whether or not the host
 	// serves SSE, and discarding them over a missing header - a proxy that strips it, say - left
-	// the client empty while holding a perfectly good payload.
-	err = ds.client.UpdateFromApiResponse(resp)
+	// the client empty while holding a perfectly good payload. The refresh handler hears about
+	// this load alone; the missing stream is reported by Start's error.
+	applied, dateUpdated, err := ds.client.applyApiResponse(resp)
+	ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, applied, dateUpdated, err)
 	if err != nil {
 		return err
 	}
