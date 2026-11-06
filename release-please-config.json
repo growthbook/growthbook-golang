@@ -8,6 +8,18 @@
       "include-v-in-tag": true,
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": false,
+      "changelog-path": "CHANGELOG.md",
+      "exclude-paths": ["stickybucket/redis"]
+    },
+    "stickybucket/redis": {
+      "release-type": "go",
+      "component": "stickybucket/redis",
+      "include-component-in-tag": true,
+      "tag-separator": "/",
+      "include-v-in-tag": true,
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": false,
+      "initial-version": "0.1.0",
       "changelog-path": "CHANGELOG.md"
     }
   }
