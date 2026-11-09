@@ -103,6 +103,11 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 
 	resp, err := ds.client.fetchFeatures(ctx, etag, RefreshDefault)
 	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourcePoll,
+				Error:  err})
 		return err
 	}
 
@@ -112,5 +117,5 @@ func (ds *PollDataSource) loadData(ctx context.Context) error {
 		ds.mu.Unlock()
 	}
 
-	return ds.client.applyFetched(resp)
+	return ds.client.applyFetched(ctx, RefreshSourcePoll, resp)
 }

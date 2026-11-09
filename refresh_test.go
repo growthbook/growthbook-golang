@@ -420,3 +420,67 @@ func TestUpdateFromApiResponseKeepsNewestUnderConcurrency(t *testing.T) {
 	require.Equal(t, base.Add((updates-1)*time.Minute), client.data.getDateUpdated())
 	require.Equal(t, float64(updates-1), client.Features()["foo"].DefaultValue)
 }
+
+func TestRefreshHandlerWithRetries(t *testing.T) {
+	ctx := context.Background()
+	dateUpdated := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	t.Run("A refresh that succeeds after retries reports one update", func(t *testing.T) {
+		ts := startFlakyServer(2, http.StatusServiceUnavailable)
+		defer ts.http.Close()
+		var c refreshCollector
+		client := newRefreshClient(t, ts, WithRetryPolicy(fastRetry), WithFeaturesRefreshHandler(c.handler()))
+
+		require.NoError(t, client.RefreshFeatures(ctx))
+		require.Equal(t, int32(3), ts.count.Load())
+		requireEvents(t, c.all(), RefreshResult{Source: RefreshSourceManual, Updated: true, DateUpdated: dateUpdated})
+	})
+
+	t.Run("A refresh that runs out of attempts reports one error", func(t *testing.T) {
+		ts := startFlakyServer(100, http.StatusTooManyRequests)
+		defer ts.http.Close()
+		var c refreshCollector
+		client := newRefreshClient(t, ts, WithRetryPolicy(fastRetry), WithFeaturesRefreshHandler(c.handler()))
+
+		require.Error(t, client.RefreshFeatures(ctx))
+		require.Equal(t, int32(5), ts.count.Load())
+		requireEvents(t, c.all(), RefreshResult{Source: RefreshSourceManual, Error: errors.New("any")})
+	})
+
+	t.Run("Callers sharing a fetch get one event", func(t *testing.T) {
+		ts := startGatedServer()
+		defer ts.http.Close()
+		var c refreshCollector
+		client := newRefreshClient(t, &flakyServer{http: ts.http}, WithFeaturesRefreshHandler(c.handler()))
+
+		const callers = 5
+		errs := make(chan error, callers)
+		go func() { errs <- client.RefreshFeatures(ctx) }()
+		<-ts.entered
+		for i := 1; i < callers; i++ {
+			go func() { errs <- client.RefreshFeatures(ctx) }()
+		}
+		waitForWaiters(t, client, RefreshDefault, callers-1)
+		close(ts.release)
+		for i := 0; i < callers; i++ {
+			require.NoError(t, <-errs)
+		}
+		requireEvents(t, c.all(), RefreshResult{Source: RefreshSourceManual, Updated: true, DateUpdated: dateUpdated})
+	})
+
+	t.Run("A refresh skipped as fresh reports nothing", func(t *testing.T) {
+		ts := startFlakyServer(0, 0)
+		defer ts.http.Close()
+		var c refreshCollector
+		client := newRefreshClient(t, ts, WithBackgroundFetchInterval(time.Hour), WithFeaturesRefreshHandler(c.handler()))
+
+		require.NoError(t, client.RefreshFeatures(ctx))
+		require.NoError(t, client.RefreshFeatures(ctx))
+		require.NoError(t, client.RefreshFeaturesWithMode(ctx, RefreshForce))
+		require.Equal(t, int32(2), ts.count.Load())
+		requireEvents(t, c.all(),
+			RefreshResult{Source: RefreshSourceManual, Updated: true, DateUpdated: dateUpdated},
+			RefreshResult{Source: RefreshSourceManual, Updated: true, DateUpdated: dateUpdated},
+		)
+	})
+}

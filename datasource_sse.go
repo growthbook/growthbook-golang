@@ -113,7 +113,7 @@ func (ds *SseDataSource) connect(ctx context.Context) error {
 	buf := make([]byte, minbufsize)
 	sseConn.Buffer(buf, maxbufsize)
 	sseConn.SubscribeEvent("features", func(event sse.Event) {
-		ds.processEvent(event)
+		ds.processEvent(ctx, event)
 	})
 	sseConn.Connect()
 	return nil
@@ -129,26 +129,40 @@ func (ds *SseDataSource) onRetry(ctx context.Context) func(err error, delay time
 	}
 }
 
-func (ds *SseDataSource) processEvent(event sse.Event) {
+func (ds *SseDataSource) processEvent(ctx context.Context, event sse.Event) {
 	if event.Data == "" {
 		return
 	}
 	ds.logger.Info("Updating features")
-	err := ds.client.UpdateFromApiResponseJSON(event.Data)
+	applied, dateUpdated, err := ds.client.applyApiResponseJSON(event.Data)
 	if err != nil {
 		ds.logger.Error("Error updating features", "error", err)
 	}
+	ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, applied, dateUpdated, err)
 }
 
 func (ds *SseDataSource) loadData(ctx context.Context, policy RetryPolicy) error {
 	resp, err := ds.client.fetchFeaturesWith(ctx, "", RefreshDefault, policy)
 	if err != nil {
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourceSSE,
+				Error:  err,
+			})
 		return err
 	}
 	if !resp.SseSupport {
-		return fmt.Errorf("sse is not supported")
+		err := fmt.Errorf("sse is not supported")
+		ds.client.notifyRefresh(
+			ctx,
+			RefreshResult{
+				Source: RefreshSourceSSE,
+				Error:  err,
+			})
+		return err
 	}
-	return ds.client.applyFetched(resp)
+	return ds.client.applyFetched(ctx, RefreshSourceSSE, resp)
 }
 
 func (ds *SseDataSource) setReqHeaders(req *http.Request) {

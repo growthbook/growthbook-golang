@@ -195,23 +195,57 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 // partial payload, e.g. a bandit-only update, never wipes what it didn't
 // carry. A response older than the current data is ignored.
 func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
-	if client.isStaleResponse(resp, client.data.getDateUpdated()) {
-		return nil
+	_, _, err := client.applyApiResponse(resp)
+	return err
+}
+
+// applyApiResponse applies an API response to the shared client data. It
+// reports whether anything was applied and the dateUpdated the client holds
+// afterwards: the response's own timestamp when it was applied, and the
+// currently stored one when it was not, so a refresh handler never publishes a
+// timestamp the client did not adopt.
+func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Time, error) {
+	dataUpdated := client.data.getDateUpdated()
+	if client.isStaleResponse(resp, dataUpdated) {
+		return false, dataUpdated, nil
 	}
 	update, err := client.decodePayloadUpdate(resp)
 	if err != nil {
-		return err
+		return false, dataUpdated, err
 	}
+	// A payload that carries no section at all - or only a section that could
+	// not be decoded - applies nothing. It is still a valid no-op response
+	// (section-presence semantics), so it is not an error, but it must not be
+	// reported as an update: a malformed SSE event that omits "features" would
+	// otherwise look like a successful refresh to the refresh handler.
+	applied := update.featuresPresent || update.savedGroupsPresent || update.banditsPresent
+	if !applied {
+		client.logger.Warn("Api response contains nothing to apply, keeping current data",
+			"dateUpdated", resp.DateUpdated)
+	}
+	stale := false
 	client.data.withLock(func(d *data) error {
 		// Checked again under the lock: a concurrent update may have applied
 		// newer data while this one was decoding.
 		if client.isStaleResponse(resp, d.dateUpdated) {
+			stale, dataUpdated = true, d.dateUpdated
 			return nil
 		}
 		update.apply(d)
 		return nil
 	})
-	return nil
+	if stale {
+		return false, dataUpdated, nil
+	}
+	return applied, resp.DateUpdated, nil
+}
+
+func (client *Client) applyApiResponseJSON(respJSON string) (bool, time.Time, error) {
+	var resp FeatureApiResponse
+	if err := json.Unmarshal([]byte(respJSON), &resp); err != nil {
+		return false, client.data.getDateUpdated(), err
+	}
+	return client.applyApiResponse(&resp)
 }
 
 func (client *Client) isStaleResponse(resp *FeatureApiResponse, dataUpdated time.Time) bool {
@@ -419,12 +453,8 @@ func (client *Client) DecryptFeatures(encrypted string) (FeatureMap, error) {
 }
 
 func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
-	var resp FeatureApiResponse
-	err := json.Unmarshal([]byte(respJSON), &resp)
-	if err != nil {
-		return err
-	}
-	return client.UpdateFromApiResponse(&resp)
+	_, _, err := client.applyApiResponseJSON(respJSON)
+	return err
 }
 
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
