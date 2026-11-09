@@ -196,9 +196,6 @@ func (p *GrowthBookTrackingPlugin) OnEvent(ctx context.Context, eventName string
 	if properties == nil {
 		properties = EventProperties{}
 	}
-	if p.isDuplicate(eventName, properties, userCtx.Attributes) {
-		return
-	}
 	event := trackingEvent{
 		"event_name":      eventName,
 		"properties_json": properties,
@@ -207,7 +204,19 @@ func (p *GrowthBookTrackingPlugin) OnEvent(ctx context.Context, eventName string
 		"url":             userCtx.URL,
 	}
 	addEventAttributes(event, userCtx.Attributes)
-	p.enqueue(event)
+	// Events are marshaled here, one by one, so a single unmarshalable
+	// value (e.g. NaN in LogEvent properties) drops only that event
+	// instead of failing the whole batch at send time. Marshaling before
+	// de-duping keeps a dropped event from suppressing a valid repeat.
+	data, err := json.Marshal(event)
+	if err != nil {
+		p.logger.Error("Failed to marshal tracking event, dropping it", "error", err)
+		return
+	}
+	if p.isDuplicate(eventName, properties, userCtx.Attributes) {
+		return
+	}
+	p.enqueue(data)
 }
 
 // isDuplicate reports whether an equal "Experiment Viewed" or "Feature
@@ -240,7 +249,7 @@ func (p *GrowthBookTrackingPlugin) isDuplicate(eventName string, properties Even
 	}
 	data, err := json.Marshal(keyData)
 	if err != nil {
-		// enqueue reports the unmarshalable event; don't drop it here.
+		// Unreachable: OnEvent already marshaled the full payload.
 		return false
 	}
 	// Remember a digest, not the key: the cache never holds attribute values.
@@ -388,16 +397,7 @@ func (p *GrowthBookTrackingPlugin) Close() error {
 // enqueue adds an event to the batch. If the batch is full, it
 // triggers an immediate background flush. If this is the first event
 // in a new batch, it starts the timeout timer.
-// Events are marshaled here, one by one, so a single unmarshalable
-// value (e.g. NaN in LogEvent properties) drops only that event
-// instead of failing the whole batch at send time.
-func (p *GrowthBookTrackingPlugin) enqueue(event trackingEvent) {
-	data, err := json.Marshal(event)
-	if err != nil {
-		p.logger.Error("Failed to marshal tracking event, dropping it", "error", err)
-		return
-	}
-
+func (p *GrowthBookTrackingPlugin) enqueue(data json.RawMessage) {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()

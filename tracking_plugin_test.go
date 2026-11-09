@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
 	"net/http/httptest"
@@ -924,6 +925,31 @@ func TestTrackingPluginDedupeCacheEviction(t *testing.T) {
 	events := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")[EventFeatureEvaluated]
 	require.Len(t, events, 3)
 	require.Equal(t, []any{"a", "b", "a"}, []any{events[0]["device_id"], events[1]["device_id"], events[2]["device_id"]})
+}
+
+// An event dropped because its payload can't be marshaled is not
+// remembered, so it doesn't suppress a valid exposure for the same
+// bucketing unit.
+func TestTrackingPluginDedupeSkipsDroppedEvents(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := newDedupeTestClient(t, srv.URL, TrackingPluginConfig{Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+
+	exp := &Experiment{Key: "my-experiment", Variations: []FeatureValue{false, true}, HashAttribute: "company_id", HashVersion: 2}
+	for _, attrs := range []Attributes{
+		{"user_id": "1", "company_id": "acme", "score": math.NaN()},
+		{"user_id": "2", "company_id": "acme"},
+	} {
+		child, err := client.WithAttributes(attrs)
+		require.NoError(t, err)
+		child.RunExperiment(ctx, exp)
+	}
+	require.NoError(t, client.Close())
+
+	events := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")[EventExperimentViewed]
+	require.Len(t, events, 1)
+	require.Equal(t, "2", events[0]["user_id"])
 }
 
 // Concurrent evaluations through child clients log each user's event once.
