@@ -980,6 +980,20 @@ func TestTrackingPluginDedupeConcurrent(t *testing.T) {
 	require.Len(t, eventsByName(t, getRequests(reqs, mu), "sdk-test-key")[EventFeatureEvaluated], 50)
 }
 
+// Custom events are never de-duped, even with the cache enabled.
+func TestTrackingPluginDedupeSkipsCustomEvents(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+	ctx := context.Background()
+	client := newDedupeTestClient(t, srv.URL, TrackingPluginConfig{})
+
+	client.LogEvent(ctx, "Custom", EventProperties{"k": "v"})
+	client.LogEvent(ctx, "Custom", EventProperties{"k": "v"})
+	require.NoError(t, client.Close())
+
+	require.Len(t, eventsByName(t, getRequests(reqs, mu), "sdk-test-key")["Custom"], 2)
+}
+
 // A negative DedupeCacheSize disables de-duping; custom events are never
 // de-duped.
 func TestTrackingPluginDedupeDisabled(t *testing.T) {
