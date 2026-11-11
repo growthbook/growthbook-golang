@@ -365,6 +365,28 @@ func TestConcurrentRefreshesShareOneFetch(t *testing.T) {
 		require.Equal(t, int32(2), ts.count.Load())
 	})
 
+	t.Run("A waiter shares an HTTP client timeout instead of refetching", func(t *testing.T) {
+		ts := startGatedServer()
+		defer ts.http.Close()
+		defer close(ts.release)
+		httpClient := ts.http.Client()
+		httpClient.Timeout = 100 * time.Millisecond
+		client := newRefreshClient(t, &flakyServer{http: ts.http},
+			WithHttpClient(httpClient), WithRetryPolicy(noRetry))
+
+		leaderErr := make(chan error, 1)
+		go func() { leaderErr <- client.RefreshFeatures(ctx) }()
+		<-ts.entered
+		waiterErr := make(chan error, 1)
+		go func() { waiterErr <- client.RefreshFeatures(ctx) }()
+		waitForWaiters(t, client, RefreshDefault, 1)
+
+		err := <-leaderErr
+		require.Error(t, err)
+		require.Equal(t, err, <-waiterErr)
+		require.Equal(t, int32(1), ts.count.Load())
+	})
+
 	t.Run("A waiter's own context stops its wait", func(t *testing.T) {
 		ts := startGatedServer()
 		defer ts.http.Close()

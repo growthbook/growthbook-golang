@@ -187,9 +187,12 @@ type refreshGroup struct {
 }
 
 type refreshCall struct {
-	done    chan struct{}
-	err     error
-	waiters int
+	done chan struct{}
+	err  error
+	// leaderCtxDone records that the leader's own context had ended when its
+	// refresh returned.
+	leaderCtxDone bool
+	waiters       int
 }
 
 func (g *refreshGroup) do(ctx context.Context, mode RefreshMode, refresh func(context.Context) error) error {
@@ -197,6 +200,7 @@ func (g *refreshGroup) do(ctx context.Context, mode RefreshMode, refresh func(co
 		call, leader := g.join(mode)
 		if leader {
 			call.err = refresh(ctx)
+			call.leaderCtxDone = ctx.Err() != nil
 			g.leave(mode)
 			close(call.done)
 			return call.err
@@ -207,8 +211,9 @@ func (g *refreshGroup) do(ctx context.Context, mode RefreshMode, refresh func(co
 		case <-call.done:
 		}
 		// The leader's own context ended its refresh, not a failure this
-		// caller should share: run it again.
-		if isContextError(call.err) {
+		// caller should share: run it again. A context error from anything
+		// else, such as an http.Client Timeout, is shared like any failure.
+		if call.leaderCtxDone {
 			continue
 		}
 		return call.err
@@ -236,10 +241,6 @@ func (g *refreshGroup) leave(mode RefreshMode) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	delete(g.calls, mode)
-}
-
-func isContextError(err error) bool {
-	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
 // RefreshSource identifies which mechanism produced a refresh event.
