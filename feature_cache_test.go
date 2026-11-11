@@ -267,6 +267,78 @@ func TestDirectlySetFeaturesStopCacheWrites(t *testing.T) {
 	require.JSONEq(t, full, string(entry.Payload))
 }
 
+// Auto experiments and other top-level fields are cached with the features,
+// so a client seeded from the cache can still reduce a payload with them.
+func TestCacheKeepsExperimentsAndOtherFields(t *testing.T) {
+	encryptedExperiments := encryptSavedGroupsTestJSON(t, `[{"key":"exp2"}]`)
+	full := `{"features":{"feat":{"defaultValue":1}},"experiments":[{"key":"exp"}],"status":200,"dateUpdated":"2020-01-01T00:00:00Z"}`
+
+	tests := []struct {
+		name   string
+		update string
+		want   string
+	}{
+		{
+			"full response",
+			"",
+			full,
+		},
+		{
+			"partial update keeps experiments",
+			`{"savedGroups":{"beta":["u1"]},"dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":1}},"experiments":[{"key":"exp"}],"savedGroups":{"beta":["u1"]},"dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
+		{
+			"null experiments keeps experiments",
+			`{"features":{"feat":{"defaultValue":2}},"experiments":null,"dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":2}},"experiments":[{"key":"exp"}],"dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
+		{
+			"new experiments replace them",
+			`{"features":{"feat":{"defaultValue":2}},"encryptedExperiments":"` + encryptedExperiments + `","dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":2}},"encryptedExperiments":"` + encryptedExperiments + `","dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cache := NewInMemoryFeatureCache()
+			client, err := NewClient(ctx,
+				WithApiHost("https://example.com"),
+				WithClientKey("k"),
+				WithDecryptionKey(savedGroupsTestKey),
+				WithFeatureCache(cache))
+			require.NoError(t, err)
+
+			require.NoError(t, client.UpdateFromApiResponseJSON(full))
+			if tt.update != "" {
+				require.NoError(t, client.UpdateFromApiResponseJSON(tt.update))
+			}
+
+			entry, ok, err := cache.Get(ctx, "https://example.com::k")
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.JSONEq(t, tt.want, string(entry.Payload))
+
+			// A client seeded from the cache reduces the same experiments.
+			seeded, err := NewClient(ctx,
+				WithApiHost("https://example.com"),
+				WithClientKey("k"),
+				WithDecryptionKey(savedGroupsTestKey),
+				WithFeatureCache(cache))
+			require.NoError(t, err)
+			want, err := client.ReducePayload(ReducePayloadOptions{})
+			require.NoError(t, err)
+			got, err := seeded.ReducePayload(ReducePayloadOptions{})
+			require.NoError(t, err)
+			var wantFields, gotFields map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal(want, &wantFields))
+			require.NoError(t, json.Unmarshal(got, &gotFields))
+			require.Equal(t, string(wantFields["experiments"]), string(gotFields["experiments"]))
+		})
+	}
+}
+
 // blockingFeatureCache blocks its first Set until release is closed, so a test
 // can hold one cache write in flight while another update runs.
 type blockingFeatureCache struct {
