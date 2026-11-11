@@ -276,7 +276,7 @@ func (client *Client) SetJSONFeatures(featuresJSON string) error {
 		// null clears the features, as it does for evaluation
 		raw = map[string]any{}
 	}
-	client.data.withLock(func(d *data) error {
+	client.setDirectly(appliedSections{features: true}, func(d *data) error {
 		d.features = features
 		d.payloadJSON = mergePayloadJSON(d.payloadJSON, map[string]any{"features": raw})
 		return nil

@@ -267,6 +267,42 @@ func TestDirectlySetFeaturesStopCacheWrites(t *testing.T) {
 	require.JSONEq(t, full, string(entry.Payload))
 }
 
+// Features set from JSON replace the cached ones the same way, so a later
+// groups-only update cannot write the replaced API features back.
+func TestJSONSetFeaturesStopCacheWrites(t *testing.T) {
+	encryptedFeatures := encryptSavedGroupsTestJSON(t, `{"feat":{"defaultValue":"json"}}`)
+	setters := map[string]func(*Client) error{
+		"SetJSONFeatures": func(c *Client) error {
+			return c.SetJSONFeatures(`{"feat":{"defaultValue":"json"}}`)
+		},
+		"SetEncryptedJSONFeatures": func(c *Client) error {
+			return c.SetEncryptedJSONFeatures(encryptedFeatures)
+		},
+	}
+	for name, set := range setters {
+		t.Run(name, func(t *testing.T) {
+			cache := NewInMemoryFeatureCache()
+			client, err := NewClient(ctx,
+				WithApiHost("https://example.com"),
+				WithClientKey("k"),
+				WithDecryptionKey(savedGroupsTestKey),
+				WithFeatureCache(cache))
+			require.NoError(t, err)
+
+			full := `{"features":{"feat":{"defaultValue":"api"}},"dateUpdated":"2020-01-01T00:00:00Z"}`
+			require.NoError(t, client.UpdateFromApiResponseJSON(full))
+			require.NoError(t, set(client))
+			require.NoError(t, client.UpdateFromApiResponseJSON(`{"savedGroups":{"beta":["u1"]},"dateUpdated":"2020-01-02T00:00:00Z"}`))
+
+			require.Equal(t, "json", client.EvalFeature(ctx, "feat").Value)
+			entry, ok, err := cache.Get(ctx, "https://example.com::k")
+			require.NoError(t, err)
+			require.True(t, ok)
+			require.JSONEq(t, full, string(entry.Payload))
+		})
+	}
+}
+
 // Auto experiments and other top-level fields are cached with the features,
 // so a client seeded from the cache can still reduce a payload with them.
 func TestCacheKeepsExperimentsAndOtherFields(t *testing.T) {
