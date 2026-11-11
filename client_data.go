@@ -1,6 +1,7 @@
 package growthbook
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -23,12 +24,19 @@ type data struct {
 	decryptionKey  string
 	httpClient     *http.Client
 	dataSource     DataSource
+	dsCancel       context.CancelFunc
 	dsStarted      bool
 	dsStartWait    chan struct{}
 	dsStartErr     error
 	plugins        []Plugin
 	subscribers    subscriberRegistry
 	refreshHandler FeaturesRefreshHandler
+
+	retryPolicy             RetryPolicy
+	backgroundFetchInterval time.Duration
+	// lastFetchedAt is when a fetch from the API last succeeded
+	lastFetchedAt time.Time
+	refreshes     refreshGroup
 
 	// savedGroupsFromCode and banditsFromCode mark sections set from Go
 	// values, which payloadJSON doesn't hold
@@ -41,6 +49,7 @@ func newData() *data {
 		dsStartWait: make(chan struct{}),
 		apiHost:     defaultApiHost,
 		httpClient:  http.DefaultClient,
+		retryPolicy: DefaultRetryPolicy(),
 	}
 }
 
@@ -132,6 +141,27 @@ func (d *data) getPlugins() []Plugin {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.plugins
+}
+
+func (d *data) getRetryPolicy() RetryPolicy {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.retryPolicy
+}
+
+func (d *data) markFetched(at time.Time) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.lastFetchedAt = at
+}
+
+// isFresh reports whether a fetch succeeded within the background fetch
+// interval, so a non-forced refresh can be skipped.
+func (d *data) isFresh(now time.Time) bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.backgroundFetchInterval > 0 && !d.lastFetchedAt.IsZero() &&
+		now.Sub(d.lastFetchedAt) < d.backgroundFetchInterval
 }
 
 func (d *data) getClientKey() string {
