@@ -42,8 +42,18 @@ func (r *FeatureApiResponse) UnmarshalJSON(data []byte) error {
 
 const userAgent = "Growhthbook Go SDK client"
 
+// defaultRequestTimeout bounds a features API request when WithRequestTimeout
+// isn't set.
+const defaultRequestTimeout = 10 * time.Second
+
 func (c *Client) CallFeatureApi(ctx context.Context, etag string) (*FeatureApiResponse, error) {
 	apiResp := FeatureApiResponse{}
+
+	if timeout := c.data.requestTimeout; timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
 
 	apiUrl := c.data.getApiUrl()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, apiUrl, nil)

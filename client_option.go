@@ -1,10 +1,12 @@
 package growthbook
 
 import (
+	"fmt"
 	"log/slog"
 	"maps"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -139,6 +141,21 @@ func WithQaMode(qaMode bool) ClientOption {
 func WithHttpClient(httpClient *http.Client) ClientOption {
 	return func(c *Client) error {
 		c.data.httpClient = httpClient
+		return nil
+	}
+}
+
+// WithRequestTimeout bounds each features API request, from connecting to
+// reading the whole response body. It applies to polling, manual refreshes and
+// the initial SSE load, but not to the SSE stream itself. The default is 10s;
+// 0 disables the timeout. A timed-out request fails like any other fetch error,
+// so the client keeps the features it already has.
+func WithRequestTimeout(timeout time.Duration) ClientOption {
+	return func(c *Client) error {
+		if timeout < 0 {
+			return fmt.Errorf("request timeout must not be negative, got %s", timeout)
+		}
+		c.data.requestTimeout = timeout
 		return nil
 	}
 }

@@ -99,6 +99,17 @@ Additional options, such as `WithLogger`, `WithUrl`, and `WithAttributesOverride
 
 To stop background updates, call `client.Close()` on the main client instance when it is no longer needed.
 
+Each features API request (polling, `RefreshFeatures` and the initial SSE load) is bounded by a 10s timeout, so a slow or unreachable API can't block startup indefinitely. When a request times out, the client keeps the features it already has, for example from `WithJsonFeatures`. Change the bound with `WithRequestTimeout`, or pass `0` to disable it:
+
+```go
+client, err := gb.NewClient(ctx,
+    gb.WithClientKey("sdk-abc123"),
+    gb.WithPollDataSource(time.Minute),
+    gb.WithRequestTimeout(5*time.Second),
+)
+err = client.EnsureLoaded(ctx) // returns within ~5s even if the API doesn't answer
+```
+
 ---
 
 ### Saved groups and encrypted payloads
