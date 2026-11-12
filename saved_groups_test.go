@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/growthbook/growthbook-golang/internal/condition"
-	"github.com/growthbook/growthbook-golang/internal/value"
 	"github.com/stretchr/testify/require"
 )
 
@@ -77,8 +76,8 @@ func TestProgrammaticSavedGroups(t *testing.T) {
 // that have already been decoded, including the distinction between nil and empty.
 func TestWithSavedGroupsParsedDefinitions(t *testing.T) {
 	var parsed condition.SavedGroups
-	require.NoError(t, json.Unmarshal([]byte(`{"g":{"type":"condition","condition":{}}}`), &parsed))
-	for _, groups := range []condition.SavedGroups{nil, {}, {"legacy": value.Arr("u1")}, parsed} {
+	require.NoError(t, json.Unmarshal([]byte(`{"g":{"type":"condition","condition":{}},"legacy":["u1"]}`), &parsed))
+	for _, groups := range []condition.SavedGroups{nil, {}, parsed} {
 		client, err := NewClient(context.Background(), WithSavedGroups(groups))
 		require.NoError(t, err)
 		require.Equal(t, groups, client.data.savedGroups)

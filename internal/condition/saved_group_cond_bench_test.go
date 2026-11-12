@@ -1,7 +1,9 @@
 package condition
 
 import (
+	"encoding/json"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -44,6 +46,35 @@ func BenchmarkSavedGroupEval(b *testing.B) {
 				if !base.Eval(attrs, groups) {
 					b.Fatal("expected saved-group match")
 				}
+			}
+		})
+	}
+}
+
+// BenchmarkInGroupStrings checks one hit and one miss against a large group of
+// strings, in both entry shapes.
+func BenchmarkInGroupStrings(b *testing.B) {
+	values := make([]string, 10000)
+	for i := range values {
+		values[i] = strconv.Quote("id-" + strconv.Itoa(i))
+	}
+	list := "[" + strings.Join(values, ",") + "]"
+	for _, tc := range []struct{ name, entry string }{
+		{"legacy", list},
+		{"list", `{"type":"list","attributeKey":"id","values":` + list + `}`},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			var groups SavedGroups
+			if err := json.Unmarshal([]byte(`{"g":`+tc.entry+`}`), &groups); err != nil {
+				b.Fatal(err)
+			}
+			cond := NewInGroupCond("g")
+			hit, miss := value.Str("id-9999"), value.Str("missing")
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = cond.Eval(hit, groups, nil)
+				_ = cond.Eval(miss, groups, nil)
 			}
 		})
 	}
