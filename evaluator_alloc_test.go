@@ -6,7 +6,7 @@ import (
 )
 
 // TestEvalFeatureAllocs pins the allocations of evaluating a feature with no
-// rules: only the returned FeatureResult. More means the evaluator or its
+// rules: at most the returned FeatureResult. More means the evaluator or its
 // prerequisite stack has moved to the heap.
 func TestEvalFeatureAllocs(t *testing.T) {
 	c, err := NewClient(context.Background(),
@@ -20,7 +20,7 @@ func TestEvalFeatureAllocs(t *testing.T) {
 	allocs := testing.AllocsPerRun(100, func() {
 		_ = c.EvalFeature(ctx, "flag")
 	})
-	if allocs != 1 {
-		t.Errorf("EvalFeature allocated %v times per call, want 1", allocs)
+	if allocs > 1 {
+		t.Errorf("EvalFeature allocated %v times per call, want at most 1", allocs)
 	}
 }

@@ -39,6 +39,7 @@ func (s *stack[T]) pop() (T, bool) {
 	s.n--
 	if s.overflow != nil {
 		res := s.overflow[s.n]
+		s.overflow[s.n] = z
 		s.overflow = s.overflow[:s.n]
 		return res, true
 	}

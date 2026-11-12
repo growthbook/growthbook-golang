@@ -58,7 +58,8 @@ func savedGroupMembership(groups SavedGroups, id string) (InCond, bool) {
 	case legacyGroup:
 		return group.membership, true
 	case value.ArrValue:
-		// A map built without Normalize
+		// Fallback for a map not passed through Normalize. It's correct but
+		// scans the values.
 		return InCond{expected: group}, true
 	case savedGroup:
 		if group.membership != nil {
