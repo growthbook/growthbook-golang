@@ -166,10 +166,10 @@ the retained implementation; no further implementation changes were recommended.
 
 | Benchmark | Base | PR |
 | --- | ---: | ---: |
-| `EvalFeature_Cold` | 76.7 ns, 256 B, 3 allocs | 58.0 ns, 80 B, 1 alloc |
-| `EvalFeature_Warm` | 82.8 ns, 256 B, 3 allocs | 60.1 ns, 80 B, 1 alloc |
-| `EvalFeature_Parallel` | 207.2 ns, 256 B, 3 allocs | 125.8 ns, 80 B, 1 alloc |
-| `RunExperiment` | 196.7 ns, 856 B, 5 allocs | 182.4 ns, 696 B, 4 allocs |
+| `EvalFeature_Cold` | 76.7 ns, 256 B, 3 allocs | 54.7 ns, 80 B, 1 alloc |
+| `EvalFeature_Warm` | 82.8 ns, 256 B, 3 allocs | 56.6 ns, 80 B, 1 alloc |
+| `EvalFeature_Parallel` | 207.2 ns, 256 B, 3 allocs | 75.5 ns, 80 B, 1 alloc |
+| `RunExperiment` | 196.7 ns, 856 B, 5 allocs | 178.7 ns, 696 B, 4 allocs |
 | `InGroupStrings/legacy` (10,000 strings, hit + miss) | 136,903 ns | 30 ns |
 | `PaddedVersionString` | 776 ns, 541 B, 18 allocs | 50 ns, 48 B, 1 alloc |
 

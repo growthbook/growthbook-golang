@@ -451,7 +451,7 @@ func (client *Client) fireTracking(ctx context.Context, e *evaluator, plugins []
 	// callbacks, mirroring the JS SDK (core.ts onExperimentViewed /
 	// onFeatureUsage fire eventLogger per tracked item). Resolve the user
 	// context once; exposures carry their own snapshot.
-	dispatchEvents := client.hasEventConsumers()
+	dispatchEvents := client.hasEventConsumers(plugins)
 	var usageCtx *EventUserContext
 	if dispatchEvents && len(e.featureUsage) > 0 {
 		if usageCtx = e.userCtx; usageCtx == nil {

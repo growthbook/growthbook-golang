@@ -53,12 +53,13 @@ func (client *Client) LogEvent(ctx context.Context, eventName string, properties
 
 // hasEventConsumers reports whether anything listens on the event-logger
 // channel: a WithEventLogger callback or a plugin implementing
-// EventLoggerPlugin.
-func (client *Client) hasEventConsumers() bool {
+// EventLoggerPlugin. The caller passes the plugins it already read, so an
+// evaluation takes the data lock only once.
+func (client *Client) hasEventConsumers(plugins []Plugin) bool {
 	if client.eventLogger != nil {
 		return true
 	}
-	for _, p := range client.data.getPlugins() {
+	for _, p := range plugins {
 		if _, ok := p.(EventLoggerPlugin); ok {
 			return true
 		}
