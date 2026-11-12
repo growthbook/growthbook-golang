@@ -1,7 +1,6 @@
 package condition
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/growthbook/growthbook-golang/internal/value"
@@ -42,12 +41,10 @@ func (c VersionCond) Eval(actual value.Value, _ SavedGroups, _ visitedGroups) bo
 	return false
 }
 
-var (
-	replaceRe      = regexp.MustCompile(`(^v|\+.*$)`)
-	versionSplitRe = regexp.MustCompile(`[-.]`)
-	versionNumRe   = regexp.MustCompile(`^[0-9]+$`)
-)
-
+// paddedVersionString mirrors the JS SDK's paddedVersionString: drop a
+// leading "v" and any build metadata after the first "+", split on "-" and
+// ".", add "~" to a plain x.y.z so it sorts after its pre-releases, and
+// left-pad numeric parts to 5 characters so strings compare like numbers.
 func paddedVersionString(input value.Value) string {
 	var version string
 	switch v := input.(type) {
@@ -57,16 +54,45 @@ func paddedVersionString(input value.Value) string {
 	if version == "" {
 		version = "0"
 	}
-	version = replaceRe.ReplaceAllString(version, "")
-	parts := versionSplitRe.Split(version, -1)
-	if len(parts) == 3 {
-		parts = append(parts, "~")
+	version = strings.TrimPrefix(version, "v")
+	if i := strings.IndexByte(version, '+'); i >= 0 {
+		version = version[:i]
 	}
-	for i, p := range parts {
-		isNumber := versionNumRe.MatchString(p)
-		if isNumber && len(p) < 5 {
-			parts[i] = strings.Repeat(" ", 5-len(p)) + p
+
+	var b strings.Builder
+	b.Grow(len(version) + 24)
+	parts := 0
+	writePart := func(p string) {
+		if parts > 0 {
+			b.WriteByte('-')
+		}
+		parts++
+		if len(p) > 0 && len(p) < 5 && isDigits(p) {
+			for i := len(p); i < 5; i++ {
+				b.WriteByte(' ')
+			}
+		}
+		b.WriteString(p)
+	}
+	start := 0
+	for i := 0; i < len(version); i++ {
+		if version[i] == '-' || version[i] == '.' {
+			writePart(version[start:i])
+			start = i + 1
 		}
 	}
-	return strings.Join(parts, "-")
+	writePart(version[start:])
+	if parts == 3 {
+		writePart("~")
+	}
+	return b.String()
+}
+
+func isDigits(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

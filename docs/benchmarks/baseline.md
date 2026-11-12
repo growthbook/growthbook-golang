@@ -153,3 +153,25 @@ new capability, not comparisons against a previous v2 implementation.
 A follow-up per-entry decoder experiment reduced legacy loading memory by
 5.5% but did not improve speed, so it was reverted. The results above describe
 the retained implementation; no further implementation changes were recommended.
+
+---
+
+## 2026-11-12 — Evaluation allocations, legacy string groups, version padding
+
+- base: `68da623`, Go 1.27.3, Apple M5 Pro (arm64), `-benchtime=2s`
+- change: the evaluator stays on the stack (returned by value, prerequisite
+  stack keeps 4 entries inline), one read lock per evaluation, legacy string
+  groups use a set lookup, `paddedVersionString` scans bytes instead of using
+  regexes. Evaluation results are unchanged.
+
+| Benchmark | Base | PR |
+| --- | ---: | ---: |
+| `EvalFeature_Cold` | 76.7 ns, 256 B, 3 allocs | 58.0 ns, 80 B, 1 alloc |
+| `EvalFeature_Warm` | 82.8 ns, 256 B, 3 allocs | 60.1 ns, 80 B, 1 alloc |
+| `EvalFeature_Parallel` | 207.2 ns, 256 B, 3 allocs | 125.8 ns, 80 B, 1 alloc |
+| `RunExperiment` | 196.7 ns, 856 B, 5 allocs | 182.4 ns, 696 B, 4 allocs |
+| `InGroupStrings/legacy` (10,000 strings, hit + miss) | 136,903 ns | 30 ns |
+| `PaddedVersionString` | 776 ns, 541 B, 18 allocs | 50 ns, 48 B, 1 alloc |
+
+Loading a 10,000-string legacy group now builds its set: 1.12 ms → 1.27 ms
+and 2.00 MB → 2.44 MB per load, the same cost v2 list groups already had.
