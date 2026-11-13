@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultIngestorHost = "https://us1.gb-ingest.com"
+	defaultIngestorHost = "https://us-east-1.gb-ingest.com"
 	defaultBatchSize    = 100
 	defaultBatchTimeout = 10 * time.Second
 )
@@ -61,7 +61,7 @@ func sdkVersion() string {
 // TrackingPluginConfig configures the GrowthBookTrackingPlugin.
 type TrackingPluginConfig struct {
 	// IngestorHost is the GrowthBook event ingestor endpoint.
-	// Defaults to "https://us1.gb-ingest.com".
+	// Defaults to "https://us-east-1.gb-ingest.com".
 	IngestorHost string
 
 	// BatchSize is the maximum number of events to accumulate before
