@@ -200,11 +200,19 @@ The plugin batches events and sends them in the background. Configuration option
 | `BatchTimeout` | `10s` | Max wait time before auto-flush |
 | `HTTPClient` | Client's HTTP client | Custom HTTP client for sending events |
 | `Logger` | Client's logger | Custom logger for error reporting |
+| `DisableFeatureUsageEvents` | `false` | Drop `Feature Evaluated` events; exposures and custom events still sent |
 
 Events tracked automatically (standard GrowthBook event names, shared with
 the JS SDK):
 - **`Experiment Viewed`** — when a user is bucketed into an experiment
 - **`Feature Evaluated`** — every time a feature flag is evaluated
+
+`Feature Evaluated` is much the noisiest of the two. Set
+`DisableFeatureUsageEvents: true` to stop sending it while keeping exposures
+and custom events. The option only gates what this plugin sends: a
+`FeatureUsageCallback` or event logger you registered yourself still fires.
+As in the JS SDK, events are matched by name, so a custom event logged as
+`Feature Evaluated` is dropped too.
 
 Events are sent in the ingestor's standard `EventPayload` shape (`POST
 {IngestorHost}/track?client_key=...` with a JSON array), carrying the

@@ -763,3 +763,138 @@ func TestTrackingPluginNumericIdentifiers(t *testing.T) {
 	require.Equal(t, "42", event["user_id"])
 	require.Equal(t, "100", event["device_id"])
 }
+
+func TestTrackingPluginDisableFeatureUsageEvents(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithAttributes(Attributes{"id": "user-123"}),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost:              srv.URL,
+			BatchSize:                 1,
+			DisableFeatureUsageEvents: true,
+		}),
+	)
+	require.NoError(t, err)
+
+	featuresJSON := `{
+		"exp-feature": {
+			"defaultValue": 0,
+			"rules": [{"variations": [0, 1], "name": "My Experiment"}]
+		}
+	}`
+	require.NoError(t, client.SetJSONFeatures(featuresJSON))
+
+	res := client.EvalFeature(ctx, "exp-feature")
+	require.True(t, res.InExperiment())
+	client.LogEvent(ctx, "button_clicked", EventProperties{"button": "buy"})
+
+	require.NoError(t, client.Close())
+
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+
+	// Without the option this evaluation would send one of each event.
+	require.Empty(t, byName[EventFeatureEvaluated], "feature usage events were disabled")
+	require.Len(t, byName[EventExperimentViewed], 1, "exposures are a separate stream")
+	require.Len(t, byName["button_clicked"], 1, "custom events are a separate stream")
+}
+
+func TestTrackingPluginDisableFeatureUsageEventsChildClient(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost:              srv.URL,
+			BatchSize:                 1,
+			DisableFeatureUsageEvents: true,
+		}),
+	)
+	require.NoError(t, err)
+
+	featuresJSON := `{
+		"exp-feature": {
+			"defaultValue": 0,
+			"rules": [{"variations": [0, 1], "name": "My Experiment"}]
+		}
+	}`
+	require.NoError(t, client.SetJSONFeatures(featuresJSON))
+
+	// Per-request child clients share the root's plugin, so the option
+	// must apply to their evaluations too.
+	child, err := client.WithAttributes(Attributes{"id": "child-1"})
+	require.NoError(t, err)
+	res := child.EvalFeature(ctx, "exp-feature")
+	require.True(t, res.InExperiment())
+
+	require.NoError(t, client.Close())
+
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+
+	require.Empty(t, byName[EventFeatureEvaluated], "child evaluations must respect the option")
+	require.Len(t, byName[EventExperimentViewed], 1)
+	require.Equal(t, "child-1", byName[EventExperimentViewed][0]["device_id"])
+}
+
+func TestTrackingPluginFeatureUsageEventsOnByDefault(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithAttributes(Attributes{"id": "user-123"}),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost: srv.URL,
+			BatchSize:    1,
+		}),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, client.SetJSONFeatures(`{"plain-feature": {"defaultValue": true}}`))
+	client.EvalFeature(ctx, "plain-feature")
+
+	require.NoError(t, client.Close())
+
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+
+	require.Len(t, byName[EventFeatureEvaluated], 1, "the zero value must keep reporting")
+}
+
+func TestTrackingPluginDisableFeatureUsageEventsLeavesOtherConsumers(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	ctx := context.Background()
+	var logged []string
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithAttributes(Attributes{"id": "user-123"}),
+		WithEventLogger(func(ctx context.Context, eventName string, properties EventProperties, userCtx *EventUserContext) {
+			logged = append(logged, eventName)
+		}),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost:              srv.URL,
+			BatchSize:                 1,
+			DisableFeatureUsageEvents: true,
+		}),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, client.SetJSONFeatures(`{"plain-feature": {"defaultValue": true}}`))
+	client.EvalFeature(ctx, "plain-feature")
+
+	require.NoError(t, client.Close())
+
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+
+	// The option belongs to this plugin, so it must not silence the
+	// application's own event logger.
+	require.Empty(t, byName[EventFeatureEvaluated])
+	require.Contains(t, logged, EventFeatureEvaluated)
+}
