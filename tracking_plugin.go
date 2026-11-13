@@ -79,6 +79,15 @@ type TrackingPluginConfig struct {
 	// Logger is used for error logging. If nil, the client's logger
 	// is used.
 	Logger *slog.Logger
+
+	// DisableFeatureUsageEvents drops the built-in [EventFeatureEvaluated]
+	// events, which are by far the noisiest stream. Experiment views and
+	// custom events are unaffected. It is the Go equivalent of the JS
+	// plugin's enableFeatureUsageEvents: false, inverted so the zero value
+	// keeps the default (enabled). Like the JS plugin, it matches on the
+	// event name, so a custom event logged via [Client.LogEvent] under the
+	// name [EventFeatureEvaluated] is dropped as well.
+	DisableFeatureUsageEvents bool
 }
 
 // trackingEvent is the JSON payload for a single tracking event, in the
@@ -163,9 +172,13 @@ func (p *GrowthBookTrackingPlugin) OnFeatureEvaluated(ctx context.Context, featu
 // logged via [Client.LogEvent]. The payload mirrors the EventPayload shape
 // used by the JS and Python tracking plugins (sdk-js
 // plugins/growthbook-tracking.ts getEventPayload).
-// No-op if the plugin was not successfully initialized.
+// No-op if the plugin was not successfully initialized, and skips feature
+// usage events when [TrackingPluginConfig.DisableFeatureUsageEvents] is set.
 func (p *GrowthBookTrackingPlugin) OnEvent(ctx context.Context, eventName string, properties EventProperties, userCtx *EventUserContext) {
 	if !p.initialized {
+		return
+	}
+	if p.config.DisableFeatureUsageEvents && eventName == EventFeatureEvaluated {
 		return
 	}
 	if properties == nil {
