@@ -79,6 +79,28 @@ type TrackingPluginConfig struct {
 	// Logger is used for error logging. If nil, the client's logger
 	// is used.
 	Logger *slog.Logger
+
+	// EventFilter, if set, is called for every event before it is
+	// queued; returning false drops the event. It is the Go equivalent
+	// of the JS plugin's eventFilter. The filter runs synchronously on
+	// the evaluating goroutine, so it must be fast, safe for concurrent
+	// use and must not modify the maps in [TrackingEventData]. A panic
+	// in the filter is recovered and logged, and the event is dropped.
+	EventFilter func(TrackingEventData) bool
+}
+
+// TrackingEventData is the event passed to [TrackingPluginConfig.EventFilter].
+// It mirrors TrackingEventData in the JS tracking plugin.
+type TrackingEventData struct {
+	// EventName is the event name, e.g. [EventExperimentViewed],
+	// [EventFeatureEvaluated] or a custom name passed to [Client.LogEvent].
+	EventName string
+	// Properties are the event properties. Never nil.
+	Properties EventProperties
+	// Attributes are the evaluating client's attributes.
+	Attributes Attributes
+	// URL is the evaluating client's URL, or "" if none is set.
+	URL string
 }
 
 // trackingEvent is the JSON payload for a single tracking event, in the
@@ -163,13 +185,22 @@ func (p *GrowthBookTrackingPlugin) OnFeatureEvaluated(ctx context.Context, featu
 // logged via [Client.LogEvent]. The payload mirrors the EventPayload shape
 // used by the JS and Python tracking plugins (sdk-js
 // plugins/growthbook-tracking.ts getEventPayload).
-// No-op if the plugin was not successfully initialized.
+// No-op if the plugin was not successfully initialized, and skips events
+// rejected by [TrackingPluginConfig.EventFilter].
 func (p *GrowthBookTrackingPlugin) OnEvent(ctx context.Context, eventName string, properties EventProperties, userCtx *EventUserContext) {
 	if !p.initialized {
 		return
 	}
 	if properties == nil {
 		properties = EventProperties{}
+	}
+	if !p.keepEvent(ctx, TrackingEventData{
+		EventName:  eventName,
+		Properties: properties,
+		Attributes: userCtx.Attributes,
+		URL:        userCtx.URL,
+	}) {
+		return
 	}
 	event := trackingEvent{
 		"event_name":      eventName,
@@ -180,6 +211,23 @@ func (p *GrowthBookTrackingPlugin) OnEvent(ctx context.Context, eventName string
 	}
 	addEventAttributes(event, userCtx.Attributes)
 	p.enqueue(event)
+}
+
+// keepEvent reports whether the configured EventFilter accepts data; with
+// no filter every event is kept. A panicking filter is recovered and the
+// event dropped, as an exception in the JS plugin's filter drops it too.
+func (p *GrowthBookTrackingPlugin) keepEvent(ctx context.Context, data TrackingEventData) (keep bool) {
+	if p.config.EventFilter == nil {
+		return true
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			p.logger.ErrorContext(ctx, "Tracking EventFilter panicked, dropping event",
+				"event", data.EventName, "error", r)
+			keep = false
+		}
+	}()
+	return p.config.EventFilter(data)
 }
 
 // Attribute keys lifted to top-level EventPayload fields; everything else
