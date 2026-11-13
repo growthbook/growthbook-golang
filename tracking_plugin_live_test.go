@@ -7,7 +7,7 @@
 //
 // Set these environment variables before running:
 //   GB_CLIENT_KEY   — your GrowthBook SDK client key (required)
-//   GB_INGESTOR_HOST — ingestor endpoint (optional, defaults to https://us1.gb-ingest.com)
+//   GB_INGESTOR_HOST — ingestor endpoint (optional, defaults to https://us-east-1.gb-ingest.com)
 //
 // After running, check the GrowthBook dashboard to confirm events arrived.
 // This test file can be deleted once verification is complete.

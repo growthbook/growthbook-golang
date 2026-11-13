@@ -184,8 +184,8 @@ client, err := gb.NewClient(
     gb.WithClientKey("sdk-XXXX"),
     gb.WithSseDataSource(),
     gb.WithGrowthBookTracking(gb.TrackingPluginConfig{
-        // Defaults to "https://us1.gb-ingest.com"
-        IngestorHost: "https://us1.gb-ingest.com",
+        // Defaults to "https://us-east-1.gb-ingest.com"
+        IngestorHost: "https://us-east-1.gb-ingest.com",
     }),
 )
 defer client.Close() // flushes remaining events
@@ -195,7 +195,7 @@ The plugin batches events and sends them in the background. Configuration option
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `IngestorHost` | `https://us1.gb-ingest.com` | GrowthBook event ingestor endpoint |
+| `IngestorHost` | `https://us-east-1.gb-ingest.com` | GrowthBook event ingestor endpoint |
 | `BatchSize` | `100` | Max events before auto-flush |
 | `BatchTimeout` | `10s` | Max wait time before auto-flush |
 | `HTTPClient` | Client's HTTP client | Custom HTTP client for sending events |
