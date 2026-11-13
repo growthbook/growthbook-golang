@@ -763,3 +763,100 @@ func TestTrackingPluginNumericIdentifiers(t *testing.T) {
 	require.Equal(t, "42", event["user_id"])
 	require.Equal(t, "100", event["device_id"])
 }
+
+func TestTrackingPluginEventFilter(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	// The filter runs on the evaluating goroutine; guard the slice anyway
+	// so the test stays race-free if that ever changes.
+	var seenMu sync.Mutex
+	var seen []TrackingEventData
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithAttributes(Attributes{"id": "user-1", "country": "US"}),
+		WithUrl("https://example.com/page"),
+		WithGrowthBookTracking(TrackingPluginConfig{
+			IngestorHost: srv.URL,
+			BatchSize:    10,
+			EventFilter: func(e TrackingEventData) bool {
+				seenMu.Lock()
+				seen = append(seen, e)
+				seenMu.Unlock()
+				// Drop feature usage and one custom event; keep the rest.
+				return e.EventName != EventFeatureEvaluated && e.EventName != "drop_me"
+			},
+		}),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.SetJSONFeatures(`{"flag": {"defaultValue": true}}`))
+
+	client.EvalFeature(ctx, "flag")
+	client.LogEvent(ctx, "drop_me", EventProperties{"a": 1})
+	client.LogEvent(ctx, "keep_me", EventProperties{"b": 2})
+	client.LogEvent(ctx, "nil_props", nil)
+	require.NoError(t, client.Close())
+
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+	require.Empty(t, byName[EventFeatureEvaluated])
+	require.Empty(t, byName["drop_me"])
+	require.Len(t, byName["keep_me"], 1)
+	require.Len(t, byName["nil_props"], 1)
+
+	// The filter saw every event, dropped or not, with the full data.
+	seenMu.Lock()
+	defer seenMu.Unlock()
+	require.Len(t, seen, 4)
+	byEvent := make(map[string]TrackingEventData, len(seen))
+	for _, e := range seen {
+		byEvent[e.EventName] = e
+	}
+	keep := byEvent["keep_me"]
+	require.Equal(t, EventProperties{"b": 2}, keep.Properties)
+	require.Equal(t, Attributes{"id": "user-1", "country": "US"}, keep.Attributes)
+	require.Equal(t, "https://example.com/page", keep.URL)
+	require.Equal(t, "flag", byEvent[EventFeatureEvaluated].Properties["feature"])
+	require.NotNil(t, byEvent["nil_props"].Properties, "nil properties are normalized before filtering")
+}
+
+func TestTrackingPluginEventFilterPanicIsSafe(t *testing.T) {
+	srv, reqs, mu := newTestIngestor(t)
+	defer srv.Close()
+
+	plugin := NewGrowthBookTrackingPlugin(TrackingPluginConfig{
+		IngestorHost: srv.URL,
+		BatchSize:    10,
+		EventFilter: func(e TrackingEventData) bool {
+			if e.EventName == "boom" {
+				panic("filter exploded")
+			}
+			return true
+		},
+	})
+
+	ctx := context.Background()
+	client, err := NewClient(ctx,
+		WithClientKey("sdk-test-key"),
+		WithPlugins(plugin),
+		withSilentTestLogger(),
+	)
+	require.NoError(t, err)
+	require.NoError(t, client.SetJSONFeatures(`{"flag": {"defaultValue": true}}`))
+
+	require.NotPanics(t, func() {
+		// Called directly, bypassing the client's own plugin recovery,
+		// so this proves the plugin recovers the filter's panic itself.
+		plugin.OnEvent(ctx, "boom", nil, &EventUserContext{})
+		client.LogEvent(ctx, "boom", nil)
+		res := client.EvalFeature(ctx, "flag")
+		require.Equal(t, true, res.Value)
+	})
+	require.NoError(t, client.Close())
+
+	// The panicking event is dropped; later events are unaffected.
+	byName := eventsByName(t, getRequests(reqs, mu), "sdk-test-key")
+	require.Empty(t, byName["boom"])
+	require.Len(t, byName[EventFeatureEvaluated], 1)
+}
