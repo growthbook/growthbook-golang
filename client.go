@@ -200,6 +200,7 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 	// empty section clears it. For features and savedGroups a JSON null
 	// section decodes to a nil map and counts as absent; contextualBandits
 	// additionally treats explicit null as a clear via its custom decoder.
+	// Interleavings are the exception, see below.
 	var features FeatureMap
 	var err error
 	featuresPresent := false
@@ -254,12 +255,30 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 			banditsPresent = true
 		}
 	}
+	// The server leaves the interleavings section out when no experiment is
+	// running, so a payload that carries features replaces them, as the JS SDK
+	// does on every payload. Without features, an absent section keeps the
+	// previous definitions.
+	interleavings := resp.Interleavings
+	interleavingsPresent := interleavings != nil
+	if resp.EncryptedInterleavings != "" {
+		interleavingsJSON, err := client.data.decrypt(resp.EncryptedInterleavings)
+		if err == nil {
+			err = json.Unmarshal([]byte(interleavingsJSON), &interleavings)
+		}
+		if err != nil {
+			client.logger.Warn("Ignoring undecodable encrypted interleavings; a payload with features drops the previous definitions", "error", err)
+		} else {
+			interleavingsPresent = true
+		}
+	}
+	interleavingsCleared := featuresPresent && !interleavingsPresent
 	// A payload that carries no section at all - or only a section that could
 	// not be decoded - applies nothing. It is still a valid no-op response
 	// (section-presence semantics), so it is not an error, but it must not be
 	// reported as an update: a malformed SSE event that omits "features" would
 	// otherwise look like a successful refresh to the refresh handler.
-	applied := featuresPresent || savedGroupsPresent || banditsPresent
+	applied := featuresPresent || savedGroupsPresent || banditsPresent || interleavingsPresent
 	if !applied {
 		client.logger.Warn("Api response contains nothing to apply, keeping current data",
 			"dateUpdated", resp.DateUpdated)
@@ -268,7 +287,8 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 	if payloadJSON != nil {
 		// Each section follows the decision above, so the JSON that
 		// ReducePayload reads never keeps data evaluation dropped, or drops
-		// data it uses. An absent section keeps the previous one.
+		// data it uses. An absent section keeps the previous one, except
+		// interleavings when the payload carries features.
 		if !featuresPresent {
 			delete(payloadJSON, "features")
 		}
@@ -286,10 +306,18 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 			// An explicit null, or junk the decoder reads as none, clears them
 			payloadJSON["contextualBandits"] = map[string]any{}
 		}
+		if !interleavingsPresent {
+			delete(payloadJSON, "interleavings")
+		} else if _, ok := payloadJSON["interleavings"].(map[string]any); !ok {
+			payloadJSON["interleavings"] = map[string]any{}
+		}
 	}
 	client.data.withLock(func(d *data) error {
 		if payloadJSON != nil {
 			d.payloadJSON = mergePayloadJSON(d.payloadJSON, payloadJSON)
+			if interleavingsCleared {
+				delete(d.payloadJSON, "interleavings")
+			}
 		} else {
 			// A response built from Go values carries no payload JSON
 			d.payloadJSON = nil
@@ -304,6 +332,11 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 		if banditsPresent {
 			d.contextualBandits = bandits
 			d.banditsFromCode = false
+		}
+		if interleavingsPresent {
+			d.interleavings = interleavings
+		} else if interleavingsCleared {
+			d.interleavings = nil
 		}
 		d.dateUpdated = resp.DateUpdated
 		return nil
@@ -340,6 +373,7 @@ func (client *Client) decryptedPayloadJSON(resp *FeatureApiResponse) map[string]
 		"features":          "encryptedFeatures",
 		"savedGroups":       "encryptedSavedGroups",
 		"contextualBandits": "encryptedContextualBandits",
+		"interleavings":     "encryptedInterleavings",
 		"experiments":       "encryptedExperiments",
 	} {
 		encrypted, _ := payload[encryptedKey].(string)
@@ -369,7 +403,7 @@ func mergePayloadJSON(prev, update map[string]any) map[string]any {
 	for k, v := range update {
 		merged[k] = v
 	}
-	for _, section := range []string{"features", "savedGroups", "contextualBandits", "experiments"} {
+	for _, section := range []string{"features", "savedGroups", "contextualBandits", "interleavings", "experiments"} {
 		v, ok := merged[section]
 		if (!ok || (section == "experiments" && v == nil)) && prev[section] != nil {
 			merged[section] = prev[section]

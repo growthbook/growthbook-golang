@@ -20,6 +20,8 @@ type FeatureApiResponse struct {
 	EncryptedSavedGroups       string                      `json:"encryptedSavedGroups,omitempty"`
 	ContextualBandits          ContextualBanditDefinitions `json:"contextualBandits"`
 	EncryptedContextualBandits string                      `json:"encryptedContextualBandits"`
+	Interleavings              InterleavingDefinitions     `json:"interleavings"`
+	EncryptedInterleavings     string                      `json:"encryptedInterleavings,omitempty"`
 	SseSupport                 bool
 	Etag                       string
 	// raw is the JSON the response was decoded from, kept for ReducePayload

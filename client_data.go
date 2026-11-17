@@ -14,6 +14,7 @@ type data struct {
 	features          FeatureMap
 	savedGroups       condition.SavedGroups
 	contextualBandits ContextualBanditDefinitions
+	interleavings     InterleavingDefinitions
 	// payloadJSON is the decrypted payload as JSON values, when the features
 	// came from JSON. ReducePayload reads it.
 	payloadJSON    map[string]any
