@@ -22,6 +22,7 @@ type data struct {
 	clientKey      string
 	decryptionKey  string
 	httpClient     *http.Client
+	requestTimeout time.Duration
 	dataSource     DataSource
 	dsStarted      bool
 	dsStartWait    chan struct{}
@@ -38,9 +39,10 @@ type data struct {
 
 func newData() *data {
 	return &data{
-		dsStartWait: make(chan struct{}),
-		apiHost:     defaultApiHost,
-		httpClient:  http.DefaultClient,
+		dsStartWait:    make(chan struct{}),
+		apiHost:        defaultApiHost,
+		httpClient:     http.DefaultClient,
+		requestTimeout: defaultRequestTimeout,
 	}
 }
 
