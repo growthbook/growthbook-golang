@@ -293,8 +293,8 @@ func TestPollingDataSource(t *testing.T) {
 		)
 	})
 
-	// A failed initial load aborts Start, so polling never begins: the single
-	// attempt must produce exactly one Error event.
+	// A failed initial load still starts polling, but EnsureLoaded returns as
+	// soon as the first attempt fails: that attempt produces one Error event.
 	t.Run("error fires Error", func(t *testing.T) {
 		ts := startServer(http.StatusNotFound, []byte(""))
 		defer ts.http.Close()
@@ -309,6 +309,8 @@ func TestPollingDataSource(t *testing.T) {
 			WithPollDataSource(10*time.Millisecond),
 		)
 		require.Nil(t, err)
+		// The poller keeps retrying after the failed first load; stop it with the test.
+		defer client.Close()
 		require.NotNil(t, client.EnsureLoaded(ctx))
 
 		requireEvents(t, c.all(),

@@ -86,7 +86,12 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	}
 
 	if client.data.dataSource != nil {
-		go client.startDataSource(ctx)
+		// The data source runs under a context the client owns, so Close can stop it even while
+		// Start is still in flight - at which point dsStarted is not yet set and Close cannot
+		// reach the source itself.
+		dsCtx, cancel := context.WithCancel(ctx)
+		client.data.dsCancel = cancel
+		go client.startDataSource(dsCtx)
 	}
 
 	return client, nil
@@ -104,9 +109,17 @@ func (client *Client) Close() error {
 	}
 
 	ds := client.data.dataSource
-	if ds != nil && client.data.getDsStarted() {
-		if err := ds.Close(); err != nil {
-			errs = append(errs, err)
+	if ds != nil {
+		// Cancelled first: a Start that has not returned yet leaves dsStarted false, so the
+		// Close below would skip it and its goroutines would outlive the client.
+		if cancel := client.data.getDsCancel(); cancel != nil {
+			cancel()
+		}
+
+		if client.data.getDsStarted() {
+			if err := ds.Close(); err != nil {
+				errs = append(errs, err)
+			}
 		}
 	}
 
@@ -287,7 +300,16 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 			payloadJSON["contextualBandits"] = map[string]any{}
 		}
 	}
+	// The check above ran before decrypting, without the lock, so a newer response - an SSE event
+	// racing the initial load's retry, say - may have been stored since. Check again under the
+	// write lock, or this older one would overwrite it and move dateUpdated back.
+	stale := false
 	client.data.withLock(func(d *data) error {
+		if resp.DateUpdated.Before(d.dateUpdated) {
+			stale = true
+			dataUpdated = d.dateUpdated
+			return nil
+		}
 		if payloadJSON != nil {
 			d.payloadJSON = mergePayloadJSON(d.payloadJSON, payloadJSON)
 		} else {
@@ -308,6 +330,11 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
+	if stale {
+		client.logger.Warn("Api response is older then current data, refuse to update",
+			"dataUpdated", dataUpdated, "apiUdpated", resp.DateUpdated)
+		return false, dataUpdated, nil
+	}
 	return applied, resp.DateUpdated, nil
 }
 
