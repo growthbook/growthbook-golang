@@ -137,13 +137,29 @@ Resolve them per user with `AddRemoteSavedGroups`, which returns a child
 client. `RedisResolver` reads the sets GrowthBook's loader writes to Redis
 (`SMEMBERS gb:member:<attribute>:<value>`) through a one-method interface, so
 the SDK doesn't depend on a Redis client; any `SavedGroupResolver` function
-works too:
+works too. The interface takes every key of a lookup at once: send them in one
+pipeline, so a lookup takes one round trip per Redis node. Return an error if
+any lookup fails, never an empty set in its place: an empty set lets "not in
+group" rules match.
 
 ```go
-type redisSets struct{ rdb *redis.Client } // github.com/redis/go-redis/v9
+type redisSets struct{ rdb redis.UniversalClient } // github.com/redis/go-redis/v9
 
-func (r redisSets) SMembers(ctx context.Context, key string) ([]string, error) {
-	return r.rdb.SMembers(ctx, key).Result()
+func (r redisSets) SMembers(ctx context.Context, keys []string) ([][]string, error) {
+	cmds := make([]*redis.StringSliceCmd, len(keys))
+	if _, err := r.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
+		for i, key := range keys {
+			cmds[i] = p.SMembers(ctx, key)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sets := make([][]string, len(cmds))
+	for i, cmd := range cmds {
+		sets[i] = cmd.Val()
+	}
+	return sets, nil
 }
 
 child, err := client.WithAttributes(gb.Attributes{"account_id": "a1"})

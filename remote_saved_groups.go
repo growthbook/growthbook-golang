@@ -105,8 +105,9 @@ func (c *Client) currentRemoteGroupIDs(groups []condition.RemoteGroup, version u
 // own AddRemoteSavedGroups call.
 //
 // When the payload has no remote groups it returns the client unchanged. When
-// the resolver fails, or the payload's remote groups change during every
-// lookup (ErrRemoteSavedGroupsChanged), it returns the client unchanged and the
+// the resolver fails, a remote group in the payload has no attributeKey, or
+// the payload's remote groups change during every lookup
+// (ErrRemoteSavedGroupsChanged), it returns the client unchanged and the
 // error, so the client stays usable and rules using remote groups fail closed.
 //
 // Requires a saved group references v2 payload for the group metadata. With
@@ -169,6 +170,11 @@ func (c *Client) resolveRemoteGroupIDs(ctx context.Context, groups []condition.R
 	attributes := Attributes{}
 	remote := make([]RemoteSavedGroup, len(groups))
 	for i, group := range groups {
+		// Leaving the group out would let "not in group" rules on it match.
+		// sdk-js fails the whole lookup here too.
+		if group.NoAttributeKey {
+			return nil, fmt.Errorf("growthbook: resolving remote saved groups: %q has no attributeKey", group.ID)
+		}
 		remote[i] = RemoteSavedGroup{ID: group.ID, AttributeKey: group.AttributeKey, ValuesFrom: group.ValuesFrom}
 		v := value.Path(c.attributes, strings.Split(group.AttributeKey, ".")...)
 		if !value.IsNull(v) {
@@ -224,21 +230,38 @@ func (c *Client) warnIfRemoteGroupIDsMissing(groups []condition.RemoteGroup, rem
 	}
 }
 
-// RedisSetClient is the one Redis command RedisResolver needs. Wrap your
-// client, e.g. for go-redis:
+// RedisSetClient is the one Redis command RedisResolver needs, for a batch of
+// keys: SMEMBERS of each key, in order. Return an error if any lookup fails,
+// never an empty set in its place, since an empty set lets "not in group"
+// rules match. A nil set counts as empty. Wrap your client and send the batch
+// in one pipeline, so a lookup takes one round trip per Redis node. For
+// go-redis:
 //
-//	type redisSets struct{ rdb *redis.Client }
+//	type redisSets struct{ rdb redis.UniversalClient }
 //
-//	func (r redisSets) SMembers(ctx context.Context, key string) ([]string, error) {
-//		return r.rdb.SMembers(ctx, key).Result()
+//	func (r redisSets) SMembers(ctx context.Context, keys []string) ([][]string, error) {
+//		cmds := make([]*redis.StringSliceCmd, len(keys))
+//		if _, err := r.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
+//			for i, key := range keys {
+//				cmds[i] = p.SMembers(ctx, key)
+//			}
+//			return nil
+//		}); err != nil {
+//			return nil, err
+//		}
+//		sets := make([][]string, len(cmds))
+//		for i, cmd := range cmds {
+//			sets[i] = cmd.Val()
+//		}
+//		return sets, nil
 //	}
 type RedisSetClient interface {
-	SMembers(ctx context.Context, key string) ([]string, error)
+	SMembers(ctx context.Context, keys []string) ([][]string, error)
 }
 
 // RedisResolver is a SavedGroupResolver for remote groups loaded into Redis by
-// GrowthBook's loader: one SMEMBERS gb:member:<attribute>:<value> per
-// attribute value.
+// GrowthBook's loader: SMEMBERS gb:member:<attribute>:<value> for each
+// attribute value, in one RedisSetClient call.
 //
 // A derived group checks its own attribute's value in its source group's sets:
 // grp_vip:parent_id looks up gb:member:<grp_vip's attribute>:<parent_id> and
@@ -248,6 +271,7 @@ func RedisResolver(redis RedisSetClient) SavedGroupResolver {
 		// For each group and value: the Redis key, and the id that means a match
 		type check struct{ id, key, matchID string }
 		var checks []check
+		var keys []string
 		for _, group := range groups {
 			source := group
 			if group.ValuesFrom != "" {
@@ -258,24 +282,31 @@ func RedisResolver(redis RedisSetClient) SavedGroupResolver {
 				source = groups[i]
 			}
 			for _, v := range redisLookupValues(attributes[group.AttributeKey]) {
-				checks = append(checks, check{group.ID, "gb:member:" + source.AttributeKey + ":" + v, source.ID})
+				key := "gb:member:" + source.AttributeKey + ":" + v
+				checks = append(checks, check{group.ID, key, source.ID})
+				if !slices.Contains(keys, key) {
+					keys = append(keys, key)
+				}
 			}
 		}
-		members := map[string][]string{}
-		for _, ch := range checks {
-			if _, done := members[ch.key]; done {
-				continue
-			}
-			set, err := redis.SMembers(ctx, ch.key)
-			if err != nil {
-				return nil, err
-			}
-			members[ch.key] = set
+		ids := []string{}
+		if len(keys) == 0 {
+			return ids, nil
+		}
+		sets, err := redis.SMembers(ctx, keys)
+		if err != nil {
+			return nil, err
+		}
+		if len(sets) != len(keys) {
+			return nil, fmt.Errorf("RedisSetClient.SMembers returned %d sets for %d keys", len(sets), len(keys))
+		}
+		members := make(map[string][]string, len(keys))
+		for i, key := range keys {
+			members[key] = sets[i]
 		}
 		// Checking for the expected id, not any id in the set, also keeps keys
 		// that collide when attributes or values contain ":" (`a:b` + `c` and
 		// `a` + `b:c`) from mixing up groups.
-		ids := []string{}
 		for _, ch := range checks {
 			if slices.Contains(members[ch.key], ch.matchID) && !slices.Contains(ids, ch.id) {
 				ids = append(ids, ch.id)

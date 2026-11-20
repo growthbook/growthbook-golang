@@ -113,6 +113,10 @@ func TestInGroupOperatorsOnARemoteGroupAreUndecided(t *testing.T) {
 		var cond condition.Base
 		require.NoError(t, json.Unmarshal([]byte(raw), &cond))
 		require.False(t, cond.Eval(attributesValue(attrs), groups), raw)
+		// Undecided, not false: $not of it must not match either
+		var negated condition.Base
+		require.NoError(t, json.Unmarshal([]byte(`{"$not": `+raw+`}`), &negated))
+		require.False(t, negated.Eval(attributesValue(attrs), groups), "$not "+raw)
 	}
 }
 
@@ -520,16 +524,37 @@ func TestRemoteGroupIdsReachContextualBanditLeaves(t *testing.T) {
 	}
 }
 
-// fakeRedis records each SMEMBERS key
+// fakeRedis records each batch of SMEMBERS keys
 type fakeRedis struct {
-	sets map[string][]string
-	keys []string
-	err  error
+	sets    map[string][]string
+	err     error
+	batches [][]string
+	// short drops the last set, as a broken wrapper might
+	short bool
 }
 
-func (r *fakeRedis) SMembers(_ context.Context, key string) ([]string, error) {
-	r.keys = append(r.keys, key)
-	return r.sets[key], r.err
+func (r *fakeRedis) SMembers(_ context.Context, keys []string) ([][]string, error) {
+	r.batches = append(r.batches, keys)
+	if r.err != nil {
+		return nil, r.err
+	}
+	sets := make([][]string, len(keys))
+	for i, key := range keys {
+		sets[i] = r.sets[key]
+	}
+	if r.short {
+		sets = sets[:len(sets)-1]
+	}
+	return sets, nil
+}
+
+// keys returns every key looked up, in order
+func (r *fakeRedis) keys() []string {
+	var keys []string
+	for _, batch := range r.batches {
+		keys = append(keys, batch...)
+	}
+	return keys
 }
 
 var redisTestGroups = []RemoteSavedGroup{
@@ -547,7 +572,7 @@ func resolve(t *testing.T, redis *fakeRedis, attrs Attributes, groups []RemoteSa
 func TestRedisResolverLooksUpEachAttributeValueInItsGroup(t *testing.T) {
 	redis := &fakeRedis{sets: map[string][]string{"gb:member:account_id:a1": {"grp_vip", "grp_other"}}}
 	require.Equal(t, []string{"grp_vip"}, resolve(t, redis, Attributes{"account_id": "a1"}, redisTestGroups))
-	require.Equal(t, []string{"gb:member:account_id:a1"}, redis.keys)
+	require.Equal(t, []string{"gb:member:account_id:a1"}, redis.keys())
 }
 
 func TestRedisResolverChecksADerivedGroupInItsSourceGroupsSets(t *testing.T) {
@@ -559,7 +584,7 @@ func TestRedisResolverChecksADerivedGroupInItsSourceGroupsSets(t *testing.T) {
 func TestRedisResolverSkipsADerivedGroupWhoseSourceIsMissing(t *testing.T) {
 	redis := &fakeRedis{sets: map[string][]string{"gb:member:parent_id:p1": {"grp_vip:parent_id"}}}
 	require.Empty(t, resolve(t, redis, Attributes{"parent_id": "p1"}, redisTestGroups[1:]))
-	require.Empty(t, redis.keys)
+	require.Empty(t, redis.keys())
 }
 
 func TestRedisResolverKeepsKeysCollidingOnAColonApart(t *testing.T) {
@@ -567,13 +592,13 @@ func TestRedisResolverKeepsKeysCollidingOnAColonApart(t *testing.T) {
 	// `a:b` + `c` and `a` + `b:c` both read gb:member:a:b:c
 	redis := &fakeRedis{sets: map[string][]string{"gb:member:a:b:c": {"grp_a"}}}
 	require.Equal(t, []string{"grp_a"}, resolve(t, redis, Attributes{"a:b": "c", "a": "b:c"}, groups))
-	require.Equal(t, []string{"gb:member:a:b:c"}, redis.keys)
+	require.Equal(t, []string{"gb:member:a:b:c"}, redis.keys())
 }
 
 func TestRedisResolverLooksUpEachItemOfASliceOncePerKey(t *testing.T) {
 	redis := &fakeRedis{sets: map[string][]string{"gb:member:account_id:a2": {"grp_vip"}}}
 	require.Equal(t, []string{"grp_vip"}, resolve(t, redis, Attributes{"account_id": []any{"a1", "a2", "a1"}}, redisTestGroups[:1]))
-	require.Equal(t, []string{"gb:member:account_id:a1", "gb:member:account_id:a2"}, redis.keys)
+	require.Equal(t, []string{"gb:member:account_id:a1", "gb:member:account_id:a2"}, redis.keys())
 }
 
 func TestRedisResolverFormatsNumbersLikeJSAndSkipsOtherValues(t *testing.T) {
@@ -587,7 +612,7 @@ func TestRedisResolverFormatsNumbersLikeJSAndSkipsOtherValues(t *testing.T) {
 		"gb:member:account_id:0.00001",
 		"gb:member:account_id:1e+21",
 		"gb:member:account_id:0",
-	}, redis.keys)
+	}, redis.keys())
 }
 
 func TestJSNumberString(t *testing.T) {
@@ -607,6 +632,53 @@ func TestRedisResolverReturnsTheRedisError(t *testing.T) {
 	failure := errors.New("connection refused")
 	_, err := RedisResolver(&fakeRedis{err: failure})(context.Background(), Attributes{"account_id": "a1"}, redisTestGroups[:1])
 	require.ErrorIs(t, err, failure)
+}
+
+func TestRedisResolverLooksUpEveryKeyInOneBatch(t *testing.T) {
+	redis := &fakeRedis{sets: map[string][]string{"gb:member:account_id:p1": {"grp_vip"}}}
+	resolve(t, redis, Attributes{"account_id": []any{"a1", "a2"}, "parent_id": "p1"}, redisTestGroups)
+	require.Equal(t, [][]string{{"gb:member:account_id:a1", "gb:member:account_id:a2", "gb:member:account_id:p1"}}, redis.batches)
+}
+
+func TestRedisResolverSkipsRedisWithNoValuesToLookUp(t *testing.T) {
+	redis := &fakeRedis{}
+	require.Equal(t, []string{}, resolve(t, redis, Attributes{}, redisTestGroups))
+	require.Empty(t, redis.batches)
+}
+
+func TestRedisResolverFailsWhenTheClientReturnsTheWrongNumberOfSets(t *testing.T) {
+	redis := &fakeRedis{sets: map[string][]string{"gb:member:account_id:a1": {"grp_vip"}}, short: true}
+	_, err := RedisResolver(redis)(context.Background(), Attributes{"account_id": []any{"a1", "a2"}}, redisTestGroups[:1])
+	require.ErrorContains(t, err, "returned 1 sets for 2 keys")
+}
+
+func TestAddRemoteSavedGroupsFailsWhenARemoteGroupHasNoAttributeKey(t *testing.T) {
+	var features FeatureMap
+	require.NoError(t, json.Unmarshal([]byte(`{"not_in_x": {"defaultValue": false, "rules": [{"condition": {
+		"$not": {"$savedGroup": {"id": "grp_x"}},
+		"__gb_remoteGroupIds": {"$exists": true}
+	}, "force": true}]}}`), &features))
+	client, err := NewClient(context.Background(),
+		withSilentTestLogger(),
+		WithFeatures(features),
+		WithSavedGroups(remoteSavedGroups(t, `{
+			"grp_vip": {"type": "remote", "attributeKey": "account_id"},
+			"grp_x": {"type": "remote"}
+		}`)),
+		WithAttributes(Attributes{"account_id": "a1"}),
+	)
+	require.NoError(t, err)
+	called := false
+	resolver := func(context.Context, Attributes, []RemoteSavedGroup) ([]string, error) {
+		called = true
+		return []string{}, nil
+	}
+
+	child, err := client.AddRemoteSavedGroups(context.Background(), resolver)
+	require.ErrorContains(t, err, `"grp_x" has no attributeKey`)
+	require.False(t, called)
+	require.Same(t, client, child)
+	require.False(t, on(child, "not_in_x"))
 }
 
 func TestRedisResolverWorksThroughAddRemoteSavedGroups(t *testing.T) {

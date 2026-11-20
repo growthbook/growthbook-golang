@@ -22,19 +22,25 @@ type RemoteGroup struct {
 	AttributeKey string
 	// ValuesFrom is the remote group whose ids a derived group checks
 	ValuesFrom string
+	// NoAttributeKey marks a malformed entry without an attributeKey. A
+	// lookup can't cover it, so no lookup succeeds while it's in the payload.
+	NoAttributeKey bool
 }
 
 // RemoteGroups returns the payload's remote saved groups, sorted by id. Only
-// v2 payloads carry this metadata. An entry without an attribute gives a
-// resolver nothing to look up, so it's left out and its rules fail closed.
+// v2 payloads carry this metadata.
 func (sg SavedGroups) RemoteGroups() []RemoteGroup {
 	var groups []RemoteGroup
 	for id, entry := range sg {
 		group, ok := entry.(savedGroup)
-		if !ok || group.kind != "remote" || group.attributeKey == nil {
+		if !ok || group.kind != "remote" {
 			continue
 		}
-		groups = append(groups, RemoteGroup{ID: id, AttributeKey: *group.attributeKey, ValuesFrom: group.valuesFrom})
+		remote := RemoteGroup{ID: id, ValuesFrom: group.valuesFrom, NoAttributeKey: group.attributeKey == nil}
+		if group.attributeKey != nil {
+			remote.AttributeKey = *group.attributeKey
+		}
+		groups = append(groups, remote)
 	}
 	sort.Slice(groups, func(i, j int) bool { return groups[i].ID < groups[j].ID })
 	return groups
