@@ -41,6 +41,30 @@ func TestGroupOperatorsListValues(t *testing.T) {
 	}
 }
 
+// A group of only strings is checked with a set lookup, for both entry shapes.
+// The lookup keeps $in semantics: no type coercion, and arrays intersect.
+func TestGroupOperatorsStringValues(t *testing.T) {
+	for _, entry := range []string{
+		`["u1","2"]`,
+		`{"type":"list","attributeKey":"id","values":["u1","2"]}`,
+	} {
+		t.Run(entry, func(t *testing.T) {
+			groups := `{"g":` + entry + `}`
+			for _, tc := range []struct {
+				actual any
+				member bool
+			}{
+				{"u1", true}, {"2", true}, {2, false}, {"U1", false}, {"u2", false},
+				{nil, false}, {[]any{"u2", "u1"}, true}, {[]any{"u2", 2}, false},
+			} {
+				attrs := map[string]any{"id": tc.actual}
+				require.Equal(t, tc.member, evalSavedGroupJSON(t, `{"id":{"$inGroup":"g"}}`, groups, attrs), "$inGroup, attribute=%v", tc.actual)
+				require.Equal(t, !tc.member, evalSavedGroupJSON(t, `{"id":{"$notInGroup":"g"}}`, groups, attrs), "$notInGroup, attribute=%v", tc.actual)
+			}
+		})
+	}
+}
+
 func TestGroupOperatorsEmptyList(t *testing.T) {
 	for _, entry := range []string{`[]`, `{"type":"list","values":[]}`} {
 		groups := `{"g":` + entry + `}`
