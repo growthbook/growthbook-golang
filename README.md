@@ -200,11 +200,27 @@ The plugin batches events and sends them in the background. Configuration option
 | `BatchTimeout` | `10s` | Max wait time before auto-flush |
 | `HTTPClient` | Client's HTTP client | Custom HTTP client for sending events |
 | `Logger` | Client's logger | Custom logger for error reporting |
+| `EventFilter` | `nil` (send all) | `func(TrackingEventData) bool`; return `false` to drop an event |
 
 Events tracked automatically (standard GrowthBook event names, shared with
 the JS SDK):
 - **`Experiment Viewed`** — when a user is bucketed into an experiment
 - **`Feature Evaluated`** — every time a feature flag is evaluated
+
+`EventFilter` receives each event's name, properties, attributes and URL
+before it is queued, like the JS SDK's `eventFilter`:
+
+```go
+growthbook.WithGrowthBookTracking(growthbook.TrackingPluginConfig{
+    EventFilter: func(e growthbook.TrackingEventData) bool {
+        return e.EventName != "debug_event"
+    },
+})
+```
+
+It runs on the evaluating goroutine, so keep it fast, safe for concurrent use,
+and don't modify the maps it receives. A panic in the filter is logged and
+the event is dropped; evaluation is never affected.
 
 Events are sent in the ingestor's standard `EventPayload` shape (`POST
 {IngestorHost}/track?client_key=...` with a JSON array), carrying the
