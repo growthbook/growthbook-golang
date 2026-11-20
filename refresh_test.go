@@ -506,3 +506,41 @@ func TestRefreshHandlerWithRetries(t *testing.T) {
 		)
 	})
 }
+
+// A handler that retries a failed refresh calls RefreshFeatures from inside the
+// refresh it reports on. The shared call has to be finished by then, or the
+// nested call waits on the outer one, which waits on the handler.
+func TestRefreshHandlerCanRetryAFailedRefresh(t *testing.T) {
+	ctx := context.Background()
+	dateUpdated := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	ts := startFlakyServer(1, http.StatusBadRequest)
+	defer ts.http.Close()
+
+	var c refreshCollector
+	record := c.handler()
+	var client *Client
+	var retried atomic.Bool
+	nested := make(chan error, 1)
+	client = newRefreshClient(t, ts, WithFeaturesRefreshHandler(func(ctx context.Context, r RefreshResult) {
+		record(ctx, r)
+		if r.Error != nil && retried.CompareAndSwap(false, true) {
+			nested <- client.RefreshFeatures(ctx)
+		}
+	}))
+
+	outer := make(chan error, 1)
+	go func() { outer <- client.RefreshFeatures(ctx) }()
+	select {
+	case err := <-outer:
+		require.Error(t, err, "the outer refresh reports its own failed fetch")
+	case <-time.After(5 * time.Second):
+		t.Fatal("RefreshFeatures called from the refresh handler waits on the refresh that invoked it")
+	}
+	require.NoError(t, <-nested, "the handler's retry fetches again and succeeds")
+
+	require.Equal(t, int32(2), ts.count.Load())
+	requireEvents(t, c.all(),
+		RefreshResult{Source: RefreshSourceManual, Error: errors.New("any")},
+		RefreshResult{Source: RefreshSourceManual, Updated: true, DateUpdated: dateUpdated},
+	)
+}

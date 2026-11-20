@@ -138,10 +138,17 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 // fetch for the freshness check, and reports the outcome to the refresh
 // handler.
 func (client *Client) applyFetched(ctx context.Context, source RefreshSource, resp *FeatureApiResponse) error {
+	result, err := client.applyFetchedResult(source, resp)
+	client.notifyRefresh(ctx, result)
+	return err
+}
+
+// applyFetchedResult is applyFetched without the report: it returns the event
+// for the caller to deliver once it may run the handler.
+func (client *Client) applyFetchedResult(source RefreshSource, resp *FeatureApiResponse) (RefreshResult, error) {
 	if resp.Status == http.StatusNotModified {
 		client.data.markFetched(time.Now())
-		client.notifyRefresh(ctx, RefreshResult{Source: source, NotModified: true, DateUpdated: client.data.getDateUpdated()})
-		return nil
+		return RefreshResult{Source: source, NotModified: true, DateUpdated: client.data.getDateUpdated()}, nil
 	}
 	// A 200 payload always applies: applyApiResponse preserves omitted
 	// sections, so partial responses update just what they carry.
@@ -149,8 +156,7 @@ func (client *Client) applyFetched(ctx context.Context, source RefreshSource, re
 	if err == nil {
 		client.data.markFetched(time.Now())
 	}
-	client.notifyRefreshOutcome(ctx, source, applied, dateUpdated, err)
-	return err
+	return refreshOutcome(source, applied, dateUpdated, err), err
 }
 
 // RefreshFeaturesWithMode fetches the latest features from the GrowthBook API
@@ -168,15 +174,16 @@ func (client *Client) RefreshFeaturesWithMode(ctx context.Context, mode RefreshM
 		return nil
 	}
 	// Only the call that runs the fetch reports it, so callers sharing one
-	// fetch produce one refresh event.
-	return client.data.refreshes.do(ctx, mode, func(ctx context.Context) error {
+	// fetch produce one refresh event. The event is delivered after the shared
+	// call finishes, so a handler that calls RefreshFeatures starts a new fetch
+	// rather than waiting on the one that invoked it.
+	return client.data.refreshes.do(ctx, mode, func(ctx context.Context) (RefreshResult, error) {
 		resp, err := client.fetchFeatures(ctx, "", mode)
 		if err != nil {
-			client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, Error: err})
-			return err
+			return RefreshResult{Source: RefreshSourceManual, Error: err}, err
 		}
-		return client.applyFetched(ctx, RefreshSourceManual, resp)
-	})
+		return client.applyFetchedResult(RefreshSourceManual, resp)
+	}, client.notifyRefresh)
 }
 
 // refreshGroup runs one refresh per mode at a time; callers that arrive while
@@ -195,14 +202,21 @@ type refreshCall struct {
 	waiters       int
 }
 
-func (g *refreshGroup) do(ctx context.Context, mode RefreshMode, refresh func(context.Context) error) error {
+// do runs refresh, or waits for the one already running for mode. The leader
+// reports its refresh's event through report only after the call has
+// finished: report runs user code, which may refresh again, and would
+// otherwise wait on itself.
+func (g *refreshGroup) do(ctx context.Context, mode RefreshMode,
+	refresh func(context.Context) (RefreshResult, error), report func(context.Context, RefreshResult)) error {
 	for {
 		call, leader := g.join(mode)
 		if leader {
-			call.err = refresh(ctx)
+			var result RefreshResult
+			result, call.err = refresh(ctx)
 			call.leaderCtxDone = ctx.Err() != nil
 			g.leave(mode)
 			close(call.done)
+			report(ctx, result)
 			return call.err
 		}
 		select {
@@ -323,12 +337,17 @@ func (client *Client) notifyRefresh(ctx context.Context, r RefreshResult) {
 // payload that was not applied reports the timestamp the client kept rather
 // than the one it refused.
 func (client *Client) notifyRefreshOutcome(ctx context.Context, source RefreshSource, applied bool, dateUpdated time.Time, err error) {
+	client.notifyRefresh(ctx, refreshOutcome(source, applied, dateUpdated, err))
+}
+
+// refreshOutcome classifies one apply attempt for notifyRefreshOutcome.
+func refreshOutcome(source RefreshSource, applied bool, dateUpdated time.Time, err error) RefreshResult {
 	switch {
 	case err != nil:
-		client.notifyRefresh(ctx, RefreshResult{Source: source, Error: err})
+		return RefreshResult{Source: source, Error: err}
 	case applied:
-		client.notifyRefresh(ctx, RefreshResult{Source: source, Updated: true, DateUpdated: dateUpdated})
+		return RefreshResult{Source: source, Updated: true, DateUpdated: dateUpdated}
 	default:
-		client.notifyRefresh(ctx, RefreshResult{Source: source, NotModified: true, DateUpdated: dateUpdated})
+		return RefreshResult{Source: source, NotModified: true, DateUpdated: dateUpdated}
 	}
 }
