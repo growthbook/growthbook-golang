@@ -1,6 +1,10 @@
 package condition
 
-import "github.com/growthbook/growthbook-golang/internal/value"
+import (
+	"strings"
+
+	"github.com/growthbook/growthbook-golang/internal/value"
+)
 
 // visitedGroups tracks saved-group IDs on the current evaluation branch to stop
 // recursive reference cycles. It is never stored in the shared payload.
@@ -28,6 +32,9 @@ func (c savedGroupCond) eval3(actual value.Value, groups SavedGroups, visited vi
 	if group.newType {
 		return unknown
 	}
+	if group.kind == "remote" {
+		return resultOf(c.inRemoteGroup(actual, group))
+	}
 	// Each caller retains its slice length, so siblings do not inherit this ID.
 	next := append(visited, c.id)
 	// Overrides apply only to lists, without modifying the shared definition.
@@ -47,4 +54,28 @@ type savedGroupListCond struct {
 
 func (c savedGroupListCond) Eval(actual value.Value, groups SavedGroups, visited visitedGroups) bool {
 	return c.membership.Eval(value.Path(actual, c.path...), groups, visited)
+}
+
+// inRemoteGroup checks the user's resolved remote group ids, which live outside
+// the payload, in the __gb_remoteGroupIds attribute. A reference through
+// another attribute needs a derived group, which isn't supported yet.
+func (c savedGroupCond) inRemoteGroup(actual value.Value, group savedGroup) bool {
+	if c.overridePath != nil && (group.attributeKey == nil || strings.Join(c.overridePath, ".") != *group.attributeKey) {
+		return false
+	}
+	return hasRemoteGroupID(value.Path(actual, RemoteGroupIDsAttribute), c.id)
+}
+
+// hasRemoteGroupID reports whether ids is an array holding the string id
+func hasRemoteGroupID(ids value.Value, id string) bool {
+	arr, ok := ids.(value.ArrValue)
+	if !ok {
+		return false
+	}
+	for _, v := range arr {
+		if s, ok := v.(value.StrValue); ok && string(s) == id {
+			return true
+		}
+	}
+	return false
 }

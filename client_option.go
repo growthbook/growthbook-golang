@@ -48,7 +48,7 @@ func WithDecryptionKey(decryptionKey string) ClientOption {
 // WithAttributes sets attributes that used to assign variations.
 func WithAttributes(attributes Attributes) ClientOption {
 	return func(c *Client) error {
-		c.attributes = value.Obj(attributes)
+		c.setAttributes(value.Obj(attributes))
 		return nil
 	}
 }
@@ -70,7 +70,7 @@ func WithSavedGroups(savedGroups condition.SavedGroups) ClientOption {
 		if err != nil {
 			return err
 		}
-		c.data.savedGroups = parsed
+		c.data.setSavedGroups(parsed)
 		c.data.savedGroupsFromCode = true
 		return nil
 	}
@@ -337,7 +337,7 @@ func (c *Client) WithDeferredTracking() (*Client, error) {
 
 func withValueAttributes(value value.ObjValue) ClientOption {
 	return func(c *Client) error {
-		c.attributes = value
+		c.setAttributes(value)
 		return nil
 	}
 }

@@ -125,6 +125,64 @@ map clears them. If encrypted saved groups cannot be decrypted or decoded,
 the SDK logs a warning and uses any plaintext `savedGroups` in that response,
 or retains the previous definitions if none were supplied.
 
+#### Remote saved groups
+
+A **remote** saved group keeps its members outside the payload, for lists too
+large to ship (millions of ids). The payload only says which attribute the
+group is about, `{"type": "remote", "attributeKey": "account_id"}`, so the SDK
+needs the ids of the groups the user is in. Conditions read them as the
+`__gb_remoteGroupIds` attribute.
+
+Resolve them per user with `AddRemoteSavedGroups`, which returns a child
+client. `RedisResolver` reads the sets GrowthBook's loader writes to Redis
+(`SMEMBERS gb:member:<attribute>:<value>`) through a one-method interface, so
+the SDK doesn't depend on a Redis client; any `SavedGroupResolver` function
+works too. The interface takes every key of a lookup at once: send them in one
+pipeline, so a lookup takes one round trip per Redis node. Return an error if
+any lookup fails, never an empty set in its place: an empty set lets "not in
+group" rules match.
+
+```go
+type redisSets struct{ rdb redis.UniversalClient } // github.com/redis/go-redis/v9
+
+func (r redisSets) SMembers(ctx context.Context, keys []string) ([][]string, error) {
+	cmds := make([]*redis.StringSliceCmd, len(keys))
+	if _, err := r.rdb.Pipelined(ctx, func(p redis.Pipeliner) error {
+		for i, key := range keys {
+			cmds[i] = p.SMembers(ctx, key)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	sets := make([][]string, len(cmds))
+	for i, cmd := range cmds {
+		sets[i] = cmd.Val()
+	}
+	return sets, nil
+}
+
+child, err := client.WithAttributes(gb.Attributes{"account_id": "a1"})
+child, err = child.AddRemoteSavedGroups(ctx, gb.RedisResolver(redisSets{rdb}))
+```
+
+Or set them directly with `client.WithRemoteGroupIds([]string{"grp_vip"})` or
+the `gb.WithRemoteGroupIds` option. They win over an attribute of that name,
+which also works on its own.
+
+Leave them nil while they are unresolved: rules that use remote groups then
+fail, including "not in group" rules, and one warning is logged. An empty
+slice means the user is in no group, which is what lets "not in group" rules
+match. If the resolver fails, `AddRemoteSavedGroups` returns the client
+unchanged with the error, so it stays usable and those rules fail closed. It
+looks up again when the payload's remote groups change during a lookup, and
+returns `ErrRemoteSavedGroupsChanged` if they change during every attempt.
+The ids it returns cover the remote groups it looked up, for the attribute
+values it looked them up with: once a refresh changes those groups, or a child
+client changes an attribute they use (`WithAttributes`,
+`WithAttributeOverrides`), they count as unresolved until you call
+`AddRemoteSavedGroups` again. Ids set with `WithRemoteGroupIds` stay as set.
+
 ---
 
 ### Feature Refresh Handler

@@ -43,9 +43,12 @@ func (c notInGroupCond) eval3(actual value.Value, groups SavedGroups, visited vi
 	return resultOf(ok && !membership.Eval(actual, groups, visited))
 }
 
+// isNewGroupType reports a group $inGroup and $notInGroup can't decide: a type
+// added after this SDK was built, or a remote group, whose values aren't in the
+// payload
 func isNewGroupType(groups SavedGroups, id string) bool {
 	group, ok := groups[id].(savedGroup)
-	return ok && group.newType
+	return ok && (group.newType || group.kind == "remote")
 }
 
 func savedGroupMembership(groups SavedGroups, id string) (InCond, bool) {
