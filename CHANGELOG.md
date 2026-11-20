@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0](https://github.com/growthbook/growthbook-golang/compare/v0.7.0...v0.8.0) (2026-11-20)
+
+
+### Features
+
+* add FeaturesRefreshHandler for refresh lifecycle observability ([#71](https://github.com/growthbook/growthbook-golang/issues/71)) ([69af82f](https://github.com/growthbook/growthbook-golang/commit/69af82f30d71114f57e2ea86edb7c434cbe923c3))
+* add remote saved groups (savedGroupReferencesRemote) ([#111](https://github.com/growthbook/growthbook-golang/issues/111)) ([bfe3778](https://github.com/growthbook/growthbook-golang/commit/bfe3778ae1824dc07e0a763c35537a22545e3f9c))
+
+
+### Performance Improvements
+
+* cut evaluation allocations, speed up legacy string groups and version padding ([#114](https://github.com/growthbook/growthbook-golang/issues/114)) ([3e99e8c](https://github.com/growthbook/growthbook-golang/commit/3e99e8c43e0f236eb38aa101ad91d5e3b134b1fd))
+
 ## [0.7.0](https://github.com/growthbook/growthbook-golang/compare/v0.6.0...v0.7.0) (2026-10-30)
 
 
