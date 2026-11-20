@@ -2609,6 +2609,18 @@
       true
     ],
     [
+      "$veq - pass (build with hyphen)",
+      { "v": { "$veq": "1.2.3" } },
+      { "v": "1.2.3+build-4.5" },
+      true
+    ],
+    [
+      "$veq - pass (v prefix and build)",
+      { "v": { "$veq": "1.2.3" } },
+      { "v": "v1.2.3+build.6" },
+      true
+    ],
+    [
       "$vne - pass",
       {
         "v": {
@@ -3786,6 +3798,48 @@
       { "id": 1 },
       true,
       { "group_id": [1, 2, 3] }
+    ],
+    [
+      "$inGroup passes for member of string group",
+      { "id": { "$inGroup": "group_id" } },
+      { "id": "u2" },
+      true,
+      { "group_id": ["u1", "u2", "u3"] }
+    ],
+    [
+      "$inGroup fails for non-member of string group",
+      { "id": { "$inGroup": "group_id" } },
+      { "id": "u4" },
+      false,
+      { "group_id": ["u1", "u2", "u3"] }
+    ],
+    [
+      "$inGroup fails for number attribute in string group",
+      { "id": { "$inGroup": "group_id" } },
+      { "id": 1 },
+      false,
+      { "group_id": ["1", "2", "3"] }
+    ],
+    [
+      "$inGroup passes for array attribute intersecting string group",
+      { "id": { "$inGroup": "group_id" } },
+      { "id": ["u9", "u3"] },
+      true,
+      { "group_id": ["u1", "u2", "u3"] }
+    ],
+    [
+      "$notInGroup passes for non-member of string group",
+      { "id": { "$notInGroup": "group_id" } },
+      { "id": "u4" },
+      true,
+      { "group_id": ["u1", "u2", "u3"] }
+    ],
+    [
+      "$notInGroup fails for member of string group",
+      { "id": { "$notInGroup": "group_id" } },
+      { "id": "u1" },
+      false,
+      { "group_id": ["u1", "u2", "u3"] }
     ],
     [
       "$inGroup passes for properly typed data",
