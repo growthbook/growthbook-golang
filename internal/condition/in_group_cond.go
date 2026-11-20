@@ -55,7 +55,11 @@ func savedGroupMembership(groups SavedGroups, id string) (InCond, bool) {
 		return InCond{}, true
 	}
 	switch group := entry.(type) {
+	case legacyGroup:
+		return group.membership, true
 	case value.ArrValue:
+		// Fallback for a map not passed through Normalize. It's correct but
+		// scans the values.
 		return InCond{expected: group}, true
 	case savedGroup:
 		if group.membership != nil {
