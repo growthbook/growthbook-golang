@@ -57,6 +57,10 @@ type FeatureRule struct {
 	// Variations for a contextual bandit rule, carried separately from
 	// Variations so SDKs without bandit support skip the rule
 	ContextualVariations []FeatureValue `json:"contextualVariations"`
+	// Experiment assignments made by remote evaluation. The server resolves an
+	// experiment into a force rule and lists here what the SDK must still
+	// report as exposures when the rule applies.
+	Tracks []TrackingData `json:"tracks"`
 	// Deprecated: ignored during evaluation. Feature rules never carried URL
 	// targeting in the JS SDK; use Experiment.URLPatterns with RunExperiment.
 	URLPatterns []URLTarget `json:"urlPatterns"`
