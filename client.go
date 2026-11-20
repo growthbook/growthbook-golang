@@ -86,6 +86,8 @@ func NewClient(ctx context.Context, opts ...ClientOption) (*Client, error) {
 	}
 
 	if client.data.dataSource != nil {
+		ctx, cancel := context.WithCancel(ctx)
+		client.data.dsCancel = cancel
 		go client.startDataSource(ctx)
 	}
 
@@ -108,6 +110,11 @@ func (client *Client) Close() error {
 		if err := ds.Close(); err != nil {
 			errs = append(errs, err)
 		}
+	}
+	// Also stops a data source that is still on its first load, which
+	// ds.Close can't reach yet.
+	if client.data.dsCancel != nil {
+		client.data.dsCancel()
 	}
 
 	return errors.Join(errs...)
@@ -181,6 +188,17 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 	return client.SetJSONFeatures(featuresJSON)
 }
 
+// UpdateFromApiResponse updates shared data from Growthbook API response.
+//
+// Sections follow presence semantics (Python setPayload parity): an absent
+// section keeps the previous data and an explicit empty one clears it, so a
+// partial payload, e.g. a bandit-only update, never wipes what it didn't
+// carry. A response older than the current data is ignored.
+func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
+	_, _, err := client.applyApiResponse(resp)
+	return err
+}
+
 // applyApiResponse applies an API response to the shared client data. It
 // reports whether anything was applied and the dateUpdated the client holds
 // afterwards: the response's own timestamp when it was applied, and the
@@ -188,126 +206,37 @@ func (client *Client) SetEncryptedJSONFeatures(encryptedJSON string) error {
 // timestamp the client did not adopt.
 func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Time, error) {
 	dataUpdated := client.data.getDateUpdated()
-	apiUpdated := resp.DateUpdated
-	if apiUpdated.Before(dataUpdated) {
-		client.logger.Warn("Api response is older then current data, refuse to update",
-			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
+	if client.isStaleResponse(resp, dataUpdated) {
 		return false, dataUpdated, nil
 	}
-	// Section-presence semantics (Python setPayload parity): a partial
-	// payload — e.g. a bandit-only update — must never wipe sections it did
-	// not carry. An absent section preserves the previous data; an explicit
-	// empty section clears it. For features and savedGroups a JSON null
-	// section decodes to a nil map and counts as absent; contextualBandits
-	// additionally treats explicit null as a clear via its custom decoder.
-	var features FeatureMap
-	var err error
-	featuresPresent := false
-	if resp.EncryptedFeatures != "" {
-		features, err = client.DecryptFeatures(resp.EncryptedFeatures)
-		if err != nil {
-			return false, dataUpdated, err
-		}
-		featuresPresent = true
-	} else if resp.Features != nil {
-		features = resp.Features
-		featuresPresent = true
-	}
-	savedGroups := resp.SavedGroups
-	if resp.EncryptedSavedGroups != "" {
-		// Like DecryptFeatures, decrypt with the client's key, then parse JSON;
-		// this section decodes into SavedGroups instead of FeatureMap.
-		groupsJSON, err := client.data.decrypt(resp.EncryptedSavedGroups)
-		var decrypted condition.SavedGroups
-		if err == nil {
-			err = json.Unmarshal([]byte(groupsJSON), &decrypted)
-		}
-		if err != nil {
-			// Match the reference SDK: ignore a failed encrypted section and
-			// retain any plaintext fallback or previously loaded groups.
-			client.logger.Error("Ignoring undecodable encrypted saved groups; using plaintext fallback or previous groups without blocking feature updates", "error", err)
-		} else {
-			savedGroups = decrypted
-		}
-	}
-	// Direct callers may supply native Go definitions instead of decoded JSON.
-	savedGroups, err = savedGroups.Normalize()
+	update, err := client.decodePayloadUpdate(resp)
 	if err != nil {
 		return false, dataUpdated, err
-	}
-	savedGroupsPresent := savedGroups != nil
-	// Section-presence semantics: an absent contextualBandits section
-	// preserves the previous definitions, an explicit empty (or null)
-	// section clears them, and a section that fails to decrypt is ignored
-	// like an absent one — the previous coherent map stays active rather
-	// than being wiped by a broken update (Python SDK parity).
-	bandits := resp.ContextualBandits
-	banditsPresent := bandits != nil
-	if resp.EncryptedContextualBandits != "" {
-		banditsJSON, err := client.data.decrypt(resp.EncryptedContextualBandits)
-		if err == nil {
-			err = json.Unmarshal([]byte(banditsJSON), &bandits)
-		}
-		if err != nil {
-			client.logger.Warn("Ignoring undecodable encrypted contextual bandits, keeping the previous definitions", "error", err)
-		} else {
-			banditsPresent = true
-		}
 	}
 	// A payload that carries no section at all - or only a section that could
 	// not be decoded - applies nothing. It is still a valid no-op response
 	// (section-presence semantics), so it is not an error, but it must not be
 	// reported as an update: a malformed SSE event that omits "features" would
 	// otherwise look like a successful refresh to the refresh handler.
-	applied := featuresPresent || savedGroupsPresent || banditsPresent
+	applied := update.featuresPresent || update.savedGroupsPresent || update.banditsPresent
 	if !applied {
 		client.logger.Warn("Api response contains nothing to apply, keeping current data",
 			"dateUpdated", resp.DateUpdated)
 	}
-	payloadJSON := client.decryptedPayloadJSON(resp)
-	if payloadJSON != nil {
-		// Each section follows the decision above, so the JSON that
-		// ReducePayload reads never keeps data evaluation dropped, or drops
-		// data it uses. An absent section keeps the previous one.
-		if !featuresPresent {
-			delete(payloadJSON, "features")
-		}
-		delete(payloadJSON, "savedGroups")
-		if savedGroupsPresent {
-			groupsJSON, err := savedGroups.JSONValue()
-			if err != nil {
-				return false, dataUpdated, err
-			}
-			payloadJSON["savedGroups"] = groupsJSON
-		}
-		if !banditsPresent {
-			delete(payloadJSON, "contextualBandits")
-		} else if _, ok := payloadJSON["contextualBandits"].(map[string]any); !ok {
-			// An explicit null, or junk the decoder reads as none, clears them
-			payloadJSON["contextualBandits"] = map[string]any{}
-		}
-	}
+	stale := false
 	client.data.withLock(func(d *data) error {
-		if payloadJSON != nil {
-			d.payloadJSON = mergePayloadJSON(d.payloadJSON, payloadJSON)
-		} else {
-			// A response built from Go values carries no payload JSON
-			d.payloadJSON = nil
+		// Checked again under the lock: a concurrent update may have applied
+		// newer data while this one was decoding.
+		if client.isStaleResponse(resp, d.dateUpdated) {
+			stale, dataUpdated = true, d.dateUpdated
+			return nil
 		}
-		if featuresPresent {
-			d.features = features
-		}
-		if savedGroupsPresent {
-			d.savedGroups = savedGroups
-			d.savedGroupsFromCode = false
-		}
-		if banditsPresent {
-			d.contextualBandits = bandits
-			d.banditsFromCode = false
-		}
-		d.dateUpdated = resp.DateUpdated
+		update.apply(d)
 		return nil
 	})
+	if stale {
+		return false, dataUpdated, nil
+	}
 	return applied, resp.DateUpdated, nil
 }
 
@@ -319,10 +248,142 @@ func (client *Client) applyApiResponseJSON(respJSON string) (bool, time.Time, er
 	return client.applyApiResponse(&resp)
 }
 
-// UpdateFromApiResponse updates shared data from Growthbook API response
-func (client *Client) UpdateFromApiResponse(resp *FeatureApiResponse) error {
-	_, _, err := client.applyApiResponse(resp)
-	return err
+func (client *Client) isStaleResponse(resp *FeatureApiResponse, dataUpdated time.Time) bool {
+	if !resp.DateUpdated.Before(dataUpdated) {
+		return false
+	}
+	client.logger.Warn("Api response is older then current data, refuse to update",
+		"dataUpdated", dataUpdated, "apiUdpated", resp.DateUpdated)
+	return true
+}
+
+// payloadUpdate is a decoded response. Sections whose present flag is false
+// keep the previous data.
+type payloadUpdate struct {
+	features           FeatureMap
+	featuresPresent    bool
+	savedGroups        condition.SavedGroups
+	savedGroupsPresent bool
+	bandits            ContextualBanditDefinitions
+	banditsPresent     bool
+	// payloadJSON is nil for a response built from Go values
+	payloadJSON map[string]any
+	dateUpdated time.Time
+}
+
+func (client *Client) decodePayloadUpdate(resp *FeatureApiResponse) (*payloadUpdate, error) {
+	u := payloadUpdate{dateUpdated: resp.DateUpdated}
+	var err error
+	if u.features, u.featuresPresent, err = client.decodeFeaturesSection(resp); err != nil {
+		return nil, err
+	}
+	if u.savedGroups, err = client.decodeSavedGroupsSection(resp); err != nil {
+		return nil, err
+	}
+	// A JSON null section decodes to a nil map and counts as absent
+	u.savedGroupsPresent = u.savedGroups != nil
+	u.bandits, u.banditsPresent = client.decodeBanditsSection(resp)
+	if u.payloadJSON, err = client.reducibleUpdateJSON(resp, &u); err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (client *Client) decodeFeaturesSection(resp *FeatureApiResponse) (FeatureMap, bool, error) {
+	if resp.EncryptedFeatures != "" {
+		features, err := client.DecryptFeatures(resp.EncryptedFeatures)
+		return features, err == nil, err
+	}
+	return resp.Features, resp.Features != nil, nil
+}
+
+// decodeSavedGroupsSection prefers the encrypted section. One that fails to
+// decrypt is ignored, like the reference SDK, leaving the plaintext fallback
+// or the previous groups.
+func (client *Client) decodeSavedGroupsSection(resp *FeatureApiResponse) (condition.SavedGroups, error) {
+	savedGroups := resp.SavedGroups
+	if resp.EncryptedSavedGroups != "" {
+		var decrypted condition.SavedGroups
+		groupsJSON, err := client.data.decrypt(resp.EncryptedSavedGroups)
+		if err == nil {
+			err = json.Unmarshal([]byte(groupsJSON), &decrypted)
+		}
+		if err != nil {
+			client.logger.Error("Ignoring undecodable encrypted saved groups; using plaintext fallback or previous groups without blocking feature updates", "error", err)
+		} else {
+			savedGroups = decrypted
+		}
+	}
+	// Direct callers may supply native Go definitions instead of decoded JSON.
+	return savedGroups.Normalize()
+}
+
+// decodeBanditsSection treats an explicit null as a clear, via the section's
+// decoder. An encrypted section that fails to decrypt is ignored like an
+// absent one, so the previous definitions stay (Python SDK parity).
+func (client *Client) decodeBanditsSection(resp *FeatureApiResponse) (ContextualBanditDefinitions, bool) {
+	bandits := resp.ContextualBandits
+	present := bandits != nil
+	if resp.EncryptedContextualBandits == "" {
+		return bandits, present
+	}
+	banditsJSON, err := client.data.decrypt(resp.EncryptedContextualBandits)
+	if err == nil {
+		err = json.Unmarshal([]byte(banditsJSON), &bandits)
+	}
+	if err != nil {
+		client.logger.Warn("Ignoring undecodable encrypted contextual bandits, keeping the previous definitions", "error", err)
+		return bandits, present
+	}
+	return bandits, true
+}
+
+// reducibleUpdateJSON returns the response's JSON with each section matching
+// the decoded update, so ReducePayload never keeps data evaluation dropped,
+// or drops data it uses.
+func (client *Client) reducibleUpdateJSON(resp *FeatureApiResponse, u *payloadUpdate) (map[string]any, error) {
+	payloadJSON := client.decryptedPayloadJSON(resp)
+	if payloadJSON == nil {
+		return nil, nil
+	}
+	if !u.featuresPresent {
+		delete(payloadJSON, "features")
+	}
+	delete(payloadJSON, "savedGroups")
+	if u.savedGroupsPresent {
+		groupsJSON, err := u.savedGroups.JSONValue()
+		if err != nil {
+			return nil, err
+		}
+		payloadJSON["savedGroups"] = groupsJSON
+	}
+	if !u.banditsPresent {
+		delete(payloadJSON, "contextualBandits")
+	} else if _, ok := payloadJSON["contextualBandits"].(map[string]any); !ok {
+		// An explicit null, or junk the decoder reads as none, clears them
+		payloadJSON["contextualBandits"] = map[string]any{}
+	}
+	return payloadJSON, nil
+}
+
+func (u *payloadUpdate) apply(d *data) {
+	if u.payloadJSON != nil {
+		d.payloadJSON = mergePayloadJSON(d.payloadJSON, u.payloadJSON)
+	} else {
+		d.payloadJSON = nil
+	}
+	if u.featuresPresent {
+		d.features = u.features
+	}
+	if u.savedGroupsPresent {
+		d.savedGroups = u.savedGroups
+		d.savedGroupsFromCode = false
+	}
+	if u.banditsPresent {
+		d.contextualBandits = u.bandits
+		d.banditsFromCode = false
+	}
+	d.dateUpdated = u.dateUpdated
 }
 
 // decryptedPayloadJSON returns the response's JSON with its encrypted sections
@@ -399,19 +460,9 @@ func (client *Client) UpdateFromApiResponseJSON(respJSON string) error {
 // RefreshFeatures immediately fetches the latest features from the GrowthBook API
 // and updates the client. Useful in manual mode when no background datasource is
 // configured and the caller wants to control when features are refreshed.
+// It is RefreshFeaturesWithMode(ctx, RefreshDefault).
 func (client *Client) RefreshFeatures(ctx context.Context) error {
-	resp, err := client.CallFeatureApi(ctx, "")
-	if err != nil {
-		client.notifyRefresh(ctx, RefreshResult{Source: RefreshSourceManual, Error: err})
-		return err
-	}
-	// Apply partial responses too: applyApiResponse preserves omitted
-	// sections, so a bandit-only or saved-groups-only response updates just
-	// what it carries. (An early return on absent features predated that
-	// gating and left manual-mode clients with stale bandit definitions.)
-	applied, dateUpdated, err := client.applyApiResponse(resp)
-	client.notifyRefreshOutcome(ctx, RefreshSourceManual, applied, dateUpdated, err)
-	return err
+	return client.RefreshFeaturesWithMode(ctx, RefreshDefault)
 }
 
 // EvalFeature evaluates feature based on attributes and features map

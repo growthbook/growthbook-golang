@@ -127,6 +127,51 @@ or retains the previous definitions if none were supplied.
 
 ---
 
+### Refreshing features and retries
+
+`RefreshFeatures` fetches the latest payload on demand. To fetch even when the
+current features are fresh, and to bypass the ETag and HTTP caches, force it.
+The current features stay in use until the new ones are applied. Concurrent
+refreshes with the same mode share a single fetch.
+
+```go
+if err := client.RefreshFeaturesWithMode(ctx, gb.RefreshForce); err != nil {
+    log.Println("Refresh failed: ", err)
+}
+```
+
+Feature fetches retry network errors and 408, 429 and 5xx responses with
+bounded exponential backoff. By default a fetch makes up to five attempts,
+waiting 1s, 2s, 4s and 8s between them. Cancelling the context stops the
+retries, and so does `client.Close()` while a data source is still on its
+first load. Manual refreshes, polling and the first load of the SSE data source
+use the policy; SSE reconnects keep their own backoff (see
+`WithSseMaxRetryInterval`).
+
+```go
+client, err := gb.NewClient(
+    context.Background(),
+    gb.WithClientKey("sdk-XXXX"),
+    gb.WithPollDataSource(time.Minute),
+    // Total attempts, delay before the first retry, cap on any delay.
+    // MaxAttempts: 1 disables retries.
+    gb.WithRetryPolicy(gb.RetryPolicy{
+        MaxAttempts:  5,
+        InitialDelay: time.Second,
+        MaxDelay:     16 * time.Second,
+    }),
+    // Optional: skip non-forced fetches while the last successful
+    // fetch is newer than this. Disabled by default.
+    gb.WithBackgroundFetchInterval(10*time.Minute),
+)
+```
+
+With a refresh handler set (see below), each refresh reports one event after
+its retries, and callers sharing a fetch get one event between them. A refresh
+skipped because the features are fresh makes no fetch and reports nothing.
+
+---
+
 ### Feature Refresh Handler
 
 To observe the feature refresh lifecycle, set a handler with `WithFeaturesRefreshHandler`. It is invoked after every refresh attempt — from the polling and SSE datasources, from a manual `RefreshFeatures` call, and on the initial load. This is useful for emitting metrics on failures, tracking data freshness, or invalidating derived state when features change.

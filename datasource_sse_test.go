@@ -281,6 +281,8 @@ func TestSseDataSource(t *testing.T) {
 			WithApiHost(ts.URL),
 			WithClientKey("somekey"),
 			WithFeaturesRefreshHandler(c.handler()),
+			// One attempt: the default policy would back off for 15s
+			WithRetryPolicy(RetryPolicy{MaxAttempts: 1}),
 			WithSseDataSource(),
 		)
 		require.Nil(t, err)
