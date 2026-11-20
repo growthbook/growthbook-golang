@@ -22,9 +22,11 @@ func (sg SavedGroups) Normalize() (SavedGroups, error) {
 	}
 	parsed := make(SavedGroups, len(sg))
 	for id, group := range sg {
-		switch group.(type) {
-		case savedGroup, value.ArrValue:
+		switch g := group.(type) {
+		case savedGroup, legacyGroup:
 			parsed[id] = group
+		case value.ArrValue:
+			parsed[id] = newLegacyGroup(g)
 		default:
 			raw, err := json.Marshal(group)
 			if err != nil {
@@ -57,6 +59,20 @@ type savedGroup struct {
 
 func (g savedGroup) MarshalJSON() ([]byte, error) { return g.raw, nil }
 
+// legacyGroup is a v1 saved group: a bare array of values. Its membership is
+// built once at load, so a group of strings is checked with a set lookup.
+type legacyGroup struct {
+	membership InCond
+}
+
+func newLegacyGroup(values value.ArrValue) legacyGroup {
+	return legacyGroup{membership: NewInCond(values)}
+}
+
+func (g legacyGroup) MarshalJSON() ([]byte, error) {
+	return json.Marshal(value.ToAny(g.membership.expected))
+}
+
 // JSONValue returns the groups as decoded JSON in the exact shape they were
 // loaded from: a v2 entry as its raw JSON, and a legacy list as its values,
 // so an empty list stays [] and a null member stays null.
@@ -70,6 +86,8 @@ func (sg SavedGroups) JSONValue() (map[string]any, error) {
 				return nil, fmt.Errorf("saved group %q: %w", id, err)
 			}
 			out[id] = v
+		case legacyGroup:
+			out[id] = value.ToAny(g.membership.expected)
 		case value.Value:
 			out[id] = value.ToAny(g)
 		default:
@@ -106,7 +124,7 @@ func parseSavedGroupEntry(raw json.RawMessage) (any, error) {
 		if err := json.Unmarshal(raw, &values); err != nil {
 			return nil, err
 		}
-		return value.New(values), nil
+		return newLegacyGroup(value.New(values).(value.ArrValue)), nil
 	}
 	return parseSavedGroup(raw), nil
 }
