@@ -284,6 +284,9 @@ func TestSseDataSource(t *testing.T) {
 			WithSseDataSource(),
 		)
 		require.Nil(t, err)
+		// A failed first load leaves the initial-load retry and the stream running, and
+		// context.TODO never ends: only Close stops them before the server goes away.
+		defer client.Close()
 		require.Error(t, client.EnsureLoaded(ctx))
 
 		requireEvents(t, c.all(),
@@ -298,6 +301,7 @@ func TestSseDataSourceRetryInterval(t *testing.T) {
 	t.Run("default max retry interval", func(t *testing.T) {
 		client, err := NewClient(ctx, WithSseDataSource())
 		require.Nil(t, err)
+		t.Cleanup(func() { _ = client.Close() })
 		ds, ok := client.data.dataSource.(*SseDataSource)
 		require.True(t, ok)
 		require.Equal(t, defaultMaxRetryInterval, ds.maxRetryInterval)
@@ -306,6 +310,7 @@ func TestSseDataSourceRetryInterval(t *testing.T) {
 	t.Run("custom max retry interval", func(t *testing.T) {
 		client, err := NewClient(ctx, WithSseDataSource(WithSseMaxRetryInterval(time.Minute)))
 		require.Nil(t, err)
+		t.Cleanup(func() { _ = client.Close() })
 		ds, ok := client.data.dataSource.(*SseDataSource)
 		require.True(t, ok)
 		require.Equal(t, time.Minute, ds.maxRetryInterval)
@@ -314,6 +319,7 @@ func TestSseDataSourceRetryInterval(t *testing.T) {
 	t.Run("non-positive max retry interval keeps default", func(t *testing.T) {
 		client, err := NewClient(ctx, WithSseDataSource(WithSseMaxRetryInterval(0)))
 		require.Nil(t, err)
+		t.Cleanup(func() { _ = client.Close() })
 		ds, ok := client.data.dataSource.(*SseDataSource)
 		require.True(t, ok)
 		require.Equal(t, defaultMaxRetryInterval, ds.maxRetryInterval)
@@ -322,6 +328,7 @@ func TestSseDataSourceRetryInterval(t *testing.T) {
 	t.Run("nil option is ignored", func(t *testing.T) {
 		client, err := NewClient(ctx, WithSseDataSource(nil))
 		require.Nil(t, err)
+		t.Cleanup(func() { _ = client.Close() })
 		ds, ok := client.data.dataSource.(*SseDataSource)
 		require.True(t, ok)
 		require.Equal(t, defaultMaxRetryInterval, ds.maxRetryInterval)
