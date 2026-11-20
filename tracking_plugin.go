@@ -2,7 +2,9 @@ package growthbook
 
 import (
 	"bytes"
+	"container/list"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -19,6 +21,8 @@ const (
 	defaultIngestorHost = "https://us1.gb-ingest.com"
 	defaultBatchSize    = 100
 	defaultBatchTimeout = 10 * time.Second
+	// defaultDedupeCacheSize matches the JS tracking plugin's dedupeCacheSize.
+	defaultDedupeCacheSize = 1000
 )
 
 var (
@@ -79,6 +83,18 @@ type TrackingPluginConfig struct {
 	// Logger is used for error logging. If nil, the client's logger
 	// is used.
 	Logger *slog.Logger
+
+	// DedupeCacheSize is how many recent "Experiment Viewed" and "Feature
+	// Evaluated" events the plugin remembers to drop repeats. Defaults to
+	// 1000; a negative value disables deduplication.
+	DedupeCacheSize int
+
+	// DedupeKeyAttributes are the attributes that identify a user when
+	// deduplicating events. When empty, "Experiment Viewed" events are
+	// identified by their hash attribute and value (one exposure per
+	// bucketing unit) and "Feature Evaluated" events by all of the
+	// evaluating client's attributes (one evaluation per user).
+	DedupeKeyAttributes []string
 }
 
 // trackingEvent is the JSON payload for a single tracking event, in the
@@ -100,6 +116,8 @@ type GrowthBookTrackingPlugin struct {
 	timer  *time.Timer
 	closed bool
 	wg     sync.WaitGroup // tracks in-flight background sends
+
+	dedupe *eventDedupeCache // nil when deduplication is disabled
 }
 
 // NewGrowthBookTrackingPlugin creates a new tracking plugin with the
@@ -115,9 +133,16 @@ func NewGrowthBookTrackingPlugin(config TrackingPluginConfig) *GrowthBookTrackin
 	if config.BatchTimeout <= 0 {
 		config.BatchTimeout = defaultBatchTimeout
 	}
-	return &GrowthBookTrackingPlugin{
+	if config.DedupeCacheSize == 0 {
+		config.DedupeCacheSize = defaultDedupeCacheSize
+	}
+	p := &GrowthBookTrackingPlugin{
 		config: config,
 	}
+	if config.DedupeCacheSize > 0 {
+		p.dedupe = newEventDedupeCache(config.DedupeCacheSize)
+	}
+	return p
 }
 
 // Init initializes the plugin with the client's configuration.
@@ -179,7 +204,91 @@ func (p *GrowthBookTrackingPlugin) OnEvent(ctx context.Context, eventName string
 		"url":             userCtx.URL,
 	}
 	addEventAttributes(event, userCtx.Attributes)
-	p.enqueue(event)
+	// Events are marshaled here, one by one, so a single unmarshalable
+	// value (e.g. NaN in LogEvent properties) drops only that event
+	// instead of failing the whole batch at send time. Marshaling before
+	// de-duping keeps a dropped event from suppressing a valid repeat.
+	data, err := json.Marshal(event)
+	if err != nil {
+		p.logger.Error("Failed to marshal tracking event, dropping it", "error", err)
+		return
+	}
+	if p.isDuplicate(eventName, properties, userCtx.Attributes) {
+		return
+	}
+	p.enqueue(data)
+}
+
+// isDuplicate reports whether an equal "Experiment Viewed" or "Feature
+// Evaluated" event was logged recently, mirroring the JS tracking plugin's
+// de-duping (sdk-js plugins/growthbook-tracking.ts). The plugin is shared by
+// a client and all its child clients, so it always applies the JS
+// multi-user rule: "Feature Evaluated" carries no bucketing unit, so without
+// DedupeKeyAttributes it is identified by all of the user's attributes —
+// otherwise identical evaluations by different users would collapse into
+// one. "Experiment Viewed" properties already hold the hash attribute and
+// value, so exposures stay one per bucketing unit, not per user.
+func (p *GrowthBookTrackingPlugin) isDuplicate(eventName string, properties EventProperties, attributes Attributes) bool {
+	if p.dedupe == nil || (eventName != EventFeatureEvaluated && eventName != EventExperimentViewed) {
+		return false
+	}
+	keyData := map[string]any{
+		"eventName":  eventName,
+		"properties": properties,
+	}
+	if len(p.config.DedupeKeyAttributes) > 0 {
+		for _, k := range p.config.DedupeKeyAttributes {
+			if v, ok := attributes[k]; ok {
+				keyData["attr:"+k] = v
+			}
+		}
+	} else if eventName == EventFeatureEvaluated {
+		for k, v := range attributes {
+			keyData["attr:"+k] = v
+		}
+	}
+	data, err := json.Marshal(keyData)
+	if err != nil {
+		// Unreachable: OnEvent already marshaled the full payload.
+		return false
+	}
+	// Remember a digest, not the key: the cache never holds attribute values.
+	return p.dedupe.seen(sha256.Sum256(data))
+}
+
+// eventDedupeCache is an LRU set of recently logged event keys, shared by
+// every client using the plugin, so access is mutex-guarded.
+type eventDedupeCache struct {
+	mu      sync.Mutex
+	maxSize int
+	keys    map[[sha256.Size]byte]*list.Element
+	order   *list.List // front = most recently seen
+}
+
+func newEventDedupeCache(maxSize int) *eventDedupeCache {
+	return &eventDedupeCache{
+		maxSize: maxSize,
+		keys:    make(map[[sha256.Size]byte]*list.Element),
+		order:   list.New(),
+	}
+}
+
+// seen reports whether key is in the cache and records it as most recently
+// seen, evicting the least recently seen key when over capacity.
+func (c *eventDedupeCache) seen(key [sha256.Size]byte) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if elem, ok := c.keys[key]; ok {
+		c.order.MoveToFront(elem)
+		return true
+	}
+	c.keys[key] = c.order.PushFront(key)
+	if c.order.Len() > c.maxSize {
+		oldest := c.order.Back()
+		c.order.Remove(oldest)
+		delete(c.keys, oldest.Value.([sha256.Size]byte))
+	}
+	return false
 }
 
 // Attribute keys lifted to top-level EventPayload fields; everything else
@@ -288,16 +397,7 @@ func (p *GrowthBookTrackingPlugin) Close() error {
 // enqueue adds an event to the batch. If the batch is full, it
 // triggers an immediate background flush. If this is the first event
 // in a new batch, it starts the timeout timer.
-// Events are marshaled here, one by one, so a single unmarshalable
-// value (e.g. NaN in LogEvent properties) drops only that event
-// instead of failing the whole batch at send time.
-func (p *GrowthBookTrackingPlugin) enqueue(event trackingEvent) {
-	data, err := json.Marshal(event)
-	if err != nil {
-		p.logger.Error("Failed to marshal tracking event, dropping it", "error", err)
-		return
-	}
-
+func (p *GrowthBookTrackingPlugin) enqueue(data json.RawMessage) {
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
