@@ -22,7 +22,9 @@ type FeatureApiResponse struct {
 	EncryptedContextualBandits string                      `json:"encryptedContextualBandits"`
 	SseSupport                 bool
 	Etag                       string
-	// raw is the JSON the response was decoded from, kept for ReducePayload
+	// raw is the JSON the response was decoded from, kept for ReducePayload and
+	// persisted verbatim to a FeatureCache (parsed conditions do not marshal
+	// back to JSON without loss).
 	raw json.RawMessage
 }
 
@@ -81,6 +83,7 @@ func (c *Client) CallFeatureApi(ctx context.Context, etag string) (*FeatureApiRe
 		c.logger.ErrorContext(ctx, "Error parsing features response", "error", err)
 		return &apiResp, err
 	}
+	apiResp.raw = body
 
 	return &apiResp, err
 }
