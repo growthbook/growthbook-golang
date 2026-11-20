@@ -299,7 +299,14 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 			payloadJSON["contextualBandits"] = map[string]any{}
 		}
 	}
+	stale := false
 	client.data.withLock(func(d *data) error {
+		// A newer response may have been applied since the check above
+		if apiUpdated.Before(d.dateUpdated) {
+			stale = true
+			dataUpdated = d.dateUpdated
+			return nil
+		}
 		if payloadJSON != nil {
 			d.payloadJSON = mergePayloadJSON(d.payloadJSON, payloadJSON)
 		} else {
@@ -320,6 +327,11 @@ func (client *Client) applyApiResponse(resp *FeatureApiResponse) (bool, time.Tim
 		d.dateUpdated = resp.DateUpdated
 		return nil
 	})
+	if stale {
+		client.logger.Warn("Api response is older then current data, refuse to update",
+			"dataUpdated", dataUpdated, "apiUdpated", apiUpdated)
+		return false, dataUpdated, nil
+	}
 	return applied, resp.DateUpdated, nil
 }
 
