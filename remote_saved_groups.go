@@ -271,7 +271,9 @@ func RedisResolver(redis RedisSetClient) SavedGroupResolver {
 		// For each group and value: the Redis key, and the id that means a match
 		type check struct{ id, key, matchID string }
 		var checks []check
+		// Distinct keys, in first-seen order
 		var keys []string
+		seen := map[string]bool{}
 		for _, group := range groups {
 			source := group
 			if group.ValuesFrom != "" {
@@ -284,7 +286,8 @@ func RedisResolver(redis RedisSetClient) SavedGroupResolver {
 			for _, v := range redisLookupValues(attributes[group.AttributeKey]) {
 				key := "gb:member:" + source.AttributeKey + ":" + v
 				checks = append(checks, check{group.ID, key, source.ID})
-				if !slices.Contains(keys, key) {
+				if !seen[key] {
+					seen[key] = true
 					keys = append(keys, key)
 				}
 			}
