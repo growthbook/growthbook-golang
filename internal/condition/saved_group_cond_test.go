@@ -251,7 +251,7 @@ func TestSavedGroupSiblingPathReuse(t *testing.T) {
 }
 
 func TestSavedGroupsJSONRoundTrip(t *testing.T) {
-	raw := `{"legacy":["u1",2],"list":{"type":"list","attributeKey":"id","values":["u1"]},"condition":{"type":"condition","condition":{"$savedGroup":{"id":"list"}}},"future":{"type":"future","extra":true},"invalid":null}`
+	raw := `{"legacy":["u1",2],"strings":["u2","u1"],"nullable":["u1",null],"list":{"type":"list","attributeKey":"id","values":["u1"]},"condition":{"type":"condition","condition":{"$savedGroup":{"id":"list"}}},"future":{"type":"future","extra":true},"invalid":null}`
 	var groups SavedGroups
 	input := []byte(raw)
 	require.NoError(t, json.Unmarshal(input, &groups))
