@@ -416,9 +416,9 @@ func (client *Client) RefreshFeatures(ctx context.Context) error {
 
 // EvalFeature evaluates feature based on attributes and features map
 func (client *Client) EvalFeature(ctx context.Context, key string) *FeatureResult {
-	e := client.evaluator(ctx)
+	e, plugins := client.evaluator(ctx)
 	res := e.evalFeature(key)
-	client.fireTracking(ctx, e)
+	client.fireTracking(ctx, &e, plugins)
 	return res
 }
 
@@ -427,9 +427,9 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 	// of unused attribution) and must never mutate the caller's experiment.
 	expCopy := *exp
 	exp = &expCopy
-	e := client.evaluator(ctx)
+	e, plugins := client.evaluator(ctx)
 	res := e.runExperiment(exp, "")
-	client.fireTracking(ctx, e)
+	client.fireTracking(ctx, &e, plugins)
 	if client.data.subscribers.hasSubscribers() {
 		client.notifySubscribers(ctx, exp, res)
 	}
@@ -441,18 +441,17 @@ func (client *Client) RunExperiment(ctx context.Context, exp *Experiment) *Exper
 // plugins. The buffer is written first so a panicking callback cannot lose
 // exposures. Plugin panics are recovered so plugins never interrupt
 // evaluation.
-func (client *Client) fireTracking(ctx context.Context, e *evaluator) {
+func (client *Client) fireTracking(ctx context.Context, e *evaluator, plugins []Plugin) {
 	if client.trackingBuffer != nil {
 		// Detach before buffering: this runs on the evaluating goroutine, so
 		// nothing the caller later mutates can reach the buffer.
 		client.trackingBuffer.add(detachTrackingData(e.experiments, client.logger))
 	}
-	plugins := client.data.getPlugins()
 	// Built-in events flow through the event-logger channel alongside the
 	// callbacks, mirroring the JS SDK (core.ts onExperimentViewed /
 	// onFeatureUsage fire eventLogger per tracked item). Resolve the user
 	// context once; exposures carry their own snapshot.
-	dispatchEvents := client.hasEventConsumers()
+	dispatchEvents := client.hasEventConsumers(plugins)
 	var usageCtx *EventUserContext
 	if dispatchEvents && len(e.featureUsage) > 0 {
 		if usageCtx = e.userCtx; usageCtx == nil {
@@ -536,9 +535,12 @@ func (client *Client) Logger() *slog.Logger {
 	return client.logger
 }
 
-// Internals
-func (client *Client) evaluator(ctx context.Context) *evaluator {
+// evaluator returns an evaluator over the current data, and the plugins to
+// report its tracking to. Both are read under one lock. The evaluator is
+// returned by value so it can stay on the caller's stack.
+func (client *Client) evaluator(ctx context.Context) (evaluator, []Plugin) {
 	client.data.mu.RLock()
+	defer client.data.mu.RUnlock()
 	e := evaluator{
 		features:          client.data.features,
 		savedGroups:       client.data.savedGroups,
@@ -552,8 +554,7 @@ func (client *Client) evaluator(ctx context.Context) *evaluator {
 	both := client.eventLogger != nil || len(client.data.plugins) > 0
 	e.recordingExperiments = both || client.experimentCallback != nil || client.trackingBuffer != nil
 	e.recordingFeatureUsage = both || client.featureUsageCallback != nil
-	client.data.mu.RUnlock()
-	return &e
+	return e, client.data.plugins
 }
 
 func (client *Client) clone() *Client {
