@@ -24,7 +24,7 @@ type RefreshResult struct {
 	// or a manual RefreshFeatures call.
 	Source RefreshSource
 	// Updated is true when a payload was fetched and applied to at least one
-	// section (features, saved groups or contextual bandits).
+	// section (features, saved groups, contextual bandits or interleavings).
 	Updated bool
 	// NotModified is true when nothing was replaced: the server returned
 	// HTTP 304, the response was refused as older than the current data, or
@@ -34,10 +34,12 @@ type RefreshResult struct {
 	// Error is non-nil when the refresh attempt failed: network error,
 	// non-2xx/304 status, an undecodable response, a features payload that
 	// fails to decrypt, or invalid saved groups. A failure to decrypt
-	// EncryptedSavedGroups or EncryptedContextualBandits is not reported here:
-	// that section is logged and ignored (the plaintext fallback or the
-	// previous definitions stay in effect), and the attempt is classified by
-	// the remaining sections as Updated or NotModified.
+	// EncryptedSavedGroups, EncryptedContextualBandits or
+	// EncryptedInterleavings is not reported here: that section is logged and
+	// ignored, and the attempt is classified by the remaining sections as
+	// Updated or NotModified. The plaintext fallback or the previous
+	// definitions stay in effect, except that a payload with features drops
+	// the previous interleavings.
 	Error error
 	// DateUpdated is the dateUpdated the client holds after the attempt, never
 	// a timestamp it refused: the payload's own value when the payload was

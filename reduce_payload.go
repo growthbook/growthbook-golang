@@ -392,6 +392,17 @@ func reducePayload(payload map[string]any, attrs value.ObjValue, opts ReducePayl
 	out["features"] = features
 	out["experiments"] = experiments
 	out["savedGroups"] = keptGroups
+	// An interleaving needs its "$interleave:" feature, so it goes when the
+	// filters dropped that
+	if interleavings, ok := payload["interleavings"].(map[string]any); ok {
+		kept := map[string]any{}
+		for key, def := range interleavings {
+			if _, ok := features[interleaveFeaturePrefix+key]; ok {
+				kept[key] = def
+			}
+		}
+		out["interleavings"] = kept
+	}
 	// Only when there were any, as with the payload's other optional keys
 	if banditsPresent {
 		out["contextualBandits"] = bandits

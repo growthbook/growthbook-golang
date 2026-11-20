@@ -214,9 +214,9 @@ Exactly one of the following describes each event:
 
 | Field | Meaning |
 |-------|---------|
-| `Updated` | A payload was fetched and applied to at least one section (features, saved groups, or contextual bandits) |
+| `Updated` | A payload was fetched and applied to at least one section (features, saved groups, contextual bandits, or interleavings) |
 | `NotModified` | Nothing was replaced — HTTP 304, a payload refused as older than the current data, or a payload carrying no section to apply. The stored definitions remain in effect |
-| `Error` | The refresh attempt failed — network error, non-2xx/304 status, an undecodable response, a features payload that fails to decrypt, or invalid saved groups. Failures to decrypt `encryptedSavedGroups` or `encryptedContextualBandits` are logged and ignored (the plaintext fallback or previous definitions stay in effect) and do not produce `Error` |
+| `Error` | The refresh attempt failed — network error, non-2xx/304 status, an undecodable response, a features payload that fails to decrypt, or invalid saved groups. Failures to decrypt `encryptedSavedGroups`, `encryptedContextualBandits` or `encryptedInterleavings` are logged and ignored and do not produce `Error`. The plaintext fallback or previous definitions stay in effect, except that a payload with features drops the previous interleavings |
 | `Source` | Which mechanism produced the event: `RefreshSourcePoll`, `RefreshSourceSSE`, or `RefreshSourceManual` |
 | `DateUpdated` | The `dateUpdated` the client holds after the attempt — never one it refused. The payload's own value when the payload was processed, the currently stored value on a 304 or a stale refusal, and the zero time on `Error` |
 
@@ -508,6 +508,72 @@ Good to know:
   aggregate weights — and never blocks the feature update it arrived with.
 - Deferred tracking forwards bandit attribution too: buffered `TrackingData`
   carries the same fields.
+
+---
+
+### Interleaving rankers
+
+An interleaving experiment compares two rankers by mixing their results into
+one list. This SDK doesn't interleave yet, but it reads the experiments from
+the SDK payload (encrypted payloads supported), so a background job can
+pre-compute rankings for rankers that are too slow for the request path.
+
+`InterleaveRankers()` returns the rankers of every interleaving experiment,
+keyed by experiment key, with the control ranker first.
+`InterleaveRankersForKey(key)` returns them for one experiment. Each ranker
+has a `Key` (the variation reported on exposures) and a `Config`, and
+`DecodeConfig` decodes the config into your own type.
+
+```go
+type RankerConfig struct {
+    AlgorithmVersion string `json:"algorithmVersion"`
+}
+
+// Key the cache by the config, so an edited config is a miss
+func cacheKey(userID string, config RankerConfig) string {
+    return userID + ":" + config.AlgorithmVersion
+}
+
+// Background job: warm the cache for every ranker that could be served
+for _, rankers := range client.InterleaveRankers() {
+    for _, ranker := range rankers {
+        var config RankerConfig
+        if err := ranker.DecodeConfig(&config); err != nil {
+            return err
+        }
+        lists, err := rankingService.RankBatch(ctx, userIDs, config)
+        if err != nil {
+            return err
+        }
+        for userID, list := range lists {
+            rankingCache.Set(cacheKey(userID, config), list)
+        }
+    }
+}
+
+// Request time: read the cache, and rank on a miss
+func getList(ctx context.Context, userID string, config RankerConfig) ([]Product, error) {
+    if list, ok := rankingCache.Get(cacheKey(userID, config)); ok {
+        return list, nil
+    }
+    return rankingService.Rank(ctx, userID, config)
+}
+```
+
+Good to know:
+
+- The server sends interleavings only to SDK connections whose SDK version
+  supports them. Without that, both methods return nothing.
+- Targeting is not evaluated. You get every ranker that could be served to
+  someone, which is what a batch job needs, not what one user gets.
+- Always fall back to the ranker on a cache miss. A config can change the
+  moment someone edits the experiment.
+- Both read the SDK payload, so call them after it has loaded. A client with
+  a data source can wait for it with `client.EnsureLoaded(ctx)`. A stopped or
+  archived experiment leaves the payload and stops being returned.
+- An experiment is skipped when it doesn't have exactly two rankers, or when
+  its `$interleave:` feature isn't in the payload.
+- The result is a copy, so changing it doesn't affect the client.
 
 ---
 
