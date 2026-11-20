@@ -617,3 +617,65 @@ func TestRedisResolverWorksThroughAddRemoteSavedGroups(t *testing.T) {
 	require.Equal(t, []string{"grp_vip"}, child.RemoteGroupIds())
 	require.True(t, on(child, "in_vip"))
 }
+
+// Looked-up ids describe the user whose attributes the resolver got. A child
+// for another value of an attribute the remote groups use is another user: the
+// ids no longer apply to it and count as unresolved, so its rules fail closed.
+func TestAddRemoteSavedGroupsIdsAreUnresolvedOnceTheLookedUpAttributesChange(t *testing.T) {
+	client, _ := remoteClient(t)
+	child, err := client.AddRemoteSavedGroups(context.Background(), lookUpVip)
+	require.NoError(t, err)
+	require.True(t, on(child, "in_vip"))
+
+	tests := []struct {
+		name   string
+		change func(*Client) (*Client, error)
+	}{
+		{"WithAttributes", func(c *Client) (*Client, error) {
+			return c.WithAttributes(Attributes{"account_id": "a2"})
+		}},
+		{"WithAttributeOverrides", func(c *Client) (*Client, error) {
+			return c.WithAttributeOverrides(Attributes{"account_id": "a2"})
+		}},
+		{"an attribute removed", func(c *Client) (*Client, error) {
+			return c.WithAttributes(Attributes{})
+		}},
+		{"the attribute of a derived group", func(c *Client) (*Client, error) {
+			return c.WithAttributeOverrides(Attributes{"parent_id": "p1"})
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			other, err := tt.change(child)
+			require.NoError(t, err)
+			require.Nil(t, other.RemoteGroupIds())
+			require.False(t, on(other, "in_vip"), "another user must not get the first user's groups")
+			require.False(t, on(other, "not_in_vip"), "and \"not in group\" fails closed too")
+			// The child it was derived from keeps its own ids
+			require.Equal(t, []string{"grp_vip"}, child.RemoteGroupIds())
+		})
+	}
+}
+
+func TestAddRemoteSavedGroupsIdsStayWhenOtherAttributesChange(t *testing.T) {
+	client, _ := remoteClient(t)
+	child, err := client.AddRemoteSavedGroups(context.Background(), lookUpVip)
+	require.NoError(t, err)
+
+	other, err := child.WithAttributeOverrides(Attributes{"country": "UA"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"grp_vip"}, other.RemoteGroupIds())
+	require.True(t, on(other, "in_vip"))
+
+	same, err := child.WithAttributes(Attributes{"account_id": "a1", "country": "UA"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"grp_vip"}, same.RemoteGroupIds(), "the same account is the same lookup")
+}
+
+// Ids the app set are the app's to keep current, as with payload changes.
+func TestRemoteGroupIdsSetByTheAppStayWhenTheAttributesChange(t *testing.T) {
+	client, _ := remoteClient(t, WithRemoteGroupIds([]string{"grp_vip"}))
+	other, err := client.WithAttributes(Attributes{"account_id": "a2"})
+	require.NoError(t, err)
+	require.Equal(t, []string{"grp_vip"}, other.RemoteGroupIds())
+}

@@ -77,7 +77,8 @@ func (c *Client) WithRemoteGroupIds(ids []string) (*Client, error) {
 
 // RemoteGroupIds returns the remote saved groups the user is in, or nil while
 // they are unresolved. Ids AddRemoteSavedGroups looked up count as unresolved
-// once the payload's remote groups change.
+// once the payload's remote groups change, or once a child client changes an
+// attribute those groups use.
 func (c *Client) RemoteGroupIds() []string {
 	return slices.Clone(c.currentRemoteGroupIDs(c.data.getRemoteGroups()))
 }
@@ -97,6 +98,11 @@ func (c *Client) currentRemoteGroupIDs(groups []condition.RemoteGroup, version u
 
 // AddRemoteSavedGroups looks up the user's remote saved groups with resolver
 // and returns a child client with them as its remote group ids.
+//
+// The ids belong to the client's current attributes: a child created from the
+// result with another value for an attribute the remote groups use (through
+// WithAttributes or WithAttributeOverrides) has them unresolved, and needs its
+// own AddRemoteSavedGroups call.
 //
 // When the payload has no remote groups it returns the client unchanged. When
 // the resolver fails, or the payload's remote groups change during every
@@ -130,6 +136,33 @@ func (c *Client) AddRemoteSavedGroups(ctx context.Context, resolver SavedGroupRe
 		groups, version = current, currentVersion
 	}
 	return c, ErrRemoteSavedGroupsChanged
+}
+
+// setAttributes replaces the client's attributes. Ids AddRemoteSavedGroups
+// looked up describe the user whose attributes the resolver got: when a value
+// it got changes, the ids belong to another user and become unresolved, so
+// rules using remote groups fail closed until they are looked up again. Ids
+// the app set with WithRemoteGroupIds stay as set.
+func (c *Client) setAttributes(attributes value.ObjValue) {
+	if c.remoteGroupsLookedUp != nil && !sameRemoteGroupAttributes(c.remoteGroupsLookedUp, c.attributes, attributes) {
+		c.remoteGroupIDs = nil
+		c.remoteGroupsLookedUp = nil
+		c.remoteGroupsLookedUpVersion = 0
+	}
+	c.attributes = attributes
+}
+
+// sameRemoteGroupAttributes reports whether old and updated hold the same
+// values for every attribute the groups use, i.e. would give a resolver the
+// same input.
+func sameRemoteGroupAttributes(groups []condition.RemoteGroup, old, updated value.ObjValue) bool {
+	for _, group := range groups {
+		path := strings.Split(group.AttributeKey, ".")
+		if !value.Equal(value.Path(old, path...), value.Path(updated, path...)) {
+			return false
+		}
+	}
+	return true
 }
 
 func (c *Client) resolveRemoteGroupIDs(ctx context.Context, groups []condition.RemoteGroup, resolver SavedGroupResolver) ([]string, error) {

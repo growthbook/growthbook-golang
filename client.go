@@ -55,7 +55,8 @@ type Client struct {
 	// looked remoteGroupIDs up for, at savedGroupsVersion
 	// remoteGroupsLookedUpVersion. The child shares the live payload, so once
 	// its remote groups change the ids no longer cover them and count as
-	// unresolved. nil when the app set the ids with WithRemoteGroupIds.
+	// unresolved; so do they once the attributes those groups use change (see
+	// setAttributes). nil when the app set the ids with WithRemoteGroupIds.
 	remoteGroupsLookedUp        []condition.RemoteGroup
 	remoteGroupsLookedUpVersion uint64
 }
