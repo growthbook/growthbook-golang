@@ -307,15 +307,18 @@ func (client *Client) applyApiResponse(ctx context.Context, resp *FeatureApiResp
 			d.banditsFromCode = false
 		}
 		d.dateUpdated = resp.DateUpdated
+		// Subscribers hear about applied payloads only: a response that changed
+		// no definitions - only dateUpdated, or only a section that could not be
+		// decoded - must not make them clear caches or publish an update.
+		// Queued under the data lock, so notifications keep the order in which
+		// the data changed.
+		if applied {
+			d.refreshSubscribers.enqueue(ctx, resp)
+		}
 		return nil
 	})
-
-	// Subscribers hear about applied payloads only: a response that changed no
-	// definitions - only dateUpdated, or only a section that could not be
-	// decoded - must not make them clear caches or publish an update.
-	if applied {
-		client.notifyFeatureRefreshSubscribers(ctx, resp)
-	}
+	// Delivered outside the data lock.
+	client.deliverFeatureRefreshes()
 
 	return applied, resp.DateUpdated, nil
 }

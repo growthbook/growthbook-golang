@@ -455,3 +455,63 @@ func TestPayloadsQueuedDuringStartupKeepTheirOwnContents(t *testing.T) {
 	require.Equal(t, []any{"first", "second"}, seen,
 		"each queued notification has to carry the payload as it was applied, not the caller's struct as it ended up")
 }
+
+// Concurrent updates must reach subscribers in the order they changed the data, so the last
+// payload a subscriber sees is the one the client holds - after startup and while it is starting.
+func TestConcurrentPayloadsReachSubscribersInTheOrderTheyWereApplied(t *testing.T) {
+	for _, starting := range []bool{false, true} {
+		name := "after startup"
+		if starting {
+			name = "during startup"
+		}
+		t.Run(name, func(t *testing.T) {
+			for round := 0; round < 200; round++ {
+				var opts []ClientOption
+				ds := &blockingDataSource{release: make(chan struct{})}
+				if starting {
+					opts = append(opts, WithDataSource(ds))
+				}
+				client, err := NewClient(ctx, opts...)
+				require.NoError(t, err)
+
+				var mu sync.Mutex
+				var last any
+				unsubscribe := client.SubscribeFeatureRefresh(func(_ context.Context, resp *FeatureApiResponse) {
+					mu.Lock()
+					defer mu.Unlock()
+					last = resp.Features["feature"].DefaultValue
+				})
+
+				base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+				var wg sync.WaitGroup
+				for i := 0; i < 8; i++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						_ = client.UpdateFromApiResponse(&FeatureApiResponse{
+							Features:    FeatureMap{"feature": {DefaultValue: i}},
+							DateUpdated: base.Add(time.Duration(i) * time.Minute),
+						})
+					}()
+				}
+				wg.Wait()
+				if starting {
+					close(ds.release)
+					require.NoError(t, client.EnsureLoaded(ctx))
+				}
+
+				want := client.data.getFeatures()["feature"].DefaultValue
+				lastSeen := func() any {
+					mu.Lock()
+					defer mu.Unlock()
+					return last
+				}
+				require.Eventually(t, func() bool { return lastSeen() == want }, time.Second, time.Millisecond)
+				require.Equal(t, want, lastSeen(), "round %d: subscribers must last see the payload the client holds", round)
+
+				unsubscribe()
+				_ = client.Close()
+			}
+		})
+	}
+}

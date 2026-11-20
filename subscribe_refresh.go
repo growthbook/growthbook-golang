@@ -24,13 +24,19 @@ type refreshSubscriberRegistry struct {
 	nextID  atomic.Uint64
 	entries map[uint64]FeatureRefreshSubscriber
 
-	// While the data source is starting, notifications are held here and delivered once startup has
-	// been published, so a subscriber can call EnsureLoaded without waiting on its own callback.
+	// queue holds notifications in the order their payloads changed the data. They are queued
+	// while the data lock is held, so two concurrent updates can never be delivered in the
+	// opposite order to the one they were applied in, and delivered after it is released.
+	queue []queuedRefresh
+	// While the data source is starting, notifications stay queued and are delivered once startup
+	// has been published, so a subscriber can call EnsureLoaded without waiting on its own callback.
 	holding bool
-	held    []heldRefresh
+	// delivering is set while one goroutine drains the queue. Only one drains at a time, so
+	// notifications are delivered in queue order.
+	delivering bool
 }
 
-type heldRefresh struct {
+type queuedRefresh struct {
 	ctx  context.Context
 	resp *FeatureApiResponse
 }
@@ -69,31 +75,52 @@ func (r *refreshSubscriberRegistry) holdUntilStarted() {
 	r.mu.Unlock()
 }
 
-// hold queues a notification while the data source is starting, and reports whether it did.
-func (r *refreshSubscriberRegistry) hold(ctx context.Context, resp *FeatureApiResponse) bool {
+// enqueue queues a notification for an applied payload. The caller holds the data lock, which
+// fixes the queue order to the order the data changed; this lock is never held while taking it.
+func (r *refreshSubscriberRegistry) enqueue(ctx context.Context, resp *FeatureApiResponse) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if !r.holding {
-		return false
+	// Nobody to tell. While starting, the payload is still queued: a subscriber registered before
+	// startup finishes receives the initial load.
+	if !r.holding && len(r.entries) == 0 {
+		return
 	}
 	// Detached now rather than at delivery: the caller may reuse resp for its next update before
-	// startup finishes, and the queued notification has to carry this payload, not that one.
-	r.held = append(r.held, heldRefresh{ctx: ctx, resp: detachResponse(resp)})
+	// this one is delivered, and the notification has to carry this payload, not that one.
+	r.queue = append(r.queue, queuedRefresh{ctx: ctx, resp: detachResponse(resp)})
+}
+
+// release stops holding notifications once startup has been published.
+func (r *refreshSubscriberRegistry) release() {
+	r.mu.Lock()
+	r.holding = false
+	r.mu.Unlock()
+}
+
+// startDelivering reports whether the caller should drain the queue, claiming it if so. Nothing
+// is delivered while starting or while another goroutine is already draining.
+func (r *refreshSubscriberRegistry) startDelivering() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.holding || r.delivering || len(r.queue) == 0 {
+		return false
+	}
+	r.delivering = true
 	return true
 }
 
-// takeHeld returns the queued notifications, and stops holding once the queue is empty. Holding
-// continues while a batch is delivered, so a payload applied meanwhile is queued behind it rather
-// than overtaking it.
-func (r *refreshSubscriberRegistry) takeHeld() []heldRefresh {
+// next pops the oldest queued notification, and gives up the drain once the queue is empty.
+func (r *refreshSubscriberRegistry) next() (queuedRefresh, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	held := r.held
-	r.held = nil
-	if len(held) == 0 {
-		r.holding = false
+	if len(r.queue) == 0 {
+		r.delivering = false
+		return queuedRefresh{}, false
 	}
-	return held
+	n := r.queue[0]
+	r.queue[0] = queuedRefresh{}
+	r.queue = r.queue[1:]
+	return n, true
 }
 
 // SubscribeFeatureRefresh registers fn to be called whenever a new feature payload is applied, and
@@ -108,21 +135,24 @@ func (client *Client) SubscribeFeatureRefresh(fn FeatureRefreshSubscriber) (unsu
 	return client.data.refreshSubscribers.add(fn)
 }
 
-func (client *Client) notifyFeatureRefreshSubscribers(ctx context.Context, resp *FeatureApiResponse) {
-	if client.data.refreshSubscribers.hold(ctx, resp) {
+// deliverFeatureRefreshes delivers queued notifications in order, outside the data lock. A payload
+// applied while another goroutine is delivering is delivered by that goroutine, behind the ones
+// queued before it; so is one applied by a subscriber, which therefore cannot deadlock.
+func (client *Client) deliverFeatureRefreshes() {
+	r := &client.data.refreshSubscribers
+	if !r.startDelivering() {
 		return
 	}
-	client.deliverFeatureRefresh(ctx, resp)
+	for n, ok := r.next(); ok; n, ok = r.next() {
+		client.deliverFeatureRefresh(n.ctx, n.resp)
+	}
 }
 
 // deliverHeldFeatureRefreshes delivers the notifications held while the data source was starting.
 // It runs after dsStartWait is closed.
 func (client *Client) deliverHeldFeatureRefreshes() {
-	for held := client.data.refreshSubscribers.takeHeld(); len(held) > 0; held = client.data.refreshSubscribers.takeHeld() {
-		for _, h := range held {
-			client.deliverFeatureRefresh(h.ctx, h.resp)
-		}
-	}
+	client.data.refreshSubscribers.release()
+	client.deliverFeatureRefreshes()
 }
 
 func (client *Client) deliverFeatureRefresh(ctx context.Context, resp *FeatureApiResponse) {
