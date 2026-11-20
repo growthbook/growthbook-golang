@@ -122,13 +122,15 @@ var cacheSections = [...]struct{ plain, encrypted string }{
 }
 
 // appliedSections reports which payload sections an update applied.
+// experiments is set only when the client adopted the update's auto
+// experiments, i.e. they were present, decrypted and not null.
 type appliedSections struct {
-	features, savedGroups, bandits bool
+	features, savedGroups, bandits, experiments bool
 }
 
 // experimentKeys are the auto experiments' plaintext and encrypted keys. Like
-// the client's payload JSON, the snapshot keeps the previous experiments when
-// an update omits them or sends null.
+// the client's payload JSON, the snapshot keeps the previous experiments unless
+// the client adopted the update's.
 var experimentKeys = [...]string{"experiments", "encryptedExperiments"}
 
 // isCacheSectionKey reports whether key belongs to a section that
@@ -149,8 +151,9 @@ func isCacheSectionKey(key string) bool {
 // mirroring how the client applied them: an applied section replaces both of
 // its keys with those in fields, and an unapplied one keeps the snapshot's.
 // The remaining top-level fields follow the client's payload JSON: auto
-// experiments are kept unless the update replaces them, and any other field
-// comes from the latest update.
+// experiments are replaced only when the client adopted the update's (an
+// empty, undecryptable or null section keeps the previous ones), and any other
+// field comes from the latest update.
 // A nil fields means the update had no raw payload; its applied sections are
 // dropped, since the snapshot can no longer reproduce them.
 func mergeCacheSnapshot(snapshot, fields map[string]json.RawMessage, applied appliedSections) map[string]json.RawMessage {
@@ -181,8 +184,7 @@ func mergeCacheSnapshot(snapshot, fields map[string]json.RawMessage, applied app
 				snapshot[key] = v
 			}
 		}
-		_, encrypted := fields["encryptedExperiments"]
-		if v, ok := fields["experiments"]; encrypted || (ok && string(v) != "null") {
+		if applied.experiments {
 			for _, key := range experimentKeys {
 				if v, ok := fields[key]; ok {
 					snapshot[key] = v

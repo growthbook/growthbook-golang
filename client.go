@@ -448,6 +448,9 @@ func (client *Client) applyApiResponseData(resp *FeatureApiResponse) (*appliedSe
 		features:    featuresPresent,
 		savedGroups: savedGroupsPresent,
 		bandits:     banditsPresent,
+		// Mirrors mergePayloadJSON: experiments that are absent, null or
+		// undecryptable keep the previous ones.
+		experiments: payloadJSON["experiments"] != nil,
 	}, resp.DateUpdated, nil
 }
 

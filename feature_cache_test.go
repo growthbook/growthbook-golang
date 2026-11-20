@@ -307,6 +307,7 @@ func TestJSONSetFeaturesStopCacheWrites(t *testing.T) {
 // so a client seeded from the cache can still reduce a payload with them.
 func TestCacheKeepsExperimentsAndOtherFields(t *testing.T) {
 	encryptedExperiments := encryptSavedGroupsTestJSON(t, `[{"key":"exp2"}]`)
+	encryptedNullExperiments := encryptSavedGroupsTestJSON(t, `null`)
 	full := `{"features":{"feat":{"defaultValue":1}},"experiments":[{"key":"exp"}],"status":200,"dateUpdated":"2020-01-01T00:00:00Z"}`
 
 	tests := []struct {
@@ -328,6 +329,26 @@ func TestCacheKeepsExperimentsAndOtherFields(t *testing.T) {
 			"null experiments keeps experiments",
 			`{"features":{"feat":{"defaultValue":2}},"experiments":null,"dateUpdated":"2020-01-02T00:00:00Z"}`,
 			`{"features":{"feat":{"defaultValue":2}},"experiments":[{"key":"exp"}],"dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
+		{
+			"empty encrypted experiments keep experiments",
+			`{"features":{"feat":{"defaultValue":2}},"encryptedExperiments":"","dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":2}},"experiments":[{"key":"exp"}],"dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
+		{
+			"undecryptable experiments keep experiments",
+			`{"features":{"feat":{"defaultValue":2}},"encryptedExperiments":"garbage","dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":2}},"experiments":[{"key":"exp"}],"dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
+		{
+			"experiments decrypting to null keep experiments",
+			`{"features":{"feat":{"defaultValue":2}},"encryptedExperiments":"` + encryptedNullExperiments + `","dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":2}},"experiments":[{"key":"exp"}],"dateUpdated":"2020-01-02T00:00:00Z"}`,
+		},
+		{
+			"undecryptable experiments fall back to plaintext",
+			`{"features":{"feat":{"defaultValue":2}},"encryptedExperiments":"garbage","experiments":[{"key":"exp3"}],"dateUpdated":"2020-01-02T00:00:00Z"}`,
+			`{"features":{"feat":{"defaultValue":2}},"encryptedExperiments":"garbage","experiments":[{"key":"exp3"}],"dateUpdated":"2020-01-02T00:00:00Z"}`,
 		},
 		{
 			"new experiments replace them",
