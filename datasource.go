@@ -15,6 +15,9 @@ func WithDataSource(dataSource DataSource) ClientOption {
 }
 
 func (client *Client) startDataSource(ctx context.Context) {
+	// Deferred calls run last-in first-out: startup is published first, then the refresh
+	// notifications held during it are delivered.
+	defer client.deliverHeldFeatureRefreshes()
 	defer close(client.data.dsStartWait)
 	ds := client.data.dataSource
 

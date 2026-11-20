@@ -133,7 +133,7 @@ func (ds *SseDataSource) processEvent(ctx context.Context, event sse.Event) {
 		return
 	}
 	ds.logger.Info("Updating features")
-	applied, dateUpdated, err := ds.client.applyApiResponseJSON(event.Data)
+	applied, dateUpdated, err := ds.client.applyApiResponseJSON(ctx, event.Data)
 	if err != nil {
 		ds.logger.Error("Error updating features", "error", err)
 	}
@@ -168,7 +168,7 @@ func (ds *SseDataSource) loadData(ctx context.Context) error {
 	// features-only guard here used to drop bandit- or saved-groups-only
 	// updates entirely). This path never sends an ETag, so there is no 304
 	// to skip.
-	applied, dateUpdated, err := ds.client.applyApiResponse(resp)
+	applied, dateUpdated, err := ds.client.applyApiResponse(ctx, resp)
 	ds.client.notifyRefreshOutcome(ctx, RefreshSourceSSE, applied, dateUpdated, err)
 	return err
 }

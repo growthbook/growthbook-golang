@@ -16,19 +16,20 @@ type data struct {
 	contextualBandits ContextualBanditDefinitions
 	// payloadJSON is the decrypted payload as JSON values, when the features
 	// came from JSON. ReducePayload reads it.
-	payloadJSON    map[string]any
-	dateUpdated    time.Time
-	apiHost        string
-	clientKey      string
-	decryptionKey  string
-	httpClient     *http.Client
-	dataSource     DataSource
-	dsStarted      bool
-	dsStartWait    chan struct{}
-	dsStartErr     error
-	plugins        []Plugin
-	subscribers    subscriberRegistry
-	refreshHandler FeaturesRefreshHandler
+	payloadJSON        map[string]any
+	dateUpdated        time.Time
+	apiHost            string
+	clientKey          string
+	decryptionKey      string
+	httpClient         *http.Client
+	dataSource         DataSource
+	dsStarted          bool
+	dsStartWait        chan struct{}
+	dsStartErr         error
+	plugins            []Plugin
+	subscribers        subscriberRegistry
+	refreshSubscribers refreshSubscriberRegistry
+	refreshHandler     FeaturesRefreshHandler
 
 	// savedGroupsFromCode and banditsFromCode mark sections set from Go
 	// values, which payloadJSON doesn't hold
